@@ -5,7 +5,7 @@ from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from roveranalyzer.oppanalyzer import utils
+from roveranalyzer.tempaltes import read_tmpl_str
 
 
 class OppFilterItem:
@@ -155,7 +155,7 @@ class OppTex:
     def write_module_summary(cls, run_id, module_dict: dict):
 
         module_list = []
-        tex_mod_item = utils.tex_module_item_tmpl
+        tex_mod_item = read_tmpl_str("module_item.tex")
         for _, v in module_dict.items():
             module_list.append(
                 Template(tex_mod_item,).substitute(
@@ -166,14 +166,14 @@ class OppTex:
                 )
             )
 
-        tex_mod = utils.tex_module_tmpl
+        tex_mod = read_tmpl_str("module.tex")
         return Template(tex_mod).substitute(
             run=cls.esc_tex(run_id), module_items="".join(module_list)
         )
 
     @classmethod
     def write_attribute_tabular(cls, run_id, runattr_dict, itervars_dict, param_dict):
-        tex_tmpl = utils.tex_tabluar_tmpl
+        tex_tmpl = read_tmpl_str("tabular.tex")
 
         runattrs = "   \\\\ \n".join(
             [

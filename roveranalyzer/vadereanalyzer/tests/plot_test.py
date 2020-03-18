@@ -4,7 +4,7 @@ import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 from drawnow import drawnow, figure
-from roveranalyzer.vadereanalyzer.helper import PathHelper
+from roveranalyzer.uitls.path import RelPath
 from roveranalyzer.vadereanalyzer.plots import plots as plot
 from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
@@ -22,7 +22,7 @@ def xxx(t, df):
 
 
 def density():
-    p_helper = PathHelper.from_env("ROVER_MAIN")
+    p_helper = RelPath.from_env("ROVER_MAIN")
     p = p_helper.join(
         "rover/simulations/simple_detoure/vadereanalyzer/output/simple_detour_100x177_2020-03-11_17-06-35.88/"
     )
@@ -37,7 +37,7 @@ def density():
 
 
 def fig_num_peds_series():
-    p_helper = PathHelper.from_env("ROVER_MAIN")
+    p_helper = RelPath.from_env("ROVER_MAIN")
     trajectories = p_helper.glob(
         "simulation-campaigns", "simpleDetour.sh-results_20200*_mia*/**/postvis.traj"
     )

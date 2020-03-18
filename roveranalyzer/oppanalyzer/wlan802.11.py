@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from roveranalyzer.oppanalyzer.rover_analysis import Opp
 from roveranalyzer.oppanalyzer.utils import Config, ScaveTool
+from roveranalyzer.uitls.path import RelPath
 
 # todo [ ] stacked_bar with  percentage
 # todo [ ] dynamically select :sum or :count for scalar values
@@ -201,10 +202,13 @@ def mac(_df: pd.DataFrame):
 if __name__ == "__main__":
     cfg = Config()
     scv = ScaveTool(cfg)
+    path = RelPath.from_env("ROVER_MAIN")
     csv = scv.create_or_get_csv_file(
-        csv_path="/home/vm-sts/rover-main/simulation-campaigns/simpleDetour_results_20200313/macDropCount.csv",
+        csv_path=path.join(
+            "simulation-campaigns/simpleDetour_results_20200313_01/macDropCount.csv"
+        ),
         input_paths=[
-            "/home/vm-sts/rover-main/simulation-campaigns/simpleDetour_results_20200313/**/*.sca",
+            path.join("simulation-campaigns/simpleDetour_results_20200313/**/*.sca")
         ],
         scave_filter='module("*.mac") OR name("applicationActive") OR module("*.mobility")',
         override=False,

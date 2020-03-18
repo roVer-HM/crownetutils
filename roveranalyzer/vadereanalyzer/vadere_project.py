@@ -3,7 +3,8 @@ import os
 import re
 import shutil
 
-from roveranalyzer.vadereanalyzer import helper, scenario_output
+from roveranalyzer.uitls.file import clean_dir_name, read_lines
+from roveranalyzer.vadereanalyzer import scenario_output
 
 
 class NamedOutput:
@@ -75,7 +76,7 @@ class VadereProject:
             )
 
         self.project_name = str.strip(
-            helper.read_lines(os.path.join(project_dir, "vadere.project"))[0]
+            read_lines(os.path.join(project_dir, "vadere.project"))[0]
         )
 
         self.output_path = os.path.join(self.project_path, "output")
@@ -147,7 +148,7 @@ class VadereProject:
                     expect_all_outputs=expect_all_outputs,
                 )
                 self.output_dirs[dir] = output
-                setattr(self.named_output, helper.clean_dir_name(dir), output)
+                setattr(self.named_output, clean_dir_name(dir), output)
             except FileNotFoundError:
                 err_dir.append(dir)
 

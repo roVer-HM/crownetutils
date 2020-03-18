@@ -20,6 +20,7 @@ setup(
     author="Stefan Schuhbäck",
     author_email="stefan.schuhbaeck@hm.edu",
     license="MIT",
+    include_package_data=True,
     packages=find_packages(),
     # scripts=[''],
     install_requires=requirements(),
