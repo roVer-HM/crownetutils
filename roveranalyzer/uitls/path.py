@@ -139,3 +139,7 @@ class RelPath:
 
     def get_base(self):
         return self._base
+
+    def extend_base(self, *paths):
+        self._base = self.join(*paths)
+        return self

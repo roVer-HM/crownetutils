@@ -76,7 +76,7 @@ class ScaveTool:
     _OUTPUT = "-o"
     _FILTER = "--filter"
 
-    def __init__(self, config: Config = None, timeout=60):
+    def __init__(self, config: Config = None, timeout=360):
         if config is None:
             self._config = Config()  # default
         else:
