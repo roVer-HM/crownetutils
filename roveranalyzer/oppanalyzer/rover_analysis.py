@@ -5,7 +5,8 @@ from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from roveranalyzer.oppanalyzer import utils
+
+from roveranalyzer.tempaltes import read_tmpl_str
 
 
 class OppFilterItem:
@@ -367,6 +368,9 @@ class OppFilter:
                 )
             else:
                 bool_filter = bool_filter & (self._df.loc[:, key] == filter_item.value)
+
+            if not any(bool_filter):
+                print(f"warning: filter '{filter_item.__repr__()}' reduced result to 0")
         if columns is not None:
             ret = self._df.loc[bool_filter, columns]
         else:
@@ -675,7 +679,7 @@ class OppAccessor:
             self._obj["type"] == "vector", ("module", "name")
         ].shape[0]
         print(f"shape: {self._obj.shape}")
-        print(f"runs: {', '.join(list(runs))}")
+        print(f"number_of_runs: {runs.shape[0]}")
         print(f"unique_scalars: {unique_scalars}")
         print(f"all_scalars: {all_scalars}")
         print(f"unique_vectors: {unique_vectors}")

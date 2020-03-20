@@ -140,24 +140,11 @@ class PathHelper:
     def get_base(self):
         return self._base
 
+    def extend_base(self, *paths):
+        self._base = self.join(*paths)
+        return self
 
-def read_lines(path):
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return f.readlines()
-    else:
-        raise FileNotFoundError("File not found {}".format(path))
-
-
-def read_json_to_dict(path):
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return json.load(f)
-    else:
-        raise FileNotFoundError("File not found {}".format(path))
-
-
-def clean_dir_name(dir_name):
-    ret = dir_name.replace(".", "_")
-    ret = ret.replace("-", "_")
-    return ret
+    def make_dir(self, *paths, mode=0o777, exist_ok=False):
+        d_path = self.join(*paths)
+        os.makedirs(d_path, exist_ok=exist_ok)
+        return d_path
