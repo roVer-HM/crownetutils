@@ -1,9 +1,8 @@
 import pprint
 import unittest
 
-from roveranalyzer.vadereanalyzer.analysis.seed_same_trajectory import (
-    SameSeedTrajectory,
-)
+from roveranalyzer.vadereanalyzer.analysis.seed_same_trajectory import \
+    SameSeedTrajectory
 
 
 class SameSeedTrajectoryTest(unittest.TestCase):

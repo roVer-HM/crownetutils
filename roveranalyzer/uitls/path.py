@@ -143,3 +143,8 @@ class RelPath:
     def extend_base(self, *paths):
         self._base = self.join(*paths)
         return self
+
+    def make_dir(self, *paths, mode=0o777, exist_ok=False):
+        d_path = self.join(*paths)
+        os.makedirs(d_path, exist_ok=exist_ok)
+        return d_path

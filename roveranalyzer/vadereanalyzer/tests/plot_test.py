@@ -2,6 +2,7 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
+
 import seaborn as sns
 from drawnow import drawnow, figure
 from roveranalyzer.uitls.path import RelPath
