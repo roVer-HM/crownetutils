@@ -6,7 +6,9 @@ import roveranalyzer.oppanalyzer.detour as detour
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.oppanalyzer.rover_analysis import Opp
-from roveranalyzer.oppanalyzer.utils import ScaveTool
+from roveranalyzer.oppanalyzer.utils import (ScaveTool, cumulative_messages,
+                                             parse_cmdEnv_outout,
+                                             simsec_per_sec)
 from roveranalyzer.uitls.path import RelPath
 
 
@@ -50,11 +52,22 @@ def detour_stats():
     df.opp.info()
 
 
+def sim_messages():
+    cfg = Config()
+    scv = ScaveTool(cfg)
+    path = RelPath.from_env("ROVER_MAIN").extend_base("simulation-campaigns", "results")
+    single_run = "simpleDetour_miat0_85_20200313"
+    d = parse_cmdEnv_outout(path.join(single_run, "vars_p1Rate0.2_p2Rate0.8_rep_0.out"))
+    fig, ax = cumulative_messages(d)
+    fig.show()
+
+
 if __name__ == "__main__":
     cfg = Config()
     scv = ScaveTool(cfg)
     path = RelPath.from_env("ROVER_MAIN").extend_base("simulation-campaigns", "results")
     single_run = "simpleDetour_miat0_85_20200313"
+
     img_path = path.make_dir(
         single_run, "mac.channelAccess.queue20_80.d", exist_ok=True
     )
@@ -89,7 +102,6 @@ if __name__ == "__main__":
         )
         idx += 1
 
-    idx = 44
     fig, axes = plt.subplots(3, 1, figsize=(16, 9))
 
     axes[0].hist(

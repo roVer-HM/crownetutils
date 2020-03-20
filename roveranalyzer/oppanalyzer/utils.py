@@ -3,13 +3,17 @@ import io
 import logging
 import os
 import pprint as pp
+import re
 import signal
 import subprocess
 import time
 from typing import List
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from roveranalyzer.uitls.file import read_lines
 
 from .configuration import Config
 
@@ -50,6 +54,81 @@ def parse_if_number(s):
 
 def parse_ndarray(s):
     return np.fromstring(s, sep=" ") if s else None
+
+
+def simsec_per_sec(df, ax=None):
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    ax.plot('time', 'simsec_per_sec', data=df, marker='.', linewidth=0)
+    ax.set_ylabel('[sim s/s]')
+    ax.set_yscale('log')
+    ax.set_title('Simsec per second')
+
+    if fig is None:
+        return ax
+    else:
+        return fig, ax
+
+
+def cumulative_messages(df, ax=None, msg=("msg_present", "msg_in_fes")):
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    for m in msg:
+        ax.plot('time', m, data=df)
+    ax.set_xlabel('time [s]')
+    ax.set_ylabel('number of messages')
+    ax.legend()
+    ax.set_title('messages in simulation')
+
+    if fig is None:
+        return ax
+    else:
+        return fig, ax
+
+
+def parse_cmdEnv_outout(path):
+    lines = read_lines(path)
+
+    pattern1 = re.compile("^\*\* Event #(?P<event>\d+)\s+t=(?P<time>\S+)\s+Elapsed: (?P<elapsed>\S+?)s\s+\((?P<elapsed_s>.*?)\).*?completed\s+\((?P<completed>.*?)\% total\)")
+    pattern2 = re.compile(
+        "^.*?Speed:\s+ev/sec=(?P<events_per_sec>\S+)\s+simsec/sec=(?P<simsec_per_sec>\S+)\s+ev/simsec=(?P<elapsed>\S+)")
+    pattern3 = re.compile(
+        "^.*?Messages:\s+created:\s+(?P<msg_created>\d+)\s+present:\s+(?P<msg_present>\d+)\s+in\s+FES:\s+(?P<msg_in_fes>\d+)")
+
+    data = []
+    event_data = []
+    for l in lines:
+        if l.strip().startswith("** "):
+            if len(event_data) != 0:
+                data.append(event_data)
+            event_data = []
+            if m := pattern1.match(l):
+                event_data.extend(list(m.groups()))
+            else:
+                raise ValueError('ddd')
+        elif l.strip().startswith("Speed:"):
+            if m := pattern2.match(l):
+                event_data.extend(list(m.groups()))
+            else:
+                raise ValueError('ddd')
+        elif l.strip().startswith("Messages:"):
+            if m := pattern3.match(l):
+                event_data.extend(list(m.groups()))
+            else:
+                raise ValueError('ddd')
+        else:
+            break
+
+    col = list(pattern1.groupindex.keys())
+    col.extend(list(pattern2.groupindex.keys()))
+    col.extend(list(pattern3.groupindex.keys()))
+    df = pd.DataFrame(data, columns=col)
+    df = df.apply(pd.to_numeric, errors="ignore")
+    return df
 
 
 class ScaveTool:
