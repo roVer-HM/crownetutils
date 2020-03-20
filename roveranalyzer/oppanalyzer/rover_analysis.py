@@ -156,7 +156,7 @@ class OppTex:
     def write_module_summary(cls, run_id, module_dict: dict):
 
         module_list = []
-        tex_mod_item = utils.tex_module_item_tmpl
+        tex_mod_item = read_tmpl_str("module_item.tex")
         for _, v in module_dict.items():
             module_list.append(
                 Template(tex_mod_item,).substitute(
@@ -167,14 +167,14 @@ class OppTex:
                 )
             )
 
-        tex_mod = utils.tex_module_tmpl
+        tex_mod = read_tmpl_str("module.tex")
         return Template(tex_mod).substitute(
             run=cls.esc_tex(run_id), module_items="".join(module_list)
         )
 
     @classmethod
     def write_attribute_tabular(cls, run_id, runattr_dict, itervars_dict, param_dict):
-        tex_tmpl = utils.tex_tabluar_tmpl
+        tex_tmpl = read_tmpl_str("tabular.tex")
 
         runattrs = "   \\\\ \n".join(
             [
@@ -368,9 +368,6 @@ class OppFilter:
                 )
             else:
                 bool_filter = bool_filter & (self._df.loc[:, key] == filter_item.value)
-
-            if not any(bool_filter):
-                print(f"warning: filter '{filter_item.__repr__()}' reduced result to 0")
         if columns is not None:
             ret = self._df.loc[bool_filter, columns]
         else:
@@ -679,7 +676,7 @@ class OppAccessor:
             self._obj["type"] == "vector", ("module", "name")
         ].shape[0]
         print(f"shape: {self._obj.shape}")
-        print(f"number_of_runs: {runs.shape[0]}")
+        print(f"runs: {', '.join(list(runs))}")
         print(f"unique_scalars: {unique_scalars}")
         print(f"all_scalars: {all_scalars}")
         print(f"unique_vectors: {unique_vectors}")

@@ -21,7 +21,7 @@ else:
         _default_opp_container_path = ""
     else:
         print(f"ROVER_MAIN not set, use  default {_default_rover_main}")
-        os.path.join(os.environ.get("ROVER_MAIN"), "scripts/omnetpp")
+        os.path.join(_default_rover_main, "scripts/omnetpp")
 
 
 class ConfigException(Exception):

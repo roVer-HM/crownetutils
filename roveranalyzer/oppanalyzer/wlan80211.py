@@ -3,8 +3,10 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 from roveranalyzer.oppanalyzer.rover_analysis import Opp
 from roveranalyzer.oppanalyzer.utils import Config, ScaveTool
+from roveranalyzer.uitls.path import RelPath
 
 # todo [ ] stacked_bar with  percentage
 # todo [ ] dynamically select :sum or :count for scalar values
@@ -118,7 +120,7 @@ def mac_drop_ration(_df: pd.DataFrame):
     return {"data": _df, "run_keys": runs}
 
 
-def mac(_df: pd.DataFrame):
+def mac(_df: pd.DataFrame, run, use_stat="mac_pkt_drop"):
 
     stats = {
         "mac_pkt_drop": {
@@ -168,10 +170,10 @@ def mac(_df: pd.DataFrame):
             ],
         },
     }
-    stat = stats["mac_pkt_drop"]
+    stat = stats[use_stat]
     data = (
         _df.opp.filter()
-        .run_regex(".*Dimensional-0.*")
+        .run(run)
         .module_regex(stat["module_filter"], allow_number_range=True)
         .name_in(stat["data"])
         .apply(columns=("name", "value", "module"), copy=True)
@@ -183,7 +185,7 @@ def mac(_df: pd.DataFrame):
 
     data_global = (
         _df.opp.filter()
-        .run_regex(".*Dimensional-0.*")
+        .run(run)
         .module_regex(stat["module_filter"], allow_number_range=True)
         .name(stat["total"])
         .apply(columns=("name", "value", "module"), copy=True)
@@ -196,35 +198,3 @@ def mac(_df: pd.DataFrame):
     ax.set_facecolor((0.5, 0.5, 0.5))
     fig.set_facecolor((0.4, 0.4, 0.4))
     fig.show()
-
-
-if __name__ == "__main__":
-    cfg = Config()
-    scv = ScaveTool(cfg)
-    csv = scv.create_or_get_csv_file(
-        csv_path="/home/vm-sts/rover-main/simulation-campaigns/simpleDetour_results_20200313/macDropCount.csv",
-        input_paths=[
-            "/home/vm-sts/rover-main/simulation-campaigns/simpleDetour_results_20200313/**/*.sca",
-        ],
-        scave_filter='module("*.mac") OR name("applicationActive") OR module("*.mobility")',
-        override=False,
-        recursive=True,
-    )
-    df = scv.load_csv(csv)
-    # df = df.opp.filter().scalar().apply(copy=True)
-    print(df.opp.info())
-    mod = df.loc[
-        (df["name"] == "applicationActive") & (df["value"] == 0.0), ("run", "module")
-    ].copy()
-    mod["root_module"] = df["module"].apply(lambda x: Opp.root_mod(x, 2))
-    mod = mod.drop("module", axis=1).drop_duplicates()
-    run = mod["run"].unique()
-    bool_filter = pd.Series([False for _ in range(0, df.shape[0])], df.index)
-    dfg = df.copy()
-    dfg["root_module"] = dfg["module"].apply(lambda x: Opp.root_mod(x, 2))
-    for r in run:
-        bool_filter = bool_filter | (
-            (dfg["run"] == r)
-            & (dfg["root_module"].isin(mod.loc[mod["run"] == r, "root_module"]))
-        )
-    dff = dfg.loc[bool_filter]

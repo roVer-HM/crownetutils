@@ -79,13 +79,36 @@ if __name__ == "__main__":
     )
 
     df_n = pd.DataFrame(columns=["time", "qtime"])
-    idx = 44
-    fig, axes = plt.subplots(1, 1, figsize=(16, 9))
-    fig.show()
-    x = np.array()
-    x.reshape()
+    idx = 0
+    while idx < pending_length.shape[0]:
+        data = pending_length.iloc[idx]["vectime"].copy()
+        data = np.append(data, pending_length.iloc[idx]["vecvalue"].copy())
+        data = data.reshape((-1, 2), order="F")
+        df_n = df_n.append(
+            pd.DataFrame(data, columns=["time", "qtime"]), ignore_index=True
+        )
+        idx += 1
 
-    ax = df.opp.plot.create_histogram(axes, pending_length.iloc[idx],)
+    idx = 44
+    fig, axes = plt.subplots(3, 1, figsize=(16, 9))
+
+    axes[0].hist(
+        df_n["qtime"], 60, density=True,
+    )
+    df.opp.plot.create_histogram(
+        axes[1],
+        pending_length.iloc[int(np.random.uniform(0, pending_length.shape[0]))],
+        bins=60,
+    )
+    df.opp.plot.create_histogram(
+        axes[2],
+        pending_length.iloc[int(np.random.uniform(0, pending_length.shape[0]))],
+        bins=60,
+    )
+    for a in axes:
+        a.set_xlim(0.00, 0.06)
+
+    fig.show()
     stats = {
         "xx": [
             {
