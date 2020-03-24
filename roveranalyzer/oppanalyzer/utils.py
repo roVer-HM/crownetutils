@@ -520,7 +520,7 @@ class ScaveTool:
         )
 
         try:
-            scave_cmd.wait(self.timeout)
+            scave_cmd.wait()
             if scave_cmd.returncode != 0:
                 logging.error(f"return code was {scave_cmd.returncode}")
                 logging.error("command:")

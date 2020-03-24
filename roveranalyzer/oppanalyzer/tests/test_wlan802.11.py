@@ -135,7 +135,7 @@ def mac_pending_queue_hist():
 
 
 def build_df_mac_pkt_drop_ts(csv_path, img_dir, input_path, hdf_store_path, hdf_key):
-    timer = Timer.create_and_start("create csv")
+    timer = Timer.create_and_start("create csv", tabstop=1)
     scv = ScaveTool()
     csv = scv.create_or_get_csv_file(
         csv_path=csv_path,
@@ -233,7 +233,7 @@ def res_20():
 
 
 def res_80():
-    timer = Timer.create_and_start("build graphic")
+    timer = Timer.create_and_start("build path helper")
     path = RelPath.from_env("ROVER_MAIN").extend_base(
         "simulation-campaigns", "results", "simpleDetour_miat0_85_20200313"
     )
@@ -242,11 +242,14 @@ def res_80():
     input_path = [path.join("*0.8*0.2*rep_0.vec")]
 
     # drop ratio
-    # df = build_df_mac_pkt_drop_ts(
-    #     csv_p, img_d, input_path, "mac_pkt_drop.h5", "df_mac_pkt_drop_ts"
-    # )
-    hdf_store = pd.HDFStore(os.path.join(img_d, "mac_pkt_drop.h5"))
-    df = hdf_store.get("df_mac_pkt_drop_ts")
+    timer.stop_start("read scave data")
+    df = build_df_mac_pkt_drop_ts(
+        csv_p, img_d, input_path, "mac_pkt_drop.h5", "df_mac_pkt_drop_ts"
+    )
+    # timer.stop_start("read HDFStore")
+    # hdf_store = pd.HDFStore(os.path.join(img_d, "mac_pkt_drop.h5"))
+    # df = hdf_store.get("df_mac_pkt_drop_ts")
+    timer.stop_start("build graphics")
     df_sum = df.sum(level="time_step")
     df_sum["drop_ratio"] = df_sum["droped_bytes"] / df_sum["received_bytes"]
     df_sum["drop_ratio_sma_3"] = df_sum["drop_ratio"].rolling(window=3).mean()
