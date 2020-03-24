@@ -106,6 +106,8 @@ class Opp:
                  tuple if tuple_on_vector is true an selected path element is a vector or
                  full path as list of tuples of size 1 or 2.
         """
+        if m_path is np.nan:
+            return np.nan
         items = m_path.split(".")
         if index > len(items):
             raise IndexError(f"m_path has no index {index}. Path was {m_path}")
@@ -131,6 +133,26 @@ class Opp:
                 return f"{ret[0]}{ret[1]}"
             else:
                 return ret[0]
+
+    @staticmethod
+    def normalize_vectors(df, vec_names):
+        df_filters = df.opp.filter().vector().name_in(vec_names).apply()
+        frames = []
+        for idx in df_filters.index:
+            mod_name = f"{Opp.module_path(df_filters.loc[idx]['module'], index=1)}"
+            stat_name = df_filters.loc[idx]["name"].split(":")[0]
+            time_name = f"{mod_name}.{stat_name}.time"
+            value_name = f"{mod_name}.{stat_name}.value"
+            data = df_filters.loc[idx]["vectime"].copy()
+            data = np.append(data, df_filters.loc[idx]["vecvalue"].copy())
+            data = data.reshape((-1, 2), order="F")
+            tmp_d = pd.DataFrame(data, columns=[time_name, value_name])
+            tmp_d.reset_index(drop=True, inplace=True)
+            frames.append(tmp_d)
+
+        df_n = pd.concat(frames, axis=1)
+
+        return df_n
 
 
 class OppTex:
