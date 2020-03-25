@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 import seaborn as sns
 from drawnow import drawnow, figure
-from roveranalyzer.uitls.path import RelPath
+from roveranalyzer.uitls.path import PathHelper
 from roveranalyzer.vadereanalyzer.plots import plots as plot
 from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
@@ -23,10 +23,8 @@ def xxx(t, df):
 
 
 def density():
-    p_helper = RelPath.from_env("ROVER_MAIN")
-    p = p_helper.join(
-        "rover/simulations/simple_detoure/vadereanalyzer/output/simple_detour_100x177_2020-03-11_17-06-35.88/"
-    )
+    p_helper = PathHelper.from_user_home()
+    p = p_helper.join("relative/path/to/sample001")
     output = ScenarioOutput.create_output_from_project_output(p)
 
     df = output.files["gridDensity.csv"]()
@@ -38,10 +36,8 @@ def density():
 
 
 def fig_num_peds_series():
-    p_helper = RelPath.from_env("ROVER_MAIN")
-    trajectories = p_helper.glob(
-        "simulation-campaigns", "simpleDetour.sh-results_20200*_mia*/**/postvis.traj"
-    )
+    p_helper = PathHelper.from_env()
+    trajectories = p_helper.glob("relative/path/to/")
     # trajectories = p_helper.glob('simulation-campaigns', 'simple_detour_100x177_long*/**/postvis.traj')
     output_dirs = [os.path.split(p)[0] for p in trajectories]
     outputs = [ScenarioOutput.create_output_from_project_output(p) for p in output_dirs]
@@ -73,4 +69,4 @@ def fig_num_peds_series():
 
 
 if __name__ == "__main__":
-    fig_num_peds_series().show()
+    density()

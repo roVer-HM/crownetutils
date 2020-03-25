@@ -1,3 +1,4 @@
+import contextlib
 import glob
 import io
 import logging
@@ -7,6 +8,7 @@ import re
 import signal
 import subprocess
 import time
+from enum import Enum
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -16,6 +18,7 @@ import pandas as pd
 from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
+from roveranalyzer.uitls.path import PathHelper
 
 
 def stack_vectors(
@@ -29,7 +32,7 @@ def stack_vectors(
     """
     data frame which only contains opp vector rows.
     """
-    timer = Timer.create_and_start("set index", tabstop=1)
+    timer = Timer.create_and_start("set index", label=stack_vectors.__name__)
     __df = df.set_index(index)
 
     timer.stop_start("stack data")
@@ -93,7 +96,7 @@ def build_time_series(
     # "dcf.channelAccess.pendingQueue.["queueingTime:vector", "queueingLength:vector"]"
 
     # check input
-    timer = Timer.create_and_start("check input", tabstop=1)
+    timer = Timer.create_and_start("check input", label=build_time_series.__name__)
     if opp_vector_col_names is None:
         opp_vector_col_names = [
             f"val_{idx}" for idx in np.arange(0, len(opp_vector_names))
@@ -148,10 +151,6 @@ def build_time_series(
         _df_ret = _df_ret.reset_index()
         _df_ret = _df_ret.set_index(index)
         _df_ret = _df_ret.sort_index()
-
-    if hdf_store is not None:
-        timer.stop_start("save to hdf store.")
-        _df_ret.to_hdf(hdf_store, key=hdf_key, mode="a")
 
     timer.stop()
     return _df_ret
@@ -306,6 +305,125 @@ class ScaveRunConverter(ScaveConverter):
             "vectime": self.parse_ndarray,  # vector data
             "vecvalue": self.parse_ndarray,
         }
+
+
+class Suffix():
+    HDF = ".h5"
+    CSV = ".csv"
+    PNG = ".png"
+    PDF = ".pdf"
+    DIR = ".d"
+
+
+class RoverBuilder:
+
+    def __init__(self, path: PathHelper, analysis_name, hdf_key=None, cfg:Config=None):
+        self._root = path
+        self._analysis_name = analysis_name
+        self._hdf_key = hdf_key
+        self._hdf_args: dict = {'complevel': 9, 'complib': 'zlib'}
+        self._scave_filter = ""
+        self._opp_input_paths = []
+        self._root.make_dir(f"{analysis_name}{Suffix.DIR}", exist_ok=True)
+        self._converter = ScaveRunConverter(run_short_hand="r")
+        self._cfg = cfg
+
+    @property
+    def root(self):
+        return self._root
+
+    @property
+    def out_dir(self):
+        return self._root.join(f"{self._analysis_name}{Suffix.DIR}")
+
+    @property
+    def csv_path(self):
+        return self._root.join(f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.CSV}")
+
+    @property
+    def hdf_path(self):
+        return self._root.join(f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.HDF}")
+
+    def set_hdf_args(self, append=False, **kwargs):
+        if append:
+            self._hdf_args.update(kwargs)
+        else:
+            self._hdf_args = kwargs
+    
+    def get_hdf_args(self):
+        return self._hdf_args
+
+    def set_scave_filter(self, *scave_filters, append=False, operator="AND"):
+        _op = f" {operator} "
+        _filter = list(scave_filters)
+        if append:
+            _filter.insert(0, f"({self._scave_filter})")
+            self._scave_filter = _op.join(_filter)
+        else:
+            self._scave_filter = _op.join(list(scave_filters))
+        return self
+
+    def get_scave_filter(self):
+        return self._scave_filter
+
+    def set_scave_input_path(self, *input_path, append=False, rel_path=True):
+        if rel_path:
+            _paths = [self._root.join(p) for p in input_path]
+        else:
+            _paths = list(input_path)
+        if append:
+            self._opp_input_paths.extend(_paths)
+        else:
+            self._opp_input_paths = _paths
+        return self
+
+    def get_scave_input_path(self):
+        return self._opp_input_paths
+
+    def set_converter(self, converter):
+        self._converter = converter
+
+    def get_converter(self):
+        return self._converter
+
+    def df_from_csv(self, override=False, recursive=True):
+        if self._cfg is None:
+            _scv = ScaveTool()
+        else:
+            _scv = ScaveTool(config=self._cfg)
+        _csv = _scv.create_or_get_csv_file(
+            csv_path=self.csv_path,
+            input_paths=self.get_scave_input_path(),
+            scave_filter=self.get_scave_filter(),
+            override=override,
+            recursive=recursive,
+        )
+        return _scv.load_csv(_csv, converters=self._converter)
+
+    def save_converter_to_hdf(self, key, mode="a", **kwargs):
+        with self.store_ctx(mode=mode, **kwargs) as store:
+            self._converter.mapping_data_frame().to_hdf(store, key=key)
+
+    @contextlib.contextmanager
+    def store_ctx(self, mode="a", **kwargs) -> pd.HDFStore:
+        _args = dict(self._hdf_args)
+        _args.update(kwargs)
+        store = pd.HDFStore(self.hdf_path, mode=mode, **_args)
+        try:
+            yield store
+        finally:
+            store.close()
+
+    def hdf_get(self, key):
+        with self.store_ctx(mode="r") as store:
+            df = store.get(key=key)
+        return df
+
+    def store_exists(self):
+        return os.path.exists(self.hdf_path)
+
+    def save_to_output(self, fig: plt.Figure, file_name, **kwargs):
+        fig.savefig(os.path.join(self.out_dir, file_name), **kwargs)
 
 
 class ScaveTool:
@@ -464,6 +582,9 @@ class ScaveTool:
         opp_result_files = [
             f for f in opp_result_files if f.endswith(".vec") or f.endswith(".sca")
         ]
+        if len(opp_result_files) == 0:
+            raise ValueError("no opp input files selected.")
+
         log = "\n".join(opp_result_files)
         logging.info(f"found *.vec and *.sca:\n {log}")
         if print_selected_files:
