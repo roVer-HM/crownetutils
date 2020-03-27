@@ -1,6 +1,10 @@
+<<<<<<< Updated upstream
 import json
 import os
 
+=======
+import os, json
+>>>>>>> Stashed changes
 
 def read_lines(path):
     if os.path.exists(path):
