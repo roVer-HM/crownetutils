@@ -22,6 +22,10 @@ sys.path.append(
 sys.path.append(os.path.abspath(".."))  # in tutorial directly
 
 
+###############
+
+def test():
+    pass
 
 def xxx(t, df):
 
