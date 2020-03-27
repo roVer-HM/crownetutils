@@ -1,55 +1,429 @@
+import contextlib
 import glob
 import io
 import logging
 import os
 import pprint as pp
+import re
 import signal
 import subprocess
 import time
+from enum import Enum
 from typing import List
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .configuration import Config
+from roveranalyzer.oppanalyzer.configuration import Config
+from roveranalyzer.uitls import Timer
+from roveranalyzer.uitls.file import read_lines
+from roveranalyzer.uitls.path import PathHelper
 
 
-class OppDict(dict):
+def stack_vectors(
+    df,
+    index,
+    columns=("vectime", "vecvalue"),
+    col_data_name="data",
+    drop=None,
+    time_as_index=False,
+):
     """
-    run1
-      -> runattr
-      -> param
-      -> mod1
-      -> mod2
-         -> module
-         -> name
-         -> title
-         -> interpolatin...
-      -> mod3
+    data frame which only contains opp vector rows.
     """
+    timer = Timer.create_and_start("set index", label=stack_vectors.__name__)
+    __df = df.set_index(index)
 
-    def __init__(self, df):
-        self._df = df
+    timer.stop_start("stack data")
+    stacked = list()
+    for col in columns:
+        stacked.append(__df[col].apply(pd.Series).stack())
 
-    def __getitem__(self, k):
-        return super().__getitem__(k)
+    timer.stop_start("concatenate data")
+    __df = pd.concat(stacked, axis=1, keys=columns)
 
-    def __setitem__(self, k, v) -> None:
-        raise NotImplemented("Read Only Access")
+    timer.stop_start("cleanup index")  #
+    if None in __df.index.names:
+        __df.index = __df.index.droplevel(level=None)
 
-    def __delitem__(self, v) -> None:
-        raise NotImplemented("Read Only Access")
+    timer.stop_start("drop columns or index level")
+    for c in drop:
+        if c in __df.index.names:
+            __df.index = __df.index.droplevel(level=c)
+        elif c in __df.columns:
+            __df = __df.drop(c, axis=1)
+        else:
+            print(f"waring: given name '{c}' cannot be droped. Does not exist.")
+
+    timer.stop_start("rename vecvalue")
+    __df = __df.rename({"vectime": "time", "vecvalue": col_data_name}, axis=1)
+
+    if time_as_index:
+        __df = __df.set_index("time", append=True)
+
+    __df = __df.sort_index()
+    timer.stop()
+    return __df
 
 
-def parse_if_number(s):
-    try:
-        return float(s)
-    except:
-        return True if s == "true" else False if s == "false" else s if s else None
+def build_time_series(
+    opp_df,
+    opp_vector_names,
+    opp_vector_col_names=None,
+    opp_index=("run", "module", "name"),
+    opp_drop=("name", "module"),
+    hdf_store=None,
+    hdf_key=None,
+    time_bin_size=0.0,
+    index=None,
+    fill_na=None,
+):
+    """
+    Build normalized data frames for omnetpp vectors.
+    opp_df:         data frame from OMNeT++
+    opp_vectors:    list of vector names to concatenate. The vectime axis of these vectors are merged.
+    opp_vector_names:      same length as opp_vectors containing the column names for used for vecvalues
+    opp_index:      columns of opp_df used for uniqueness
+    opp_drop:       index to drop after stacking of the data frame
+    hdf_store:      HDF store used to save generated data frame. Default=None (do not save to disk)
+    hdf_key:        key to use for HDF storage.
+    time_bin_size:       size of time bins used for time_step index. Default=0.0 (do not create a time_step index)
+    index:          Reindex result with given index. Default=None (just leave the given index)
+    fill_na:        fill created N/A values with given.
+    """
+    # "dcf.channelAccess.inProgressFrames.["queueingTime:vector", "queueingLength:vector"]"
+    # "dcf.channelAccess.pendingQueue.["queueingTime:vector", "queueingLength:vector"]"
+
+    # check input
+    timer = Timer.create_and_start("check input", label=build_time_series.__name__)
+    if opp_vector_col_names is None:
+        opp_vector_col_names = [
+            f"val_{idx}" for idx in np.arange(0, len(opp_vector_names))
+        ]
+    if len(opp_vector_names) != len(opp_vector_col_names):
+        raise ValueError(f"opp_vectors length does not match with opp_vectors")
+    if hdf_store is not None and hdf_key is None:
+        raise ValueError(f"a hdf store is given but hdf_key is missing")
+    if index is not None and "time_step" in index and time_bin_size <= 0.0:
+        raise ValueError(
+            f"return index contains 'time_step' but time_bin_size is not set."
+        )
+
+    data = []
+
+    for idx, c in enumerate(opp_vector_names):
+        timer.stop_start(f"stack {c} as column {opp_vector_col_names[idx]}")
+        _df = opp_df.opp.filter().vector().name(c).apply()
+        _df = stack_vectors(
+            _df,
+            index=list(opp_index),
+            drop=list(opp_drop),
+            col_data_name=opp_vector_col_names[idx],
+            time_as_index=True,
+        )
+        data.append(_df)
+
+    print(f"concatenating {len(data)} data frames. This will take some time...")
+    timer.stop_start(f"concatenating {len(data)} data frames. done")
+    _df_ret = pd.concat(data, axis=1)
+    if fill_na is not None:
+        _df_ret = _df_ret.fillna(fill_na)
+
+    if time_bin_size > 0.0:
+        timer.stop_start(f"add time_step index with bin size {time_bin_size}")
+        time_idx = _df_ret.index.get_level_values("time")
+        # create bins based on given time_bin_size
+        bins = np.arange(
+            np.floor(time_idx.min()), np.ceil(time_idx.max()), step=time_bin_size
+        )
+        time_bin = pd.Series(
+            np.digitize(time_idx, bins) * time_bin_size + time_idx.min(),
+            name="time_step",
+        )
+        time_bin.index = _df_ret.index
+        _df_ret = pd.concat([_df_ret, time_bin], axis=1)
+
+        _df_ret = _df_ret.set_index("time_step", append=True)
+
+    if index is not None:
+        timer.stop_start(f"apply index {index} and sort")
+        _df_ret = _df_ret.reset_index()
+        _df_ret = _df_ret.set_index(index)
+        _df_ret = _df_ret.sort_index()
+
+    timer.stop()
+    return _df_ret
 
 
-def parse_ndarray(s):
-    return np.fromstring(s, sep=" ") if s else None
+def simsec_per_sec(df, ax=None):
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    ax.plot('time', 'simsec_per_sec', data=df, marker='.', linewidth=0)
+    ax.set_ylabel('[sim s/s]')
+    ax.set_yscale('log')
+    ax.set_title('Simsec per second')
+
+    if fig is None:
+        return ax
+    else:
+        return fig, ax
+
+
+def cumulative_messages(df, ax=None, msg=("msg_present", "msg_in_fes"), lbl=("number of messages", "messages in fes"), set_lbl=True):
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    for idx, m in enumerate(msg):
+        ax.plot('time', m, data=df, label=lbl[idx])
+
+    if set_lbl:
+        ax.set_xlabel('time [s]')
+        ax.set_ylabel('number of messages')
+        ax.legend()
+        ax.set_title('messages in simulation')
+
+    if fig is None:
+        return ax
+    else:
+        return fig, ax
+
+
+def parse_cmdEnv_outout(path):
+    lines = read_lines(path)
+
+    pattern1 = re.compile(
+        "^\*\* Event #(?P<event>\d+)\s+t=(?P<time>\S+)\s+Elapsed: (?P<elapsed>\S+?)s\s+\((?P<elapsed_s>.*?)\).*?completed\s+\((?P<completed>.*?)\% total\)")
+    pattern2 = re.compile(
+        "^.*?Speed:\s+ev/sec=(?P<events_per_sec>\S+)\s+simsec/sec=(?P<simsec_per_sec>\S+)\s+ev/simsec=(?P<elapsed>\S+)")
+    pattern3 = re.compile(
+        "^.*?Messages:\s+created:\s+(?P<msg_created>\d+)\s+present:\s+(?P<msg_present>\d+)\s+in\s+FES:\s+(?P<msg_in_fes>\d+)")
+
+    data = []
+    event_data = []
+    for l in lines:
+        if l.strip().startswith("** "):
+            if len(event_data) != 0:
+                data.append(event_data)
+            event_data = []
+            if m := pattern1.match(l):
+                event_data.extend(list(m.groups()))
+            else:
+                raise ValueError('ddd')
+        elif l.strip().startswith("Speed:"):
+            if m := pattern2.match(l):
+                event_data.extend(list(m.groups()))
+            else:
+                raise ValueError('ddd')
+        elif l.strip().startswith("Messages:"):
+            if m := pattern3.match(l):
+                event_data.extend(list(m.groups()))
+            else:
+                raise ValueError('ddd')
+        else:
+            break
+
+    col = list(pattern1.groupindex.keys())
+    col.extend(list(pattern2.groupindex.keys()))
+    col.extend(list(pattern3.groupindex.keys()))
+    df = pd.DataFrame(data, columns=col)
+    df = df.apply(pd.to_numeric, errors="ignore")
+    return df
+
+
+class ScaveConverter:
+
+    def __init__(self):
+        pass
+
+    def parse_if_number(self, s):
+        try:
+            return float(s)
+        except:
+            return True if s == "true" else False if s == "false" else s if s else None
+
+    def parse_ndarray(self, s):
+        return np.fromstring(s, sep=" ", dtype=float) if s else None
+
+    def parse_series(self, s):
+        return pd.Series(np.fromstring(s, sep=" ", dtype=float)) if s else None
+
+    def get_series_parser(self):
+        return {
+            "attrvalue": self.parse_if_number,
+            "binedges": self.parse_series,  # histogram data
+            "binvalues": self.parse_series,  # histogram data
+            "vectime": self.parse_series,  # vector data
+            "vecvalue": self.parse_series,
+        }
+
+    def get_array_parser(self):
+        return {
+            "attrvalue": self.parse_if_number,
+            "binedges": self.parse_ndarray,  # histogram data
+            "binvalues": self.parse_ndarray,  # histogram data
+            "vectime": self.parse_ndarray,  # vector data
+            "vecvalue": self.parse_ndarray,
+        }
+
+    def get(self):
+        return self.get_array_parser()
+
+
+class ScaveRunConverter(ScaveConverter):
+
+    def __init__(self, run_short_hand="r"):
+        super().__init__()
+        self._short_hand = run_short_hand
+        self.run_map = {}
+        self.network_map = {}
+
+    def parse_run(self, s):
+        if s in self.run_map:
+            return self.run_map[s]
+        else:
+            ret = f"{self._short_hand}_{len(self.run_map)}"
+            self.run_map.setdefault(s, ret)
+            return ret
+
+    def mapping_data_frame(self):
+        d_a = [["run", k, v] for k, v in self.run_map.items()]
+        return pd.DataFrame(d_a, columns=["level", "id", "mapping"])
+
+    def get(self):
+        return self.get_array_parser()
+
+    def get_array_parser(self):
+        return {
+            "run": self.parse_run,
+            "attrvalue": self.parse_if_number,
+            "binedges": self.parse_ndarray,  # histogram data
+            "binvalues": self.parse_ndarray,  # histogram data
+            "vectime": self.parse_ndarray,  # vector data
+            "vecvalue": self.parse_ndarray,
+        }
+
+
+class Suffix():
+    HDF = ".h5"
+    CSV = ".csv"
+    PNG = ".png"
+    PDF = ".pdf"
+    DIR = ".d"
+
+
+class RoverBuilder:
+
+    def __init__(self, path: PathHelper, analysis_name, hdf_key=None, cfg:Config=None):
+        self._root = path
+        self._analysis_name = analysis_name
+        self._hdf_key = hdf_key
+        self._hdf_args: dict = {'complevel': 9, 'complib': 'zlib'}
+        self._scave_filter = ""
+        self._opp_input_paths = []
+        self._root.make_dir(f"{analysis_name}{Suffix.DIR}", exist_ok=True)
+        self._converter = ScaveRunConverter(run_short_hand="r")
+        self._cfg = cfg
+
+    @property
+    def root(self):
+        return self._root
+
+    @property
+    def out_dir(self):
+        return self._root.join(f"{self._analysis_name}{Suffix.DIR}")
+
+    @property
+    def csv_path(self):
+        return self._root.join(f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.CSV}")
+
+    @property
+    def hdf_path(self):
+        return self._root.join(f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.HDF}")
+
+    def set_hdf_args(self, append=False, **kwargs):
+        if append:
+            self._hdf_args.update(kwargs)
+        else:
+            self._hdf_args = kwargs
+    
+    def get_hdf_args(self):
+        return self._hdf_args
+
+    def set_scave_filter(self, *scave_filters, append=False, operator="AND"):
+        _op = f" {operator} "
+        _filter = list(scave_filters)
+        if append:
+            _filter.insert(0, f"({self._scave_filter})")
+            self._scave_filter = _op.join(_filter)
+        else:
+            self._scave_filter = _op.join(list(scave_filters))
+        return self
+
+    def get_scave_filter(self):
+        return self._scave_filter
+
+    def set_scave_input_path(self, *input_path, append=False, rel_path=True):
+        if rel_path:
+            _paths = [self._root.join(p) for p in input_path]
+        else:
+            _paths = list(input_path)
+        if append:
+            self._opp_input_paths.extend(_paths)
+        else:
+            self._opp_input_paths = _paths
+        return self
+
+    def get_scave_input_path(self):
+        return self._opp_input_paths
+
+    def set_converter(self, converter):
+        self._converter = converter
+
+    def get_converter(self):
+        return self._converter
+
+    def df_from_csv(self, override=False, recursive=True):
+        if self._cfg is None:
+            _scv = ScaveTool()
+        else:
+            _scv = ScaveTool(config=self._cfg)
+        _csv = _scv.create_or_get_csv_file(
+            csv_path=self.csv_path,
+            input_paths=self.get_scave_input_path(),
+            scave_filter=self.get_scave_filter(),
+            override=override,
+            recursive=recursive,
+        )
+        return _scv.load_csv(_csv, converters=self._converter)
+
+    def save_converter_to_hdf(self, key, mode="a", **kwargs):
+        with self.store_ctx(mode=mode, **kwargs) as store:
+            self._converter.mapping_data_frame().to_hdf(store, key=key)
+
+    @contextlib.contextmanager
+    def store_ctx(self, mode="a", **kwargs) -> pd.HDFStore:
+        _args = dict(self._hdf_args)
+        _args.update(kwargs)
+        store = pd.HDFStore(self.hdf_path, mode=mode, **_args)
+        try:
+            yield store
+        finally:
+            store.close()
+
+    def hdf_get(self, key):
+        with self.store_ctx(mode="r") as store:
+            df = store.get(key=key)
+        return df
+
+    def store_exists(self):
+        return os.path.exists(self.hdf_path)
+
+    def save_to_output(self, fig: plt.Figure, file_name, **kwargs):
+        fig.savefig(os.path.join(self.out_dir, file_name), **kwargs)
 
 
 class ScaveTool:
@@ -84,28 +458,6 @@ class ScaveTool:
         self._SCAVE_TOOL = self._config.scave_cmd
         self.timeout = timeout
 
-    @staticmethod
-    def _converters():
-        return {
-            # 'run': ,
-            # 'type': ,
-            # 'module': ,
-            # 'name': ,
-            # 'attrname': ,
-            "attrvalue": parse_if_number,
-            # 'value': ,                    # scalar data
-            # 'count': ,                    # scalar data
-            # 'sumweights': ,               # scalar data
-            # 'mean': ,                     # scalar data
-            # 'stddev': ,                   # scalar data
-            # 'min': ,                      # scalar data
-            # 'max': ,                      # scalar data
-            "binedges": parse_ndarray,  # histogram data
-            "binvalues": parse_ndarray,  # histogram data
-            "vectime": parse_ndarray,  # vector data
-            "vecvalue": parse_ndarray,
-        }  # vector data
-
     @classmethod
     def _is_valid(cls, file: str):
         if file.endswith(".sca") or file.endswith(".vec"):
@@ -113,7 +465,7 @@ class ScaveTool:
                 return True
         return False
 
-    def load_csv(self, csv_file) -> pd.DataFrame:
+    def load_csv(self, csv_file, converters=None) -> pd.DataFrame:
         """
         #load_csv to load an existing OMNeT++ csv file. The following columns are expected to exist.
           'run', 'type', 'module', 'name', 'attrname', 'attrvalue', 'value', 'count', 'sumweights',
@@ -121,18 +473,20 @@ class ScaveTool:
         :param csv_file:    Path to csv file
         :return:            pd.DataFrame with extra namespace 'opp' (an OppAccessor object with helpers)
         """
-        df = pd.read_csv(csv_file, converters=self._converters())
+        if converters is None:
+            converters = ScaveConverter()
+        df = pd.read_csv(csv_file, converters=converters.get())
         # df.opp.attr["csv_path"] = csv_file
         return df
 
     def create_or_get_csv_file(
-        self,
-        csv_path,
-        input_paths: List[str],
-        override=False,
-        scave_filter: str = None,
-        recursive=True,
-        print_selected_files=True,
+            self,
+            csv_path,
+            input_paths: List[str],
+            override=False,
+            scave_filter: str = None,
+            recursive=True,
+            print_selected_files=True,
     ):
         """
         #create_or_get_csv_file to create (or use existing) csv files from one or
@@ -163,7 +517,7 @@ class ScaveTool:
         return os.path.abspath(csv_path)
 
     def load_df_from_scave(
-        self, input_paths: List[str], scave_filter: str = None, recursive=True,
+            self, input_paths: List[str], scave_filter: str = None, recursive=True, converters=None
     ) -> pd.DataFrame:
         """
          Directly load data into Dataframe from *.vec and *.sca files without creating a
@@ -189,21 +543,23 @@ class ScaveTool:
             print(str(stderr, encoding="utf8"))
             return pd.DataFrame()
 
+        if converters is None:
+            converters = ScaveConverter()
         df = pd.read_csv(
-            io.BytesIO(stdout), encoding="utf-8", converters=self._converters()
+            io.BytesIO(stdout), encoding="utf-8", converters=converters.get()
         )
         df = df.opp.pre_process()
         # df.opp.attr["cmd"] = cmd
         return df
 
     def export_cmd(
-        self,
-        input_paths,
-        output,
-        scave_filter=None,
-        recursive=True,
-        options=None,
-        print_selected_files=False,
+            self,
+            input_paths,
+            output,
+            scave_filter=None,
+            recursive=True,
+            options=None,
+            print_selected_files=False,
     ):
         cmd = self._SCAVE_TOOL
         cmd.append(self._EXPORT)
@@ -226,6 +582,9 @@ class ScaveTool:
         opp_result_files = [
             f for f in opp_result_files if f.endswith(".vec") or f.endswith(".sca")
         ]
+        if len(opp_result_files) == 0:
+            raise ValueError("no opp input files selected.")
+
         log = "\n".join(opp_result_files)
         logging.info(f"found *.vec and *.sca:\n {log}")
         if print_selected_files:
@@ -282,7 +641,7 @@ class ScaveTool:
         )
 
         try:
-            scave_cmd.wait(self.timeout)
+            scave_cmd.wait()
             if scave_cmd.returncode != 0:
                 logging.error(f"return code was {scave_cmd.returncode}")
                 logging.error("command:")

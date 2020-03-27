@@ -12,7 +12,7 @@ import scipy.sparse as sp
 
 import matplotlib.pyplot as plt
 from drawnow import drawnow, figure
-from roveranalyzer.uitls.path import RelPath
+from roveranalyzer.uitls.path import PathHelper
 from roveranalyzer.vadereanalyzer.plots import plots as plot
 from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
