@@ -3,6 +3,10 @@ import json
 import os
 import pathlib
 import re
+from enum import Enum
+from typing import Any
+
+import pandas as pd
 
 
 class JsonPath:
@@ -101,7 +105,14 @@ class JsonPathVecEl(JsonPathEl):
         return f"{self.key}[{self.vec_idx}]"
 
 
-class RelPath:
+class Suffix(Enum):
+    HDF = ".h5"
+    CSV = ".csv"
+    PNG = ".png"
+    PDF = ".pdf"
+
+
+class PathHelper:
     """
     Simple helper to remove absolute paths in analysis files.
     """
@@ -111,9 +122,12 @@ class RelPath:
         return cls(str(pathlib.Path.home()))
 
     @classmethod
-    def from_env(cls, env_var):
+    def from_env(cls, env_var, *extend_base):
         if env_var in os.environ:
-            return cls(os.environ[env_var])
+            c = cls(os.environ[env_var])
+            if len(extend_base) > 0:
+                c.extend_base(*extend_base)
+            return c
         else:
             raise KeyError(f"no Variable name '{env_var}' found")
 
@@ -143,3 +157,8 @@ class RelPath:
     def extend_base(self, *paths):
         self._base = self.join(*paths)
         return self
+
+    def make_dir(self, *paths, mode=0o777, exist_ok=False):
+        d_path = self.join(*paths)
+        os.makedirs(d_path, exist_ok=exist_ok)
+        return d_path
