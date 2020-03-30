@@ -1,6 +1,7 @@
 import pandas as pd
 
 
+
 def num_pedestrians_time_series(df, ax, title, c_start, c_end, c_count, ret_data=False):
     """
     creates time series plot of number of pedestrians in the simulation based on
@@ -31,3 +32,5 @@ def num_pedestrians_time_series(df, ax, title, c_start, c_end, c_count, ret_data
         return ax, df_io.copy(deep=True)
     else:
         return ax
+
+
