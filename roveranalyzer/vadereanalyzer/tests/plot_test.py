@@ -1,13 +1,9 @@
 import os
 import sys
 
-import matplotlib.pyplot as plt
+import numpy as np
 
-import seaborn as sns
-from drawnow import drawnow, figure
-from roveranalyzer.uitls.path import PathHelper
-from roveranalyzer.vadereanalyzer.plots import plots as plot
-from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
+from roveranalyzer.vadereanalyzer.plots.plots import DensityPlots
 
 sys.path.append(
     os.path.abspath("")
@@ -15,58 +11,25 @@ sys.path.append(
 sys.path.append(os.path.abspath(".."))  # in tutorial directly
 
 
-def xxx(t, df):
-    df_30 = df.loc[df["timeStep"] == t, ("x", "y", "gridCount-PID8")]
-    df_30 = df_30.pivot("y", "x", "gridCount-PID8")
-    ax = sns.heatmap(df_30, cmap="RdBu")
-    ax.invert_yaxis()
-
-
-def density():
-    p_helper = PathHelper.from_user_home()
-    p = p_helper.join("relative/path/to/sample001")
-    output = ScenarioOutput.create_output_from_project_output(p)
-
-    df = output.files["gridDensity.csv"]()
-
-    figure(figsize=(7, 7 / 2))
-    for t in range(1, 751, 8):
-        kwargs = {"t": float(t), "df": df}
-        drawnow(xxx, show_once=False, confirm=False, stop_on_close=False, **kwargs)
-
-
-def fig_num_peds_series():
-    p_helper = PathHelper.from_env()
-    trajectories = p_helper.glob("relative/path/to/")
-    # trajectories = p_helper.glob('simulation-campaigns', 'simple_detour_100x177_long*/**/postvis.traj')
-    output_dirs = [os.path.split(p)[0] for p in trajectories]
-    outputs = [ScenarioOutput.create_output_from_project_output(p) for p in output_dirs]
-
-    ratio = 16 / 9
-    size_x_ax = 10
-    size_y_ax = size_x_ax / ratio
-    fig, axes = plt.subplots(
-        len(outputs), 1, figsize=(size_x_ax, len(outputs) * size_y_ax)
-    )
-
-    for idx, o in enumerate(outputs):
-        df = o.files["startEndtime.csv"]()
-        ax = plot.num_pedestrians_time_series(
-            df,
-            axes[idx],
-            c_start="startTime-PID7",
-            c_end="endTime-PID5",
-            c_count="pedestrianId",
-            title=o.path("name"),
-        )
-        info_txt = (
-            f"inter arrival times: \n"
-            f"{o.path('scenario/topography/sources[*]/distributionParameters')}"
-        )
-        ax.text(0.75, 0.2, info_txt, ha="left", transform=ax.transAxes)
-
-    return fig
-
-
 if __name__ == "__main__":
-    density()
+
+    directory = "testData/simple_detour"  # directory where following files are stored
+    file_names = os.path.join(
+        directory, "Mesh_trias1.txt"
+    )  # from vadere data processor: MeshProcessor
+    count_names = os.path.join(
+        directory, "Density_trias1.csv"
+    )  # count_names = from vadere data processor: MeshDensityCountingProcessor
+
+    # plot (smoothed) density or counts for one frame /one timestep
+    frame = 200  # time = frame* 0.4
+    density_plots = DensityPlots(directory, file_names, count_names)
+    density_plots.plot_density(frame, "counts")
+    density_plots.plot_density(frame, "density")
+    density_plots.plot_density(frame, "density_smooth")
+
+    # plot (smoothed) density or counts for time series
+    frames = np.arange(390, 400, 1)  # frames, time = 0.4* frame, min = 1!
+    density_plots.animate_density(frames, "counts", "counts_movie")
+    density_plots.animate_density(frames, "density", "density_movie")
+    density_plots.animate_density(frames, "density_smooth", "density_smooth_movie")

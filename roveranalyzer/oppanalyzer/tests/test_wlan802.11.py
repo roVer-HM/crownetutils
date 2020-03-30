@@ -8,16 +8,11 @@ import roveranalyzer.oppanalyzer.detour as detour
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.oppanalyzer.rover_analysis import Opp, OppPlot
-from roveranalyzer.oppanalyzer.utils import (
-    RoverBuilder,
-    ScaveRunConverter,
-    ScaveTool,
-    build_time_series,
-    cumulative_messages,
-    parse_cmdEnv_outout,
-    simsec_per_sec,
-    stack_vectors,
-)
+from roveranalyzer.oppanalyzer.utils import (RoverBuilder, ScaveRunConverter,
+                                             ScaveTool, build_time_series,
+                                             cumulative_messages,
+                                             parse_cmdEnv_outout,
+                                             simsec_per_sec, stack_vectors)
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.path import PathHelper
 
