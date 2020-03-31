@@ -1,17 +1,15 @@
-import pandas as pd
 import os
 import sys
-import numpy as np
+
 import matplotlib.animation as animation
-
-import trimesh
+import matplotlib.pyplot as plt
 import matplotlib.tri as tri
-
+import numpy as np
+import pandas as pd
 import scipy.sparse as sp
 
-import matplotlib.pyplot as plt
+import trimesh
 from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
-
 
 sys.path.append(
     os.path.abspath("")

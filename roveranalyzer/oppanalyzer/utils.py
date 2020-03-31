@@ -8,13 +8,11 @@ import re
 import signal
 import subprocess
 import time
-from enum import Enum
 from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
 from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
@@ -53,8 +51,8 @@ def stack_vectors(
             __df.index = __df.index.droplevel(level=c)
         elif c in __df.columns:
             __df = __df.drop(c, axis=1)
-        else:
-            print(f"waring: given name '{c}' cannot be droped. Does not exist.")
+        # else:
+        #     print(f"waring: given name {c} cannot be droped. Does not exist.")
 
     timer.stop_start("rename vecvalue")
     __df = __df.rename({"vectime": "time", "vecvalue": col_data_name}, axis=1)
@@ -161,10 +159,10 @@ def simsec_per_sec(df, ax=None):
     if ax is None:
         fig, ax = plt.subplots(1, 1)
 
-    ax.plot('time', 'simsec_per_sec', data=df, marker='.', linewidth=0)
-    ax.set_ylabel('[sim s/s]')
-    ax.set_yscale('log')
-    ax.set_title('Simsec per second')
+    ax.plot("time", "simsec_per_sec", data=df, marker=".", linewidth=0)
+    ax.set_ylabel("[sim s/s]")
+    ax.set_yscale("log")
+    ax.set_title("Simsec per second")
 
     if fig is None:
         return ax
@@ -172,19 +170,25 @@ def simsec_per_sec(df, ax=None):
         return fig, ax
 
 
-def cumulative_messages(df, ax=None, msg=("msg_present", "msg_in_fes"), lbl=("number of messages", "messages in fes"), set_lbl=True):
+def cumulative_messages(
+    df,
+    ax=None,
+    msg=("msg_present", "msg_in_fes"),
+    lbl=("number of messages", "messages in fes"),
+    set_lbl=True,
+):
     fig = None
     if ax is None:
         fig, ax = plt.subplots(1, 1)
 
     for idx, m in enumerate(msg):
-        ax.plot('time', m, data=df, label=lbl[idx])
+        ax.plot("time", m, data=df, label=lbl[idx])
 
     if set_lbl:
-        ax.set_xlabel('time [s]')
-        ax.set_ylabel('number of messages')
+        ax.set_xlabel("time [s]")
+        ax.set_ylabel("number of messages")
         ax.legend()
-        ax.set_title('messages in simulation')
+        ax.set_title("messages in simulation")
 
     if fig is None:
         return ax
@@ -196,11 +200,14 @@ def parse_cmdEnv_outout(path):
     lines = read_lines(path)
 
     pattern1 = re.compile(
-        "^\*\* Event #(?P<event>\d+)\s+t=(?P<time>\S+)\s+Elapsed: (?P<elapsed>\S+?)s\s+\((?P<elapsed_s>.*?)\).*?completed\s+\((?P<completed>.*?)\% total\)")
+        "^\*\* Event #(?P<event>\d+)\s+t=(?P<time>\S+)\s+Elapsed: (?P<elapsed>\S+?)s\s+\((?P<elapsed_s>.*?)\).*?completed\s+\((?P<completed>.*?)\% total\)"
+    )
     pattern2 = re.compile(
-        "^.*?Speed:\s+ev/sec=(?P<events_per_sec>\S+)\s+simsec/sec=(?P<simsec_per_sec>\S+)\s+ev/simsec=(?P<elapsed>\S+)")
+        "^.*?Speed:\s+ev/sec=(?P<events_per_sec>\S+)\s+simsec/sec=(?P<simsec_per_sec>\S+)\s+ev/simsec=(?P<elapsed>\S+)"
+    )
     pattern3 = re.compile(
-        "^.*?Messages:\s+created:\s+(?P<msg_created>\d+)\s+present:\s+(?P<msg_present>\d+)\s+in\s+FES:\s+(?P<msg_in_fes>\d+)")
+        "^.*?Messages:\s+created:\s+(?P<msg_created>\d+)\s+present:\s+(?P<msg_present>\d+)\s+in\s+FES:\s+(?P<msg_in_fes>\d+)"
+    )
 
     data = []
     event_data = []
@@ -212,17 +219,17 @@ def parse_cmdEnv_outout(path):
             if m := pattern1.match(l):
                 event_data.extend(list(m.groups()))
             else:
-                raise ValueError('ddd')
+                raise ValueError("ddd")
         elif l.strip().startswith("Speed:"):
             if m := pattern2.match(l):
                 event_data.extend(list(m.groups()))
             else:
-                raise ValueError('ddd')
+                raise ValueError("ddd")
         elif l.strip().startswith("Messages:"):
             if m := pattern3.match(l):
                 event_data.extend(list(m.groups()))
             else:
-                raise ValueError('ddd')
+                raise ValueError("ddd")
         else:
             break
 
@@ -235,7 +242,6 @@ def parse_cmdEnv_outout(path):
 
 
 class ScaveConverter:
-
     def __init__(self):
         pass
 
@@ -274,7 +280,6 @@ class ScaveConverter:
 
 
 class ScaveRunConverter(ScaveConverter):
-
     def __init__(self, run_short_hand="r"):
         super().__init__()
         self._short_hand = run_short_hand
@@ -307,7 +312,7 @@ class ScaveRunConverter(ScaveConverter):
         }
 
 
-class Suffix():
+class Suffix:
     HDF = ".h5"
     CSV = ".csv"
     PNG = ".png"
@@ -316,12 +321,13 @@ class Suffix():
 
 
 class RoverBuilder:
-
-    def __init__(self, path: PathHelper, analysis_name, hdf_key=None, cfg:Config=None):
+    def __init__(
+        self, path: PathHelper, analysis_name, hdf_key=None, cfg: Config = None
+    ):
         self._root = path
         self._analysis_name = analysis_name
         self._hdf_key = hdf_key
-        self._hdf_args: dict = {'complevel': 9, 'complib': 'zlib'}
+        self._hdf_args: dict = {"complevel": 9, "complib": "zlib"}
         self._scave_filter = ""
         self._opp_input_paths = []
         self._root.make_dir(f"{analysis_name}{Suffix.DIR}", exist_ok=True)
@@ -338,18 +344,22 @@ class RoverBuilder:
 
     @property
     def csv_path(self):
-        return self._root.join(f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.CSV}")
+        return self._root.join(
+            f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.CSV}"
+        )
 
     @property
     def hdf_path(self):
-        return self._root.join(f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.HDF}")
+        return self._root.join(
+            f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.HDF}"
+        )
 
     def set_hdf_args(self, append=False, **kwargs):
         if append:
             self._hdf_args.update(kwargs)
         else:
             self._hdf_args = kwargs
-    
+
     def get_hdf_args(self):
         return self._hdf_args
 
@@ -480,13 +490,13 @@ class ScaveTool:
         return df
 
     def create_or_get_csv_file(
-            self,
-            csv_path,
-            input_paths: List[str],
-            override=False,
-            scave_filter: str = None,
-            recursive=True,
-            print_selected_files=True,
+        self,
+        csv_path,
+        input_paths: List[str],
+        override=False,
+        scave_filter: str = None,
+        recursive=True,
+        print_selected_files=True,
     ):
         """
         #create_or_get_csv_file to create (or use existing) csv files from one or
@@ -517,7 +527,11 @@ class ScaveTool:
         return os.path.abspath(csv_path)
 
     def load_df_from_scave(
-            self, input_paths: List[str], scave_filter: str = None, recursive=True, converters=None
+        self,
+        input_paths: List[str],
+        scave_filter: str = None,
+        recursive=True,
+        converters=None,
     ) -> pd.DataFrame:
         """
          Directly load data into Dataframe from *.vec and *.sca files without creating a
@@ -553,13 +567,13 @@ class ScaveTool:
         return df
 
     def export_cmd(
-            self,
-            input_paths,
-            output,
-            scave_filter=None,
-            recursive=True,
-            options=None,
-            print_selected_files=False,
+        self,
+        input_paths,
+        output,
+        scave_filter=None,
+        recursive=True,
+        options=None,
+        print_selected_files=False,
     ):
         cmd = self._SCAVE_TOOL
         cmd.append(self._EXPORT)
