@@ -1,10 +1,14 @@
+import os
 import sys
-
-from tutorial.imports import *
 
 # Structure based on suq-controller (Daniel Lehmberg)
 # This is just to make sure that the systems path is set up correctly, to have correct imports.
 # (It can be ignored)
+from oppanalyzer.configuration import Config
+from oppanalyzer.utils import ScaveTool
+
+from tutorials.helper import check_data
+
 sys.path.append(
     os.path.abspath(".")
 )  # in case tutorial is called from the root directory
@@ -42,6 +46,7 @@ def read_from_csv_file():
     """
     load a pandas DataFrame from a csv file exported previously from one or more *.vec/*.sca files
     """
+    path2data = check_data()
     scavetool = ScaveTool(cfg)
     dataframe = scavetool.load_csv(os.path.join(path2data, "tutorial_01_result.csv"))
     print(f"Columns: {dataframe.columns}")
@@ -58,6 +63,7 @@ def create_csv_fiel_from_sca_and_vec_files():
     scave_filter: filter content of input_paths based on the syntax shown in scavetool.print_filter_help()
     recursive: decide if input_paths should be search recursively
     """
+    path2data = check_data()
     scavetool = ScaveTool(cfg)
     dataframe = scavetool.create_or_get_csv_file(
         csv_path=os.path.join(path2data, "tutorial_01_result.csv"),
@@ -82,6 +88,7 @@ def apply_scavetool_filters():
       module("**.sink") AND (name("queueing time") OR name("transmission time"))
     :return:
     """
+    path2data = check_data()
     scavetool = ScaveTool(cfg)
     dataframe = scavetool.load_df_from_scave(
         input_paths=[os.path.join(path2data, "tutorial_01.*")],

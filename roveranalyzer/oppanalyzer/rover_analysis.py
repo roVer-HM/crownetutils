@@ -259,9 +259,9 @@ class OppTex:
 
         tmpl = self.write_attribute_tabular(
             run_id=run_id,
-            runattr_dict=self._opp.attr[run_id]["runattr"],
-            itervars_dict=self._opp.attr[run_id]["itervar"],
-            param_dict=self._opp.attr[run_id]["param"],
+            runattr_dict=self._opp.attr.run_attr_dict(run_id),
+            itervars_dict=self._opp.attr.run_itervar_dict(run_id),
+            param_dict=self._opp.attr.run_parameter_dict(run_id),
         )
 
         if output_file is None:
@@ -415,27 +415,41 @@ class OppAttributes:
     def __init__(self, df):
         self._df = df
 
-    def run_parameter(self, run):
+    def run_parameter(self, run, deep=True):
         ret = self._df.loc[
             (self._df["run"] == run) & (self._df["type"] == "param"),
             ("attrname", "attrvalue"),
         ]
         if ret.shape[0] == 0:
             raise ValueError(f"no data for run={run}")
-        return ret
+        return ret.copy(deep=deep)
 
     def run_parameter_dict(self, run):
         ret = self.run_parameter(run)
         return {r[1][0]: r[1][1] for r in ret.iterrows()}
 
-    def run_attr(self, run):
+    def run_attr(self, run, deep=True):
         ret = self._df.loc[
             (self._df["run"] == run) & (self._df["type"] == "runattr"),
             ("attrname", "attrvalue"),
         ]
         if ret.shape[0] == 0:
             raise ValueError(f"no data for run={run}")
-        return ret
+
+        return ret.copy(deep=deep)
+
+    def run_itervar(self, run, deep=True):
+        ret = self._df.loc[
+            (self._df["run"] == run) & (self._df["type"] == "itervar"),
+            ("attrname", "attrvalue"),
+        ]
+        if ret.shape[0] == 0:
+            raise ValueError(f"no data for run={run}")
+        return ret.copy(deep=deep)
+
+    def run_itervar_dict(self, run):
+        ret = self.run_itervar(run)
+        return {r[1][0]: r[1][1] for r in ret.iterrows()}
 
     def run_attr_dict(self, run):
         ret = self.run_attr(run)
@@ -524,7 +538,7 @@ class OppPlot:
 
     def _set_labels(self, ax: plt.axes, s: pd.Series, xlabel="time [s]"):
         ax.set_xlabel(xlabel)
-        attr = self._opp.attr_for_series(s)
+        attr = self._opp.attr.attr_for_series(s)
         ax.set_ylabel(f"[{attr['unit']}]")
         ax.set_title(attr["title"])
 

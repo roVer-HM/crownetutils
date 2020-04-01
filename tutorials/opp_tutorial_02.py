@@ -1,7 +1,10 @@
+import os
 import sys
 
 import matplotlib.pyplot as plt
-from tutorial.imports import *
+from oppanalyzer.utils import ScaveTool
+
+from tutorials.helper import check_data
 
 # Structure based on suq-controller (Daniel Lehmberg)
 # This is just to make sure that the systems path is set up correctly, to have correct imports.
@@ -20,6 +23,7 @@ sys.path.append(os.path.abspath(".."))  # in tutorial directly
 
 
 def simple_plots():
+    path2data = check_data()
     scavetool = ScaveTool()  # use default Config. See tutorial_01 on setup.
     df = scavetool.load_df_from_scave(
         input_paths=[
@@ -28,7 +32,7 @@ def simple_plots():
         scave_filter='module("LTE_d2d_Vadere.eNB.lteNic.channelModel")',
         recursive=True,
     )
-    eNB_vec1 = df.iloc[0]
+    eNB_vec1 = df.opp.filter().vector().apply().iloc[0]
 
     fig, axes = plt.subplots(nrows=2)
     ax_time = axes[0]
@@ -45,6 +49,7 @@ def dataframe_filter_usage():
     filter Data Frame. All chained filters are additive. Example below will select the same
     data as simple_plots()
     """
+    path2data = check_data()
     scavetool = ScaveTool()
     df = scavetool.load_csv(os.path.join(path2data, "tutorial_01_result.csv"))
     df = df.opp.filter().vector().module_regex(".*adere\.eNB\.lteNic\.channe.*").apply()
@@ -52,6 +57,7 @@ def dataframe_filter_usage():
 
 
 def tex_exports():
+    path2data = check_data()
     scavetool = ScaveTool()
     df = scavetool.load_csv(os.path.join(path2data, "tutorial_01_result.csv"))
     # just use the first row (df.iloc[0]) to get a run identifier
@@ -60,5 +66,5 @@ def tex_exports():
 
 if __name__ == "__main__":
     simple_plots()
-# dataframe_filter_usage()
-# tex_exports()
+    # dataframe_filter_usage()
+    # tex_exports()

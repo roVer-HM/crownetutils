@@ -2,6 +2,8 @@
 tags
 tags**
 *.h5
+tutorials/test_data
+.directory
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

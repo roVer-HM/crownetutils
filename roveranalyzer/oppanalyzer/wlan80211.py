@@ -3,13 +3,12 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
 from roveranalyzer.oppanalyzer.rover_analysis import Opp
-from roveranalyzer.oppanalyzer.utils import Config, ScaveTool
+from roveranalyzer.oppanalyzer.utils import (Config, RoverBuilder, ScaveTool,
+                                             build_time_series,
+                                             parse_cmdEnv_outout)
+from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.path import PathHelper
-
-# todo [ ] stacked_bar with  percentage
-# todo [ ] dynamically select :sum or :count for scalar values
 
 
 def stacked_bar(
@@ -120,7 +119,7 @@ def mac_drop_ration(_df: pd.DataFrame):
     return {"data": _df, "run_keys": runs}
 
 
-def mac(_df: pd.DataFrame, run, use_stat="mac_pkt_drop"):
+def mac_drop_ration_bar_chart(_df: pd.DataFrame, run, use_stat="mac_pkt_drop"):
 
     stats = {
         "mac_pkt_drop": {
@@ -198,3 +197,122 @@ def mac(_df: pd.DataFrame, run, use_stat="mac_pkt_drop"):
     ax.set_facecolor((0.5, 0.5, 0.5))
     fig.set_facecolor((0.4, 0.4, 0.4))
     fig.show()
+
+
+def build_df_mac_pkt_drop_ts(builder: RoverBuilder, hdf_key="", get_raw_df=False):
+    """
+    build time series data frame with received packets (bytes/packet) at the mac layer (from lower)
+    and the drops occurring at the mac layer. A drop may occure because of packetDropDuplicateDetected,
+    packetDropIncorrectlyReceived, packetDropNotAddressedToUs or packetDropOther
+
+    Result format:
+    rowIndex: (run, time_step, time, module_id)
+    columnIndex: None
+    columns (Data): received_bytes, droped_bytes
+    N/A values: filled with 0.0
+    """
+    timer = Timer.create_and_start(
+        "load df from opp results", label=build_df_mac_pkt_drop_ts.__name__
+    )
+    _df = builder.df_from_csv()
+
+    _df["mod"] = _df["module"].apply(lambda r: Opp.module_path(r, 1))
+
+    timer.stop_start("normalize data frame")
+    d_ret = build_time_series(
+        opp_df=_df,
+        opp_vector_names=[
+            "packetReceivedFromLower:vector(packetBytes)",
+            "packetDrop:vector(packetBytes)",
+        ],
+        opp_vector_col_names=["received_bytes", "droped_bytes"],
+        opp_index=("run", "mod", "module", "name"),
+        index=["run", "time_step", "time", "mod"],
+        time_bin_size=0.4,
+        fill_na=0.0,
+    )
+    if hdf_key != "":
+        timer.stop_start(f"save dataframe to HDF5: {builder.hdf_path}:{hdf_key}")
+        with builder.store_ctx(mode="a") as store:
+            d_ret.to_hdf(store, key=hdf_key)
+            mapping = builder.get_converter().mapping_data_frame()
+            mapping.to_hdf(store, key=f"{hdf_key}/mapping")
+
+    timer.stop()
+    if get_raw_df:
+        return d_ret, _df
+    else:
+        return d_ret
+
+
+def create_mac_pkt_drop_figures(
+    builder: RoverBuilder,
+    log_file,
+    figure_title,
+    use_hdf=True,
+    hdf_key="df_mac_pkt_drop_ts",
+    show_fig=False,
+    figure_prefix="",
+):
+    """
+    Times series plot of packet drop rate over simulation time.
+    Expected input:
+      rowIndex: (run, time_step, time, module_id)
+      columnIndex: None
+      columns (Data): received_bytes, droped_bytes
+      N/A values: filled with 0.0
+    """
+    timer = Timer.create_and_start("build graphic")
+
+    if use_hdf and builder.store_exists():
+        df = builder.hdf_get(key=hdf_key)
+    else:
+        df = build_df_mac_pkt_drop_ts(builder=builder, hdf_key=hdf_key)
+
+    df_sum = df.sum(level="time_step")
+    df_sum["drop_ratio"] = df_sum["droped_bytes"] / df_sum["received_bytes"]
+    df_sum["drop_ratio_sma_3"] = df_sum["drop_ratio"].rolling(window=3).mean()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    l1 = ax.plot(
+        df_sum.index.get_level_values("time_step"),
+        df_sum["drop_ratio_sma_3"],
+        color="g",
+        label="drop_ratio",
+    )
+    ax.set_title(figure_title)
+    ax.set_ylabel("pkg-drop-ratio (sma=3) ")
+    ax.set_xlabel("time_step [0.4s] ")
+
+    # fig 1
+    ax.legend(l1, l1[0].get_label(), loc="upper left")
+    builder.save_to_output(ax.figure, f"{figure_prefix}pkg_drop_sma_3.png")
+    if show_fig:
+        ax.figure.show()
+
+    df_msg = parse_cmdEnv_outout(log_file)
+    ax_msg = ax.twinx()
+    l2 = ax_msg.plot("time", "msg_present", data=df_msg, label="num of messages")
+    l3 = ax_msg.plot("time", "msg_in_fes", data=df_msg, label="num in fes")
+    ax_msg.set_ylabel("num messages")
+
+    lns = l1 + l2 + l3
+    labs = [l.get_label() for l in lns]
+    ax.legend(lns, labs, loc="upper left")
+
+    # fig 2
+    builder.save_to_output(ax.figure, f"{figure_prefix}pkg_drop_sma_3_num_messages.png")
+    if show_fig:
+        ax.figure.show()
+
+    # fig 3
+    ax_msg.set_yscale("log")
+    builder.save_to_output(
+        ax.figure, f"{figure_prefix}pkg_drop_sma_3_log_num_messages.png"
+    )
+    if show_fig:
+        ax.figure.show()
+
+    timer.stop()

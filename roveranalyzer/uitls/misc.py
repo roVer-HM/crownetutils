@@ -3,6 +3,9 @@ import time
 
 
 class Timer:
+
+    ACTIVE = False
+
     @classmethod
     def create_and_start(cls, name, label=0):
         return cls(name, label)
@@ -14,9 +17,10 @@ class Timer:
 
     def stop(self):
 
-        print(
-            f"{self._label}::timer>> {time.time() - self._start:0.5f}s\t({self._name})"
-        )
+        if self.ACTIVE:
+            print(
+                f"{self._label}::timer>> {time.time() - self._start:0.5f}s\t({self._name})"
+            )
         return self
 
     def start(self, name):

@@ -13,6 +13,7 @@ from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
@@ -321,12 +322,9 @@ class Suffix:
 
 
 class RoverBuilder:
-    def __init__(
-        self, path: PathHelper, analysis_name, hdf_key=None, cfg: Config = None
-    ):
+    def __init__(self, path: PathHelper, analysis_name, cfg: Config = None):
         self._root = path
         self._analysis_name = analysis_name
-        self._hdf_key = hdf_key
         self._hdf_args: dict = {"complevel": 9, "complib": "zlib"}
         self._scave_filter = ""
         self._opp_input_paths = []
@@ -562,7 +560,7 @@ class ScaveTool:
         df = pd.read_csv(
             io.BytesIO(stdout), encoding="utf-8", converters=converters.get()
         )
-        df = df.opp.pre_process()
+        # df = df.opp.pre_process()
         # df.opp.attr["cmd"] = cmd
         return df
 
