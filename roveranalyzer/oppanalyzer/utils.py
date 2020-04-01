@@ -573,7 +573,7 @@ class ScaveTool:
         options=None,
         print_selected_files=False,
     ):
-        cmd = self._SCAVE_TOOL
+        cmd = self._SCAVE_TOOL[:]
         cmd.append(self._EXPORT)
         cmd.append(self._OUTPUT)
         cmd.append(output)
