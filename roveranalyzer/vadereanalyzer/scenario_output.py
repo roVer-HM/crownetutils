@@ -21,16 +21,56 @@ class LazyDataFrameWrapper(object):
     def __init__(self, path):
         self.path = path
 
-    def __call__(self):
-        df = pd.read_csv(
+    def _read_meta_data(self):
+        with open(self.path, "r") as f:
+            meta_data = f.readline().strip()
+        if meta_data.startswith("#"):
+            meta_data = meta_data[1:]
+            meta_data = {
+                i.split("=")[0].strip(): i.split("=")[1].strip()
+                for i in meta_data.split(",")
+            }
+            if (
+                "IDXCOL" not in meta_data
+                or "DATACOL" not in meta_data
+                or "SEP" not in meta_data
+            ):
+                raise ValueError(f"worng keys {meta_data}")
+            meta_data["SEP"] = meta_data["SEP"][1:-1]
+            return meta_data
+        else:
+            return {"IDXCOL": 1, "DATACOL": -1, "SEP": " "}
+
+    def df(self, set_index=False, column_names=None):
+        meta = self._read_meta_data()
+        df: pd.DataFrame = pd.read_csv(
             filepath_or_buffer=self.path,
-            sep=" ",
+            sep=meta["SEP"],
             header=0,
             decimal=".",
             index_col=False,
             encoding="utf-8",
+            comment="#",
         )
+        if set_index:
+            nr_row_indices = int(meta["IDXCOL"])
+            if 0 < nr_row_indices <= df.shape[1]:
+                idx_keys = df.columns[:nr_row_indices]
+                return df.set_index(idx_keys.tolist())
+        if len(df.columns) == len(column_names):
+            if type(column_names) == list:
+                df = df.rename(
+                    columns={i: c for i, c in zip(list(df.columns), column_names)}
+                )
+            elif type(column_names) == dict:
+                df = df.rename(columns=column_names)
+            else:
+                TypeError(f"Expected list or dict got {type(column_names)}")
         return df
+
+    @DeprecationWarning
+    def __call__(self):
+        return self._create_df(set_index=False)
 
 
 class ScenarioOutput:

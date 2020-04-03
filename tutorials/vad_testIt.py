@@ -2,10 +2,12 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
+
 import seaborn as sns
 from drawnow import drawnow, figure
 from roveranalyzer import vadereanalyzer as v
-from roveranalyzer.vadereanalyzer import PathHelper
+from roveranalyzer.uitls.path import PathHelper
+from roveranalyzer.vadereanalyzer.plots.plots import NumPedTimeSeries
 
 sys.path.append(
     os.path.abspath(".")
@@ -55,13 +57,16 @@ def fig_num_peds_series():
 
     for idx, o in enumerate(outputs):
         df = o.files["startEndtime.csv"]()
-        ax = p.num_pedestrians_time_series(
-            df,
-            axes[idx],
-            c_start="startTime-PID7",
-            c_end="endTime-PID5",
-            c_count="pedestrianId",
-            title=o.path("name"),
+        ax = (
+            NumPedTimeSeries.create(ax=axes[idx])
+            .build(
+                df,
+                c_start="startTime-PID7",
+                c_end="endTime-PID5",
+                c_count="pedestrianId",
+                title=o.path("name"),
+            )
+            .ax
         )
         info_txt = (
             f"inter arrival times: \n"
@@ -73,4 +78,4 @@ def fig_num_peds_series():
 
 
 if __name__ == "__main__":
-    pass
+    fig_num_peds_series()

@@ -4,6 +4,7 @@ tags**
 *.h5
 tutorials/test_data
 .directory
+**/*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

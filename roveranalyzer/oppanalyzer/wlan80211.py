@@ -3,12 +3,16 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 from roveranalyzer.oppanalyzer.rover_analysis import Opp
-from roveranalyzer.oppanalyzer.utils import (Config, RoverBuilder, ScaveTool,
-                                             build_time_series,
-                                             parse_cmdEnv_outout)
+from roveranalyzer.oppanalyzer.utils import (
+    Config,
+    RoverBuilder,
+    ScaveTool,
+    build_time_series,
+    parse_cmdEnv_outout,
+)
 from roveranalyzer.uitls import Timer
-from roveranalyzer.uitls.path import PathHelper
 
 
 def stacked_bar(
@@ -247,8 +251,8 @@ def build_df_mac_pkt_drop_ts(builder: RoverBuilder, hdf_key="", get_raw_df=False
 
 def create_mac_pkt_drop_figures(
     builder: RoverBuilder,
-    log_file,
     figure_title,
+    log_file="",
     use_hdf=True,
     hdf_key="df_mac_pkt_drop_ts",
     show_fig=False,
@@ -285,6 +289,8 @@ def create_mac_pkt_drop_figures(
     ax.set_title(figure_title)
     ax.set_ylabel("pkg-drop-ratio (sma=3) ")
     ax.set_xlabel("time_step [0.4s] ")
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc="lower right")
 
     # fig 1
     ax.legend(l1, l1[0].get_label(), loc="upper left")
@@ -292,27 +298,30 @@ def create_mac_pkt_drop_figures(
     if show_fig:
         ax.figure.show()
 
-    df_msg = parse_cmdEnv_outout(log_file)
-    ax_msg = ax.twinx()
-    l2 = ax_msg.plot("time", "msg_present", data=df_msg, label="num of messages")
-    l3 = ax_msg.plot("time", "msg_in_fes", data=df_msg, label="num in fes")
-    ax_msg.set_ylabel("num messages")
+    if log_file != "":
+        df_msg = parse_cmdEnv_outout(log_file)
+        ax_msg = ax.twinx()
+        l2 = ax_msg.plot("time", "msg_present", data=df_msg, label="num of messages")
+        l3 = ax_msg.plot("time", "msg_in_fes", data=df_msg, label="num in fes")
+        ax_msg.set_ylabel("num messages")
 
-    lns = l1 + l2 + l3
-    labs = [l.get_label() for l in lns]
-    ax.legend(lns, labs, loc="upper left")
+        lns = l1 + l2 + l3
+        labs = [l.get_label() for l in lns]
+        ax.legend(lns, labs, loc="upper left")
 
-    # fig 2
-    builder.save_to_output(ax.figure, f"{figure_prefix}pkg_drop_sma_3_num_messages.png")
-    if show_fig:
-        ax.figure.show()
+        # fig 2
+        builder.save_to_output(
+            ax.figure, f"{figure_prefix}pkg_drop_sma_3_num_messages.png"
+        )
+        if show_fig:
+            ax.figure.show()
 
-    # fig 3
-    ax_msg.set_yscale("log")
-    builder.save_to_output(
-        ax.figure, f"{figure_prefix}pkg_drop_sma_3_log_num_messages.png"
-    )
-    if show_fig:
-        ax.figure.show()
+        # fig 3
+        ax_msg.set_yscale("log")
+        builder.save_to_output(
+            ax.figure, f"{figure_prefix}pkg_drop_sma_3_log_num_messages.png"
+        )
+        if show_fig:
+            ax.figure.show()
 
     timer.stop()

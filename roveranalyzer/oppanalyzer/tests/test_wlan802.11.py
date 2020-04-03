@@ -1,11 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from roveranalyzer.oppanalyzer.configuration import Config
-from roveranalyzer.oppanalyzer.utils import (RoverBuilder, ScaveTool,
-                                             cumulative_messages,
-                                             parse_cmdEnv_outout)
+from roveranalyzer.oppanalyzer.utils import (
+    RoverBuilder,
+    ScaveTool,
+    cumulative_messages,
+    parse_cmdEnv_outout,
+)
 from roveranalyzer.uitls.path import PathHelper
 
 
@@ -148,17 +152,21 @@ def mac_pkt_drop():
 
     builder_20 = RoverBuilder(
         path=PathHelper.from_env(
-            "ROVER_MAIN", "simulation-campaigns/results/simpleDetour_miat0_85_20200313"
+            "ROVER_MAIN",
+            "rover/simulations/simple_detoure/results/final_20200402-15:32:25/",
         ),
-        analysis_name="mac_2080",
+        analysis_name="mac",
+        analysis_dir="analysis.d",
+        hdf_store_name="analysis.h5",
     )
     builder_20.set_scave_filter('module("*.hostMobile[*].*.mac")')
-    builder_20.set_scave_input_path("*0.2*0.8*rep_0.vec")
+    builder_20.set_scave_input_path("*.vec")
     w80211.create_mac_pkt_drop_figures(
         builder=builder_20,
-        log_file=builder_20.root.join("vars_p1Rate0.2_p2Rate0.8_rep_0.out"),
+        # log_file=builder_20.root.join("vars_p1Rate0.2_p2Rate0.8_rep_0.out"),
         figure_title="Mac package drop ratio (20% module penetration)",
-        hdf_key="/df_mac_pkt_drop_ts",
+        hdf_key="/df/mac_pkt_drop_ts",
+        show_fig=True,
     )
 
 

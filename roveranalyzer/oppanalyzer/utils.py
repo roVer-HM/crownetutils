@@ -18,6 +18,7 @@ from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
 from roveranalyzer.uitls.path import PathHelper
+from vadereanalyzer.scenario_output import ScenarioOutput
 
 
 def stack_vectors(
@@ -322,13 +323,19 @@ class Suffix:
 
 
 class RoverBuilder:
-    def __init__(self, path: PathHelper, analysis_name, cfg: Config = None):
+    def __init__(self, path: PathHelper, analysis_name, analysis_dir=None, hdf_store_name=None, cfg: Config = None):
         self._root = path
         self._analysis_name = analysis_name
         self._hdf_args: dict = {"complevel": 9, "complib": "zlib"}
         self._scave_filter = ""
         self._opp_input_paths = []
-        self._root.make_dir(f"{analysis_name}{Suffix.DIR}", exist_ok=True)
+        self._analysis_dir = analysis_dir
+        if analysis_dir is None:
+            self._analysis_dir = f"{analysis_name}{Suffix.DIR}"
+        self._hdf_store_name = hdf_store_name
+        if hdf_store_name is None:
+            self._hdf_store_name = f"{analysis_name}{Suffix.HDF}"
+        self._root.make_dir(self._analysis_dir, exist_ok=True)
         self._converter = ScaveRunConverter(run_short_hand="r")
         self._cfg = cfg
 
@@ -338,19 +345,15 @@ class RoverBuilder:
 
     @property
     def out_dir(self):
-        return self._root.join(f"{self._analysis_name}{Suffix.DIR}")
+        return self._root.join(self._analysis_dir)
 
     @property
     def csv_path(self):
-        return self._root.join(
-            f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.CSV}"
-        )
+        return self._root.join(self._analysis_dir, f"{self._analysis_name}{Suffix.CSV}")
 
     @property
     def hdf_path(self):
-        return self._root.join(
-            f"{self._analysis_name}{Suffix.DIR}", f"{self._analysis_name}{Suffix.HDF}"
-        )
+        return self._root.join(self._analysis_dir, self._hdf_store_name)
 
     def set_hdf_args(self, append=False, **kwargs):
         if append:
@@ -432,6 +435,13 @@ class RoverBuilder:
 
     def save_to_output(self, fig: plt.Figure, file_name, **kwargs):
         fig.savefig(os.path.join(self.out_dir, file_name), **kwargs)
+
+    def vadere_output_from(self, run_dir):
+        g = glob.glob(self._root.join(run_dir, "**/*.scenario"))
+        if len(g) != 1:
+            raise ValueError(f"expected a single scenario file got: {'/n'.join(g)}")
+        vout_dir = os.path.dirname(g[0])
+        return ScenarioOutput.create_output_from_project_output(vout_dir)
 
 
 class ScaveTool:
