@@ -2,6 +2,7 @@ import re
 from string import Template
 from typing import List
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -542,11 +543,14 @@ class OppPlot:
         ax.set_ylabel(f"[{attr['unit']}]")
         ax.set_title(attr["title"])
 
-    def create_time_series(self, ax: plt.axes, s: pd.Series, *args, **kwargs):
-        self._set_labels(ax, s)
+    def create_time_series(self, ax: plt.axes, s: pd.Series, auto_labels: bool = True, *args, **kwargs):
+        # Note: automatic label setting currently does not work with measurement traces,
+        #       therefore we allow to turn if off by the auto_labels switch
+        if auto_labels:
+            self._set_labels(ax, s)
         if "label" not in kwargs:
             kwargs.setdefault("label", self.create_label(s.module, []))
-        ax.plot(s.vectime, s.vecvalue, **self.plt_args(idx=0, **kwargs))
+        return ax.plot(s.vectime, s.vecvalue, **self.plt_args(idx=0, **kwargs))
 
     def create_histogram(
         self,
@@ -555,20 +559,36 @@ class OppPlot:
         bins=40,
         use_path_in_title=-1,
         attr_override=None,
+        auto_labels: bool = True,
+        **kwargs
     ):
-        ax.hist(
-            s.vecvalue, bins, density=True,
-        )
-        attr = self._opp.attr.attr_for_series(s)
-        if attr_override is not None:
-            attr.update(attr_override)
-        if use_path_in_title != -1:
-            attr[
-                "title"
-            ] += f" - {Opp.module_path(s['module'], use_path_in_title, tuple_on_vector=False)}"
+        if "density" not in kwargs:
+            kwargs.setdefault("density", True)
 
-        ax.set_title(attr["title"])
-        ax.set_xlabel(f"[{attr['unit']}]")
+        ret = ax.hist(
+            s.vecvalue, bins, **kwargs,
+        )
+
+        if auto_labels:
+            attr = self._opp.attr.attr_for_series(s)
+            if attr_override is not None:
+                attr.update(attr_override)
+            if use_path_in_title != -1:
+                attr[
+                    "title"
+                ] += f" - {Opp.module_path(s['module'], use_path_in_title, tuple_on_vector=False)}"
+
+            ax.set_title(attr["title"])
+            ax.set_xlabel(f"[{attr['unit']}]")
+
+        if "cumulative" in kwargs and kwargs["cumulative"] == True:
+            # cumulative histograms sometimes have a bug which shows an annoying line down to
+            # zero at the end - this removes the invalid line at the end
+            axpolygons = [poly for poly in ax.get_children() if isinstance(poly, mpl.patches.Polygon)]
+            for poly in axpolygons:
+                poly.set_xy(poly.get_xy()[:-1])
+
+        return ret
 
 
 @pd.api.extensions.register_dataframe_accessor("opp")

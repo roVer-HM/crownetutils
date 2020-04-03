@@ -583,7 +583,7 @@ class ScaveTool:
         options=None,
         print_selected_files=False,
     ):
-        cmd = self._SCAVE_TOOL
+        cmd = self._SCAVE_TOOL[:]
         cmd.append(self._EXPORT)
         cmd.append(self._OUTPUT)
         cmd.append(output)
@@ -684,3 +684,38 @@ class ScaveTool:
                 raise
 
         logging.info(f"return code: {scave_cmd.returncode}")
+
+
+class StatsTool:
+    """
+    Toolset for calculating and nicely printing statistics
+    """
+
+    @staticmethod
+    def stats_table(data, unit: str = "", name: str = "") -> str:
+        """
+        Create a table listing the most important statistic values
+
+        :param data:    data to calculate the statistics on
+        :param unit:    SI unit of data (optional)
+        :param name:    name of the data to be printed (optional)
+        :return:        string with statistics table
+        """
+        table = "=============================================================\n"
+        if len(name) > 0:
+            table += (f"! Data: {name:51} !\n"
+                      "-------------------------------------------------------------\n"
+                      )
+
+        table += (
+            f"! nr of values : {len(data):15}                            !\n"
+            f"! arith. mean  : {np.mean(data):15.6f} {unit:>4}                       !\n"
+            f"! minimum      : {np.min(data):15.6f} {unit:>4}                       !\n"
+            f"! maximum      : {np.max(data):15.6f} {unit:>4}                       !\n"
+            f"! median       : {np.median(data):15.6f} {unit:>4}                       !\n"
+            f"! std. dev.    : {np.std(data):15.6f} {unit:>4}                       !\n"
+            f"! variance     : {np.var(data):15.6f} {unit:>4}^2                     !\n"
+            "=============================================================\n"
+        )
+
+        return table
