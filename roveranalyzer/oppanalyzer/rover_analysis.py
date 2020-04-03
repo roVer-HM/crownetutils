@@ -543,7 +543,9 @@ class OppPlot:
         ax.set_ylabel(f"[{attr['unit']}]")
         ax.set_title(attr["title"])
 
-    def create_time_series(self, ax: plt.axes, s: pd.Series, auto_labels: bool = True, *args, **kwargs):
+    def create_time_series(
+        self, ax: plt.axes, s: pd.Series, auto_labels: bool = True, *args, **kwargs
+    ):
         # Note: automatic label setting currently does not work with measurement traces,
         #       therefore we allow to turn if off by the auto_labels switch
         if auto_labels:
@@ -560,14 +562,12 @@ class OppPlot:
         use_path_in_title=-1,
         attr_override=None,
         auto_labels: bool = True,
-        **kwargs
+        **kwargs,
     ):
         if "density" not in kwargs:
             kwargs.setdefault("density", True)
 
-        ret = ax.hist(
-            s.vecvalue, bins, **kwargs,
-        )
+        ret = ax.hist(s.vecvalue, bins, **kwargs,)
 
         if auto_labels:
             attr = self._opp.attr.attr_for_series(s)
@@ -584,7 +584,11 @@ class OppPlot:
         if "cumulative" in kwargs and kwargs["cumulative"] == True:
             # cumulative histograms sometimes have a bug which shows an annoying line down to
             # zero at the end - this removes the invalid line at the end
-            axpolygons = [poly for poly in ax.get_children() if isinstance(poly, mpl.patches.Polygon)]
+            axpolygons = [
+                poly
+                for poly in ax.get_children()
+                if isinstance(poly, mpl.patches.Polygon)
+            ]
             for poly in axpolygons:
                 poly.set_xy(poly.get_xy()[:-1])
 
