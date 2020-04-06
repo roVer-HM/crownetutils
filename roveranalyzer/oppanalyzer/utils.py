@@ -18,7 +18,7 @@ from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
 from roveranalyzer.uitls.path import PathHelper
-from vadereanalyzer.scenario_output import ScenarioOutput
+from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
 
 def stack_vectors(
