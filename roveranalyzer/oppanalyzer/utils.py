@@ -436,7 +436,9 @@ class RoverBuilder:
     def save_to_output(self, fig: plt.Figure, file_name, **kwargs):
         fig.savefig(os.path.join(self.out_dir, file_name), **kwargs)
 
-    def vadere_output_from(self, run_dir):
+    def vadere_output_from(self, run_dir, is_abs=False):
+        if is_abs:
+            return ScenarioOutput.create_output_from_project_output(run_dir)
         g = glob.glob(self._root.join(run_dir, "**/*.scenario"))
         if len(g) != 1:
             raise ValueError(f"expected a single scenario file got: {'/n'.join(g)}")

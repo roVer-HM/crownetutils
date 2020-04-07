@@ -10,6 +10,7 @@ import pandas as pd
 import trimesh
 from uitls.mesh import SimpleMesh
 from uitls.plot_helper import PlotHelper
+from multiprocessing import Pool, TimeoutError
 
 sys.path.append(
     os.path.abspath("")
@@ -18,10 +19,13 @@ sys.path.append(os.path.abspath(".."))  # in tutorial directly
 
 
 class DensityPlots:
-    def __init__(self, mesh_file_path, df_counts: pd.DataFrame):
-        self._mesh_file_path: str = mesh_file_path
-        # read mesh data once
-        self._mesh: SimpleMesh = SimpleMesh.from_path(mesh_file_path)
+
+    @classmethod
+    def from_path(cls, mesh_file_path, df_counts: pd.DataFrame):
+        return cls(SimpleMesh.from_path(mesh_file_path), df_counts)
+
+    def __init__(self, mesh: SimpleMesh, df_counts: pd.DataFrame):
+        self._mesh: SimpleMesh = mesh
         # data frame with count data.
         self.df_counts: pd.DataFrame = df_counts
 
@@ -90,10 +94,11 @@ class DensityPlots:
         return triang, density_or_counts
 
     def animate_density(
-        self, time_steps, option, save_mp4_as, min_density=0.0, max_density=1.5
+        self, time_steps, option, save_mp4_as, title="title", label="xx", norm=1.0, min_density=0.0, max_density=1.5
     ):
 
         triang, density_or_counts = self.__get_plot_attributes(time_steps[0], option)
+        density_or_counts = density_or_counts/norm
         fig = plt.figure()
 
         if option == "counts":
@@ -157,6 +162,8 @@ class DensityPlots:
                     vmax=max_density,
                 )  # shading = 'gouraud' or 'fla'
             plt.gca().set_aspect("equal")
+            fig.colorbar(ax, label=label)
+            plt.title(title)
 
         anim = animation.FuncAnimation(fig, animate, init_func=init, frames=time_steps)
         save_mp4_as = save_mp4_as + ".mp4"
@@ -165,10 +172,11 @@ class DensityPlots:
         plt.show()
 
     def plot_density(
-        self, time, option, fig_path=None, min_density=0.0, max_density=1.5
+        self, time, option, fig_path=None, title=None, min_density=0.0, max_density=1.5, norm=1.0
     ):
 
         triang, density_or_counts = self.__get_plot_attributes(time, option)
+        density_or_counts = density_or_counts/norm
         fig2, ax2 = plt.subplots()
         ax2.set_aspect("equal")
 
@@ -202,6 +210,9 @@ class DensityPlots:
             )  # shading = 'gouraud' or 'fla'
             title_option = "Smoothed density"
             label_option = "Density [#/m^2]"
+
+        if title is not None:
+            title_option = title
 
         fig2.colorbar(tpc, label=label_option)
         ax2.set_title(title_option)

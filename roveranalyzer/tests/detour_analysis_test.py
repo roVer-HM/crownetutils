@@ -1,24 +1,30 @@
 import os
+from os.path import join
 
 import numpy as np
 from oppanalyzer.utils import RoverBuilder
 
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
+from uitls.mesh import SimpleMesh
 from uitls.path import PathHelper
 from vadereanalyzer.plots.plots import DensityPlots, NumPedTimeSeries
+from multiprocessing import Pool, TimeoutError
 
 if __name__ == "__main__":
-    builder_20 = RoverBuilder(
+    builder = RoverBuilder(
         path=PathHelper.from_env(
             "ROVER_MAIN",
-            "rover/simulations/simple_detoure/results/final_20200402-15:32:25/",
+            "rover/simulations/simple_detoure/results_ext/",
         ),
         analysis_name="mac",
         analysis_dir="analysis.d",
         hdf_store_name="analysis.h5",
     )
-    builder_20.set_scave_filter('module("*.hostMobile[*].*.mac")')
-    builder_20.set_scave_input_path("vars_rep_0.vec")
+    builder.set_scave_filter('module("*.hostMobile[*].*.mac")')
+    builder.set_scave_input_path("vars_rep_0.vec")
+
+    # p = builder.root.glob("final_2020-04-03*/**/*.scenario")
+    # print("\n".join(p))
 
     # drop ration graphs
     # w80211.create_mac_pkt_drop_figures(
@@ -30,41 +36,60 @@ if __name__ == "__main__":
     # )
 
     # Number of Pedestrians
-    vout = builder_20.vadere_output_from("vars_rep_0")
-    df = vout.files["startEndtime.csv"].df(
-        set_index=False, column_names=["pedId", "endTime", "startTime"]
-    )
-
-    p01 = NumPedTimeSeries.create().build(
-        df,
-        c_count="pedId",
-        c_start="startTime",
-        c_end="endTime",
-        title="Number of Pedestrian in Simulation",
-    )
-    p01.fig.show()
-
-    # mesh
-    # frame = 200  # time = frame* 0.4
-    # mesh_path = os.path.join(vout.output_dir, "Mesh_trias1.txt")
-    # df_density = vout.files["Density_trias1.csv"].df(
-    #     set_index=False,
-    #     column_names=["timeStep", "faceId", "all_peds", "informed_peds"],
-    # )
-    # density_plots_all = DensityPlots(
-    #     mesh_path, df_density.loc[:, ("timeStep", "faceId", "all_peds")].copy()
-    # )
-    # density_plots_informend = DensityPlots(
-    #     mesh_path, df_density.loc[:, ("timeStep", "faceId", "informed_peds")].copy()
+    # vout = builder_20.vadere_output_from("vars_rep_0")
+    # df = vout.files["startEndtime.csv"].df(
+    #     set_index=False, column_names=["pedId", "endTime", "startTime"]
     # )
     #
-    # density_plots_all.plot_density(frame, "density", max_density=0.8)
-    # density_plots_informend.plot_density(frame, "density", max_density=0.8)
-    #
-    # frames = np.arange(1, 620, 1)  # frames, time = 0.4* frame, min = 1!
-    # density_plots_all.animate_density(
-    #     frames, "density", "density_movie_all", max_density=0.8
+    # p01 = NumPedTimeSeries.create().build(
+    #     df,
+    #     c_count="pedId",
+    #     c_start="startTime",
+    #     c_end="endTime",
+    #     title="Number of Pedestrian in Simulation",
     # )
-    # density_plots_informend.animate_density(
-    #     frames, "density", "density_movie_informend", max_density=0.8
-    # )
+    # p01.fig.show()
+
+    outpaths = builder.root.glob("final_2020-04-03*/**/*.scenario")
+
+    pool = Pool(processes=40)
+    for p in outpaths:
+        # print("\n".join(p))
+        vout = builder.vadere_output_from(os.path.split(p)[0], is_abs=True)
+        print(vout.output_dir)
+
+        # mesh
+        frame = 1200  # time = frame* 0.4
+        mesh_str = vout.files["Mesh_trias1.txt"].as_string(remove_meta=True)
+        mesh = SimpleMesh.from_string(mesh_str)
+        df_density = vout.files["Density_trias1.csv"].df(
+            set_index=False,
+            column_names=["timeStep", "faceId", "all_peds", "informed_peds"],
+        )
+        density_plots_all = DensityPlots(
+            mesh, df_density.loc[:, ("timeStep", "faceId", "all_peds")].copy()
+        )
+        density_plots_informend = DensityPlots(
+            mesh, df_density.loc[:, ("timeStep", "faceId", "informed_peds")].copy()
+        )
+
+        pool.apply_async(density_plots_all.plot_density,
+                         (frame, "density"),
+                         dict(norm=0.8, max_density=1.2, fig_path=join(vout.output_dir, "density_all.png"), title="Mapped density (all)"))
+
+        pool.apply_async(density_plots_informend.plot_density,
+                         (frame, "density"),
+                         dict(fig_path=join(vout.output_dir, "density_informed.png"), title="Mapped density (informend)",
+                              norm=0.8, max_density=1.2))
+        # #
+        frames = np.arange(1, 1200, 1)  # frames, time = 0.4* frame, min = 1!
+        pool.apply_async(density_plots_all.animate_density,
+                         (frames, "density", join(vout.output_dir, "density_movie_all")),
+                         dict(max_density=1.2, title="Mapped density (all)", norm=0.8, label="Density [#/m^2]"))
+        frames = np.arange(1, 1200, 1)
+        pool.apply_async(density_plots_informend.animate_density,
+                         (frames, "density", join(vout.output_dir, "density_movie_informend")),
+                         dict(max_density=1.2, title="Mapped density (informend)", norm=0.8, label="Density [#/m^2]"))
+
+    pool.close()
+    pool.join()

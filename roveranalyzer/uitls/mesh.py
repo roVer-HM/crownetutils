@@ -4,13 +4,12 @@ from matplotlib import tri
 
 
 class SimpleMesh:
+
     @classmethod
-    def from_path(cls, poly_file_path):
+    def from_string(cls, poly_str):
         v, v1 = np.array([]), np.array([])
 
-        with open(poly_file_path) as file:
-            text = file.read().split("#")
-
+        text = poly_str.split("#")
         xy = text[1].splitlines()
         xy = xy[2:]
         for xy_ in xy:
@@ -30,6 +29,15 @@ class SimpleMesh:
         triangles = v1.reshape((-1, 3)).astype(int) - 1
 
         return cls(x, y, triangles)
+
+    @classmethod
+    def from_path(cls, poly_file_path):
+        v, v1 = np.array([]), np.array([])
+
+        with open(poly_file_path) as file:
+            text = file.read().split("#")
+
+        return cls(text)
 
     def __init__(self, x, y, triangles):
         self.x = x
