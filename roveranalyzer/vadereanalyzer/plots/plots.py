@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 from enum import Enum
@@ -28,18 +29,90 @@ class PlotOptions(Enum):
     DENSITY_SMOOTH = (3, "density_smooth")
 
 
+def mono_cmap(
+    replace_with=(0.0, 0.0, 0.0, 0.0),
+    replace_index=(0, 1),
+    base_color=0,
+    cspace=(0.0, 1.0),
+    n=256,
+):
+    start, stop = replace_index
+    map = np.array([(0.0, 0.0, 0.0, 1.0) for i in np.arange(n)])
+    map[:, base_color] = np.linspace(cspace[0], cspace[1], n)
+    map[start:stop] = replace_with
+    return ListedColormap(map)
+
+
 class DensityPlots:
     @classmethod
     def from_path(cls, mesh_file_path, df_counts: pd.DataFrame):
         return cls(SimpleMesh.from_path(mesh_file_path), df_counts)
 
     def __init__(
-        self, mesh: SimpleMesh, df_data: pd.DataFrame, df_cmap: dict = None,
+        self,
+        mesh: SimpleMesh,
+        df_data: pd.DataFrame,
+        df_cmap: dict = None,
+        time_resolution=0.4,
+        slow_motion=None,
     ):
         self._mesh: SimpleMesh = mesh
         # data frame with count data.
-        self.df_data: pd.DataFrame = df_data
+        self.time_resolution = time_resolution
+        self.df_data: pd.DataFrame = df_data.copy()
+
+        _d = np.array(df_data.index.get_level_values("timeStep"))
+        self.df_data["time"] = self.time_resolution * _d
+        self.df_data = self.df_data.set_index("time", append=True)
+        self.slow_motion_intervals = None
+        if slow_motion is not None:
+            self.slow_motion_intervals = self.__apply_slow_motion(slow_motion)
+
         self.cmap_dict: dict = df_cmap if df_cmap is not None else {}
+
+    def __apply_slow_motion(self, slow_motion_areas):
+        """
+        slow_motion_areas = [(t_start, t_stop, frame_multiplier), (...), ...]
+        """
+        self.df_data["subframe"] = np.full(
+            (self.df_data.shape[0],), fill_value=0, dtype=int
+        )
+        slow_motion_intervals = []
+        df_list = [self.df_data]
+        for sm_area in slow_motion_areas:
+            t_start, t_stop, frame_multiplier = sm_area
+            slow_motion_intervals.append((t_start, t_stop))
+            _block: pd.DataFrame = self.df_data.loc[
+                (slice(None), slice(None), slice(t_start, t_stop)), :
+            ].copy()
+            for subframe_idx in range(1, frame_multiplier + 1, 1):
+                _block["subframe"] = np.full(
+                    (_block.shape[0],), fill_value=subframe_idx, dtype=int
+                )
+                df_list.append(_block.copy())
+
+        self.df_data = pd.concat(df_list, axis=0, levels=["timeStep", "faceId", "time"])
+        self.df_data = self.df_data.set_index("subframe", append=True)
+        self.df_data = self.df_data.reorder_levels(
+            ["timeStep", "time", "subframe", "faceId"]
+        )
+        self.df_data = self.df_data.sort_index()
+
+        change_timeStep = np.append(
+            0, np.diff(self.df_data.index.get_level_values("timeStep"))
+        ).astype(np.bool)
+        change_subFrame = np.append(
+            0, np.diff(self.df_data.index.get_level_values("subframe"))
+        ).astype(np.bool)
+        id_mask = np.logical_or(change_timeStep, change_subFrame)
+        frame_series = pd.Series(np.cumsum(id_mask), name="frame",)
+        self.df_data = self.df_data.set_index(frame_series, append=True)
+        self.df_data = self.df_data.droplevel("subframe")
+        self.df_data = self.df_data.reorder_levels(
+            ["frame", "timeStep", "time", "faceId"]
+        )
+        self.df_data = self.df_data.sort_index()
+        return slow_motion_intervals
 
     def __tripcolor(
         self,
@@ -75,10 +148,10 @@ class DensityPlots:
 
         return ax, tpc, title_option, label_option
 
-    def __data_for(self, time, data=None):
+    def __data_for(self, frame, data=None):
         if data is None:
             data = list(self.df_data.columns)[0]
-        return self.df_data.loc[time, data]
+        return self.df_data.loc[frame, data]
 
     def __cmap_for(self, data=None):
         if data is None:
@@ -158,11 +231,25 @@ class DensityPlots:
 
         return triang, density_or_counts
 
+    def time_for_frame(self, frame):
+        time = (
+            self.df_data.loc[(frame, slice(None), slice(None), slice(1)), :]
+            .index.get_level_values("time")
+            .to_list()[0]
+        )
+        return time
+
+    def is_time_slowmotion(self, time):
+        for t_interval in self.slow_motion_intervals:
+            if t_interval[0] <= time < t_interval[1]:
+                return True
+        return False
+
     def animate_density(
         self,
-        time_steps,
         option,
         save_mp4_as,
+        animate_time=(-1.0, -1.0),
         plot_data=(None,),
         color_bar_from=(0,),
         title=None,
@@ -170,27 +257,69 @@ class DensityPlots:
         norm=1.0,
         min_density=0.0,
         max_density=1.5,
+        multi_pool: Pool = None,
     ):
+        """
+
+        """
+        vid = f"{os.path.basename(save_mp4_as)}.mp4"
+        start_t, end_t = animate_time
+        frames = (
+            self.df_data.loc[
+                (slice(None), slice(None), slice(start_t, end_t), slice(1)), :
+            ]
+            .index.get_level_values("frame")
+            .to_list()
+        )
+        if multi_pool is not None:
+            print(f"build animate_density {vid} async in pool: {multi_pool}")
+            multi_pool.apply_async(
+                self.animate_density,
+                (option, save_mp4_as),
+                dict(
+                    animate_time=animate_time,
+                    plot_data=plot_data,
+                    color_bar_from=color_bar_from,
+                    title=title,
+                    cbar_lbl=cbar_lbl,
+                    norm=norm,
+                    min_density=min_density,
+                    max_density=max_density,
+                    multi_pool=None,
+                ),
+                error_callback=lambda e: print(
+                    f"Error while build {vid} in async pool.\n>>{e}"
+                ),
+            )
+            return
+
         fig, ax = plt.subplots()
         if len(cbar_lbl) != len(color_bar_from):
-            raise ValueError(f"plot_data, color_bar ")
+            raise ValueError(
+                f"plot_data and color_bar must be of same length. {color_bar_from} --- {cbar_lbl}"
+            )
 
         def animate(i):
-            time_step = i
-            print(f"Timestep {time_step}")
+            frame = i
+            time_t = self.time_for_frame(frame)
+            print(f"{vid} >> frame:{frame} time:{time_t}")
             fig.clf()
+            fig.tight_layout()
             ax = fig.gca()
+            ax.set_facecolor((0.66, 0.66, 0.66))
             default_labels = []
 
             for data in plot_data:
+                cmap = self.__cmap_for(data)
                 triang, density_or_counts = self.__get_plot_attributes(
-                    time_step, data, option
+                    frame, data, option
                 )
                 density_or_counts = density_or_counts / norm
                 ax, tpc, default_title, default_label = self.__tripcolor(
                     ax,
                     triang,
                     density_or_counts,
+                    cmap=cmap,
                     vmin=min_density,
                     vmax=max_density,
                     override_cmap_alpha=False,
@@ -199,6 +328,15 @@ class DensityPlots:
                 default_labels.append(default_title)
 
             ax.set_aspect("equal")
+            sim_sec = np.floor(time_t)
+            sim_msec = time_t - sim_sec
+            if sim_msec == 0.0:
+                sim_t_str = f"{str(datetime.timedelta(seconds=sim_sec))}.000000"
+            else:
+                sim_t_str = f"{str(datetime.timedelta(seconds=sim_sec))}.{datetime.timedelta(seconds=sim_msec).microseconds}"
+            if self.is_time_slowmotion(time_t):
+                sim_t_str = f"{sim_t_str} slow!"
+            ax.text(30, -35, f"Time: {sim_t_str}", fontsize=12)
             if title is not None:
                 ax.set_title(title)
             for idx, lbl in zip(color_bar_from, cbar_lbl):
@@ -207,11 +345,10 @@ class DensityPlots:
                 fig.colorbar(ax.collections[idx], ax=ax, label=_lbl)
 
         # anim = animation.FuncAnimation(fig, animate, init_func=init, frames=time_steps)
-        anim = animation.FuncAnimation(fig, animate, frames=time_steps)
+        anim = animation.FuncAnimation(fig, animate, frames=frames)
         save_mp4_as = save_mp4_as + ".mp4"
 
         anim.save(save_mp4_as, fps=24, extra_args=["-vcodec", "libx264"])
-        # plt.show()
 
     def plot_density(
         self,
