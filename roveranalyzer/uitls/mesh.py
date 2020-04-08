@@ -4,7 +4,6 @@ from matplotlib import tri
 
 
 class SimpleMesh:
-
     @classmethod
     def from_string(cls, poly_str):
         v, v1 = np.array([]), np.array([])
@@ -43,9 +42,11 @@ class SimpleMesh:
         self.x = x
         self.y = y
         self.triangles = triangles
-        # self.apping_matrices = self.get_mapping_matrices()
+        self.mapping_matrices = self.__build_mapping_matrices()
+        self.nodal_area = self.__build_nodal_areas()
+        self.tri: tri.Triangulation = tri.Triangulation(self.x, self.y, self.triangles)
 
-    def get_mapping_matrices(self):
+    def __build_mapping_matrices(self):
         rows, cols = np.array([], dtype=int), np.array([], dtype=int)
 
         ind = 0
@@ -59,7 +60,7 @@ class SimpleMesh:
 
         return mapping_matrix
 
-    def get_nodal_areas(self):
+    def __build_nodal_areas(self):
         # not used?
         # triang = tri.Triangulation(self.x, self.y, self.elements)
 

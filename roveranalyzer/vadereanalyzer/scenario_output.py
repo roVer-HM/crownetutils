@@ -43,7 +43,7 @@ class LazyDataFrameWrapper(object):
 
     def as_string(self, remove_meta=False):
         if remove_meta:
-            with open(self.path, 'r') as f:
+            with open(self.path, "r") as f:
                 meta = f.readline()
                 if not meta.startswith("#"):
                     raise ValueError(f"expected metadata row but got 1: {meta}")
@@ -69,7 +69,7 @@ class LazyDataFrameWrapper(object):
             nr_row_indices = int(meta["IDXCOL"])
             if 0 < nr_row_indices <= df.shape[1]:
                 idx_keys = df.columns[:nr_row_indices]
-                return df.set_index(idx_keys.tolist())
+                df = df.set_index(idx_keys.tolist())
         if len(df.columns) == len(column_names):
             if type(column_names) == list:
                 df = df.rename(
