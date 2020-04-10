@@ -9,12 +9,8 @@ import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from uitls import Timer
 from uitls.mesh import SimpleMesh
 from uitls.path import PathHelper
-from vadereanalyzer.plots.plots import (
-    DensityPlots,
-    NumPedTimeSeries,
-    PlotOptions,
-    mono_cmap,
-)
+from vadereanalyzer.plots.plots import (DensityPlots, NumPedTimeSeries,
+                                        PlotOptions, mono_cmap)
 
 if __name__ == "__main__":
     builder = RoverBuilder(
@@ -82,14 +78,14 @@ if __name__ == "__main__":
 
         t = Timer.create_and_start("build video", label="detour_analysis_test")
         density_plots_all.animate_density(
-            PlotOptions.DENSITY_SMOOTH,
+            PlotOptions.DENSITY,
             join(vout.output_dir, "density_movie_allYY"),
-            animate_time=(240, 270.0),
+            animate_time=(1.0, 498.0),
             max_density=1.5,
             norm=0.8,
-            plot_data=("all_peds",),
-            color_bar_from=(0,),
-            cbar_lbl=("DensityAll [#/m^2]",),
+            plot_data=("all_peds", "informed_peds"),
+            color_bar_from=(0, 1),
+            cbar_lbl=("DensityAll [#/m^2]", "DensityInformed [#/m^2]"),
             title="Mapped density (80% communication)",
             # multi_pool=pool,
         )

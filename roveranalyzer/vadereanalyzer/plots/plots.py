@@ -143,10 +143,10 @@ class DensityPlots:
                 f"expected string or list for key attribute got: {key}{type(key)}"
             )
 
-    def __get_smoothed_mesh(self, time_step):
+    def __get_smoothed_mesh(self, time_step, data):
 
         x_, y_, triangles_ = self._mesh.get_xy_elements()
-        counts = self.__data_for(time_step).ravel()
+        counts = self.__data_for(time_step, data).ravel()
 
         matrix = self._mesh.mapping_matrices
         areas = self._mesh.nodal_area
@@ -272,7 +272,7 @@ class DensityPlots:
             density_or_counts = nodal_density
         elif option == PlotOptions.DENSITY_SMOOTH:
             # new triangulation !
-            triang, nodal_density_smooth = self.__get_smoothed_mesh(frame)
+            triang, nodal_density_smooth = self.__get_smoothed_mesh(frame, data)
             density_or_counts = nodal_density_smooth
         else:
             raise ValueError(
@@ -376,16 +376,16 @@ class DensityPlots:
             _ax = fig.gca()
 
             default_labels = []
-            time_t = self.time_for_frame(frames[0])
+            time_t = self.time_for_frame(frame)
             # Build first plot. This is updated in #aniamte()
             for data in plot_data:
                 cmap = self.__cmap_for(data)
                 triang, density_or_counts = self.__get_plot_attributes(
-                    frames[0], data, option
+                    frame, data, option
                 )
                 _ax, tpc, default_title, default_label = self.__tripcolor(
                     _ax,
-                    self._mesh.tri,
+                    triang,
                     density_or_counts,
                     cmap=cmap,
                     vmin=min_density,
