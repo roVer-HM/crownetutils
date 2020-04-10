@@ -6,6 +6,7 @@ import numpy as np
 from oppanalyzer.utils import RoverBuilder
 
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
+from uitls import Timer
 from uitls.mesh import SimpleMesh
 from uitls.path import PathHelper
 from vadereanalyzer.plots.plots import (DensityPlots, NumPedTimeSeries,
@@ -110,11 +111,12 @@ if __name__ == "__main__":
         # )
         # # #
 
-        frames = np.arange(620, 645, 1)  # frames, time = 0.4* frame, min = 1!
+        # frames = np.arange(620, 645, 1)  # frames, time = 0.4* frame, min = 1!
+        t = Timer.create_and_start("build video", label="detour_analysis_test")
         density_plots_all.animate_density(
             PlotOptions.DENSITY,
             join(vout.output_dir, "density_movie_allYY"),
-            animate_time=(240.0, 300.0),
+            animate_time=(240.0, 400.0),
             max_density=1.2,
             norm=0.8,
             plot_data=("all_peds", "informed_peds"),
@@ -123,6 +125,7 @@ if __name__ == "__main__":
             title="Mapped density (80% communication)",
             # multi_pool=pool,
         )
+        t.stop()
 
         # frames = np.arange(1, 1200, 1)
         # pool.apply_async(

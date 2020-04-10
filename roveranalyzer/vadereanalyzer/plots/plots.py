@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import os
 import sys
 from enum import Enum
@@ -13,6 +14,7 @@ import pandas as pd
 from matplotlib.colors import ListedColormap
 
 import trimesh
+from uitls import Timer
 from uitls.mesh import SimpleMesh
 from uitls.plot_helper import PlotHelper
 from vadereanalyzer.plots.custom_tripcolor import tripcolor_costum
@@ -65,9 +67,12 @@ class DensityPlots:
         self.df_data["time"] = self.time_resolution * _d
         self.df_data = self.df_data.set_index("time", append=True)
         self.slow_motion_intervals = None
+        t = Timer.create_and_start(
+            "add slow down frames", label="__init__.DensityPlots"
+        )
         if slow_motion is not None:
             self.slow_motion_intervals = self.__apply_slow_motion(slow_motion)
-
+        t.stop()
         self.cmap_dict: dict = df_cmap if df_cmap is not None else {}
 
     def __apply_slow_motion(self, slow_motion_areas):
@@ -97,7 +102,6 @@ class DensityPlots:
             ["timeStep", "time", "subframe", "faceId"]
         )
         self.df_data = self.df_data.sort_index()
-
         change_timeStep = np.append(
             0, np.diff(self.df_data.index.get_level_values("timeStep"))
         ).astype(np.bool)
@@ -151,7 +155,7 @@ class DensityPlots:
     def __data_for(self, frame, data=None):
         if data is None:
             data = list(self.df_data.columns)[0]
-        return self.df_data.loc[frame, data]
+        return self.df_data.loc[frame, data].copy()
 
     def __cmap_for(self, data=None):
         if data is None:
@@ -203,11 +207,90 @@ class DensityPlots:
 
         return triang, nodal_density_smooth
 
-    def __get_plot_attributes(
-        self, time, data, option: PlotOptions = PlotOptions.DENSITY
+    def __cache_data(self, data):
+        t = Timer.create_and_start("build pool_frames", label="__cache_data")
+        proc = 8
+        pool = Pool(processes=proc)
+        min_f = self.df_data.index.get_level_values("frame").min()
+        max_f = self.df_data.index.get_level_values("frame").max()
+        lower = np.linspace(min_f, max_f, num=proc + 1, dtype=int)[:-1]
+        upper = np.append(np.subtract(lower, 1)[1:], max_f)
+        pool_frames = np.concatenate((lower, upper)).reshape((-1, 2), order="F")
+
+        ret = []
+        t.stop_start("create cache")
+        for d in data:
+            ret.extend(pool.starmap(self.get_count, [(f, d) for f in pool_frames]))
+
+        t.stop_start("concat pools")
+        df = pd.concat(ret, axis=1)
+        t.stop()
+        return df
+
+    def select(self, df, data, type, frame):
+        s = pd.IndexSlice[data, type, frame]
+        mask = df.loc[:, s].notna()
+        return df.loc[mask, s]
+
+    def get_count(self, f, data):
+        # t = Timer.create_and_start("count", label="get_count")
+        df = self.df_data.loc[(slice(*f)), :].copy()
+        min_f = df.index.get_level_values("frame").min()
+        max_f = df.index.get_level_values("frame").max()
+        # print(f"{min_f}:{max_f}")
+
+        index_ret = np.array([])
+        data_ret = []
+        for frame in range(min_f, max_f + 1):
+            counts = df.loc[frame, data].copy()
+
+            matrix = self._mesh.mapping_matrices
+            areas = self._mesh.nodal_area
+            denominator = matrix.dot(areas)
+            sum_counts = matrix.dot(counts)
+            nodal_density = sum_counts / denominator
+            index_ret = np.append(
+                index_ret,
+                [
+                    np.array([data, PlotOptions.COUNT.name, frame]),
+                    np.array([data, PlotOptions.DENSITY.name, frame]),
+                ],
+            )
+            data_ret.extend([counts.reset_index(drop=True), pd.Series(nodal_density)])
+        # t.stop_start("contact")
+        i_arr = index_ret.reshape((3, -1), order="F")
+        index_ret = pd.MultiIndex.from_arrays(
+            [i_arr[0], i_arr[1], i_arr[2].astype(int)]
+        )
+        df = pd.concat(data_ret, ignore_index=True, axis=1)
+        df.columns = index_ret
+        # t.stop()
+        return df
+
+    def __cached_plot_data(
+        self, cache, frame, data, option: PlotOptions = PlotOptions.DENSITY
     ):
 
-        counts = self.__data_for(time, data).ravel()
+        triang = self._mesh.tri
+        if option == PlotOptions.COUNT:
+            density_or_counts = self.select(cache, data, option.name, frame)
+        elif option == PlotOptions.DENSITY:
+            density_or_counts = self.select(cache, data, option.name, frame)
+        elif option == PlotOptions.DENSITY_SMOOTH:
+            # new triangulation !
+            triang, nodal_density_smooth = self.__get_smoothed_mesh(frame)
+            density_or_counts = nodal_density_smooth
+        else:
+            raise ValueError(
+                f"unknown option received got: {option} allowed: {PlotOptions}"
+            )
+        return triang, density_or_counts
+
+    def __get_plot_attributes(
+        self, frame, data, option: PlotOptions = PlotOptions.DENSITY
+    ):
+
+        counts = self.__data_for(frame, data).ravel()
 
         matrix = self._mesh.mapping_matrices
         areas = self._mesh.nodal_area
@@ -222,7 +305,7 @@ class DensityPlots:
             density_or_counts = nodal_density
         elif option == PlotOptions.DENSITY_SMOOTH:
             # new triangulation !
-            triang, nodal_density_smooth = self.__get_smoothed_mesh(time)
+            triang, nodal_density_smooth = self.__get_smoothed_mesh(frame)
             density_or_counts = nodal_density_smooth
         else:
             raise ValueError(
@@ -263,14 +346,6 @@ class DensityPlots:
 
         """
         vid = f"{os.path.basename(save_mp4_as)}.mp4"
-        start_t, end_t = animate_time
-        frames = (
-            self.df_data.loc[
-                (slice(None), slice(None), slice(start_t, end_t), slice(1)), :
-            ]
-            .index.get_level_values("frame")
-            .to_list()
-        )
         if multi_pool is not None:
             print(f"build animate_density {vid} async in pool: {multi_pool}")
             multi_pool.apply_async(
@@ -293,6 +368,17 @@ class DensityPlots:
             )
             return
 
+        t = Timer.create_and_start("create_cache", label="animate_density")
+        start_t, end_t = animate_time
+        # df_cached = self.__cache_data(plot_data)
+        frames = (
+            self.df_data.loc[
+                (slice(None), slice(None), slice(start_t, end_t), slice(1)), :
+            ]
+            .index.get_level_values("frame")
+            .to_list()
+        )
+
         fig, ax = plt.subplots()
         if len(cbar_lbl) != len(color_bar_from):
             raise ValueError(
@@ -303,6 +389,7 @@ class DensityPlots:
             frame = i
             time_t = self.time_for_frame(frame)
             print(f"{vid} >> frame:{frame} time:{time_t}")
+            t = Timer.create_and_start("animate", label="animate")
             fig.clf()
             fig.tight_layout()
             ax = fig.gca()
@@ -311,10 +398,18 @@ class DensityPlots:
 
             for data in plot_data:
                 cmap = self.__cmap_for(data)
+
+                t = Timer.create_and_start("get_data", label="animate")
                 triang, density_or_counts = self.__get_plot_attributes(
                     frame, data, option
                 )
+
+                # triang, density_or_counts = self.__cached_plot_data(
+                #     df_cached, frame, data, option
+                # )
                 density_or_counts = density_or_counts / norm
+                t.stop()
+                t = Timer.create_and_start("plot", label="animate")
                 ax, tpc, default_title, default_label = self.__tripcolor(
                     ax,
                     triang,
@@ -326,6 +421,7 @@ class DensityPlots:
                 )
                 ax.set_title(title)
                 default_labels.append(default_title)
+                t.stop()
 
             ax.set_aspect("equal")
             sim_sec = np.floor(time_t)
@@ -343,12 +439,15 @@ class DensityPlots:
                 # choose given label or default if none.
                 _lbl = default_labels[idx] if lbl is None else lbl
                 fig.colorbar(ax.collections[idx], ax=ax, label=_lbl)
+            # t.stop()
 
         # anim = animation.FuncAnimation(fig, animate, init_func=init, frames=time_steps)
         anim = animation.FuncAnimation(fig, animate, frames=frames)
         save_mp4_as = save_mp4_as + ".mp4"
 
+        t.stop_start("save video")
         anim.save(save_mp4_as, fps=24, extra_args=["-vcodec", "libx264"])
+        t.stop()
 
     def plot_density(
         self,
