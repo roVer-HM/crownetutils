@@ -9,8 +9,12 @@ import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from uitls import Timer
 from uitls.mesh import SimpleMesh
 from uitls.path import PathHelper
-from vadereanalyzer.plots.plots import (DensityPlots, NumPedTimeSeries,
-                                        PlotOptions, mono_cmap)
+from vadereanalyzer.plots.plots import (
+    DensityPlots,
+    NumPedTimeSeries,
+    PlotOptions,
+    mono_cmap,
+)
 
 if __name__ == "__main__":
     builder = RoverBuilder(
@@ -52,9 +56,7 @@ if __name__ == "__main__":
     # p01.fig.show()
 
     outpaths = builder.root.glob("final_2020-04-03*/**/*.scenario")
-
     outpaths = [outpaths[0]]
-    # pool = Pool(processes=40)
     for p in outpaths:
         # print("\n".join(p))
         vout = builder.vadere_output_from(os.path.split(p)[0], is_abs=True)
@@ -78,67 +80,17 @@ if __name__ == "__main__":
         )
         # density_plots_informend = DensityPlots(mesh, df_density.loc[:, "informed_peds"])
 
-        # density_plots_all.plot_density(
-        #     frame,
-        #     PlotOptions.DENSITY,
-        #     plot_data=("all_peds", "informed_peds"),
-        #     norm=0.8,
-        #     max_density=1.2,
-        #     fig_path=join(vout.output_dir, "density_all.png"),
-        #     title="Mapped density (all)",
-        # )
-
-        # pool.apply_async(
-        #     density_plots_all.plot_density,
-        #     (frame, PlotOptions.DENSITY),
-        #     dict(
-        #         norm=0.8,
-        #         max_density=1.2,
-        #         fig_path=join(vout.output_dir, "density_all.png"),
-        #         title="Mapped density (all)",
-        #     ),
-        # )
-
-        # pool.apply_async(
-        #     density_plots_informend.plot_density,
-        #     (frame, PlotOptions.DENSITY),
-        #     dict(
-        #         fig_path=join(vout.output_dir, "density_informed.png"),
-        #         title="Mapped density (informend)",
-        #         norm=0.8,
-        #         max_density=1.2,
-        #     ),
-        # )
-        # # #
-
-        # frames = np.arange(620, 645, 1)  # frames, time = 0.4* frame, min = 1!
         t = Timer.create_and_start("build video", label="detour_analysis_test")
         density_plots_all.animate_density(
-            PlotOptions.DENSITY,
+            PlotOptions.DENSITY_SMOOTH,
             join(vout.output_dir, "density_movie_allYY"),
-            animate_time=(240.0, 400.0),
-            max_density=1.2,
+            animate_time=(240, 270.0),
+            max_density=1.5,
             norm=0.8,
-            plot_data=("all_peds", "informed_peds"),
-            color_bar_from=(0, 1),
-            cbar_lbl=("DensityAll [#/m^2]", "DensityInformed [#/m^2]"),
+            plot_data=("all_peds",),
+            color_bar_from=(0,),
+            cbar_lbl=("DensityAll [#/m^2]",),
             title="Mapped density (80% communication)",
             # multi_pool=pool,
         )
         t.stop()
-
-        # frames = np.arange(1, 1200, 1)
-        # pool.apply_async(
-        #     density_plots_informend.animate_density,
-        #     (frames, PlotOptions.DENSITY, join(vout.output_dir, "density_movie_informend")),
-        #     dict(
-        #         max_density=1.2,
-        #         title="Mapped density (informend)",
-        #         norm=0.8,
-        #         label="Density [#/m^2]",
-        #     ),
-        # )
-
-    print("waiting")
-    # pool.close()
-    # pool.join()
