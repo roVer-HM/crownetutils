@@ -31,6 +31,19 @@ class PlotOptions(Enum):
     DENSITY_SMOOTH = (3, "density_smooth")
 
 
+def t_cmap(
+    cmap_name, replace_index=(0, 1, 1.0), use_colors=(0, 256), zero_color=None,
+):
+    cmap = plt.get_cmap(name=cmap_name)
+    start, stop, alpha = replace_index
+    colors = np.array(cmap(np.linspace(0, cmap.N, dtype=int)))
+    colors = colors[use_colors[0] : use_colors[1]]
+    colors[start:stop, -1] = alpha
+    if zero_color is not None:
+        colors[0] = zero_color
+    return ListedColormap(colors)
+
+
 def mono_cmap(
     replace_with=(0.0, 0.0, 0.0, 0.0),
     replace_index=(0, 1),
@@ -365,7 +378,7 @@ class DensityPlots:
         )
         frames = np.repeat(frames, frame_repates)
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(16, 9))
         if len(cbar_lbl) != len(color_bar_from):
             raise ValueError(
                 f"plot_data and color_bar must be of same length. {color_bar_from} --- {cbar_lbl}"
@@ -399,7 +412,7 @@ class DensityPlots:
             sim_sec = np.floor(time_t)
             sim_msec = time_t - sim_sec
             slow_motion_txt = "Send Entrance Closed"
-            txt_info = _ax.text(30, -48, "", fontsize=12)
+            txt_info = _ax.text(30, -25, "", fontsize=12)
             if sim_msec == 0.0:
                 sim_t_str = f"{str(datetime.timedelta(seconds=sim_sec))}.000000"
                 txt_info.set_text("")
@@ -407,8 +420,8 @@ class DensityPlots:
                 sim_t_str = f"{str(datetime.timedelta(seconds=sim_sec))}.{datetime.timedelta(seconds=sim_msec).microseconds}"
                 txt_info.set_text(slow_motion_txt)
             if self.get_frame_multiplier(time_t) > 1:
-                sim_t_str = f"{sim_t_str} slow!"
-            txt_time = _ax.text(30, -35, f"Time: {sim_t_str}", fontsize=12)
+                sim_t_str = f"{sim_t_str} slow motion!"
+            txt_time = _ax.text(30, -20, f"Time: {sim_t_str}", fontsize=12)
             if title is not None:
                 _ax.set_title(title)
             for idx, lbl in zip(color_bar_from, cbar_lbl):
@@ -430,7 +443,7 @@ class DensityPlots:
                 _sim_t_str = f"{str(datetime.timedelta(seconds=_sim_s))}.{datetime.timedelta(seconds=_sim_ms).microseconds}"
             slow_motion_txt = ""
             if self.get_frame_multiplier(time_t) > 1:
-                _sim_t_str = f"{_sim_t_str} slow!"
+                _sim_t_str = f"{_sim_t_str} slow motion!"
                 slow_motion_txt = "Send Entrance Closed"
             txt1.set_text(f"Time: {_sim_t_str}")
             txt2.set_text(slow_motion_txt)

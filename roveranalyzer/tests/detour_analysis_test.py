@@ -10,7 +10,7 @@ from uitls import Timer
 from uitls.mesh import SimpleMesh
 from uitls.path import PathHelper
 from vadereanalyzer.plots.plots import (DensityPlots, NumPedTimeSeries,
-                                        PlotOptions, mono_cmap)
+                                        PlotOptions, mono_cmap, t_cmap)
 
 if __name__ == "__main__":
     builder = RoverBuilder(
@@ -66,9 +66,11 @@ if __name__ == "__main__":
             set_index=True, column_names=["all_peds", "informed_peds"],
         )
         cmap_dict = {
-            "informed_peds": mono_cmap(base_color=0, cspace=(0.2, 1.0)),
-            "all_peds": mono_cmap(
-                replace_with=(1.0, 1.0, 1.0, 1.0), base_color=2, cspace=(0.2, 1.0)
+            "informed_peds": t_cmap(cmap_name="Reds", replace_index=(0, 1, 0.0)),
+            "all_peds": t_cmap(
+                cmap_name="Blues",
+                zero_color=(1.0, 1.0, 1.0, 1.0),
+                replace_index=(0, 1, 1.0),
             ),
         }
         density_plots_all = DensityPlots(
@@ -79,9 +81,9 @@ if __name__ == "__main__":
         t = Timer.create_and_start("build video", label="detour_analysis_test")
         density_plots_all.animate_density(
             PlotOptions.DENSITY,
-            join(vout.output_dir, "density_movie_allYY"),
+            join(vout.output_dir, "mapped_density_0.8"),
             animate_time=(1.0, 498.0),
-            max_density=1.5,
+            max_density=1.2,
             norm=0.8,
             plot_data=("all_peds", "informed_peds"),
             color_bar_from=(0, 1),
