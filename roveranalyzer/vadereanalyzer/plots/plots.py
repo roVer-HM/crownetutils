@@ -329,7 +329,7 @@ class DensityPlots:
         color_bar_from=(0,),
         title=None,
         cbar_lbl=(None,),
-        norm=1.0,
+        norm=(1.0,),
         min_density=0.0,
         max_density=1.5,
         frame_rate=24,
@@ -483,7 +483,7 @@ class DensityPlots:
                     _, density_or_counts = self.__get_plot_attributes(
                         frame, data, option
                     )
-                    density_or_counts = density_or_counts / norm
+                    density_or_counts = density_or_counts / norm[idx]
                     # t.stop()
                     # t = Timer.create_and_start("plot", label="animate")
                     _ax.collections[idx].update_data(density_or_counts)
