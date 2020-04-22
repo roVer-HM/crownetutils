@@ -14,10 +14,10 @@ import pandas as pd
 from matplotlib.colors import ListedColormap
 
 import trimesh
-from uitls import Timer
-from uitls.mesh import SimpleMesh
-from uitls.plot_helper import PlotHelper
-from vadereanalyzer.plots.custom_tripcolor import tripcolor_costum
+from roveranalyzer.uitls import Timer
+from roveranalyzer.uitls.mesh import SimpleMesh
+from roveranalyzer.uitls.plot_helper import PlotHelper
+from roveranalyzer.vadereanalyzer.plots.custom_tripcolor import tripcolor_costum
 
 sys.path.append(
     os.path.abspath("")
@@ -63,13 +63,30 @@ class DensityPlots:
     def from_path(cls, mesh_file_path, df_counts: pd.DataFrame):
         return cls(SimpleMesh.from_path(mesh_file_path), df_counts)
 
+    @classmethod
+    def from_mesh_processor(
+        cls,
+        vadere_output,
+        mesh_out_file,
+        density_out_file,
+        cmap_dict: dict,
+        data_cols_rename: list,
+    ):
+        if not all([item in cmap_dict for item in data_cols_rename]):
+            raise ValueError("cmap keys are not in data_cols")
+        mesh_str = vadere_output.files[mesh_out_file].as_string(remove_meta=True)
+        _mesh = SimpleMesh.from_string(mesh_str)
+        _df = vadere_output.files[density_out_file].df(
+            set_index=True, column_names=data_cols_rename,
+        )
+        return cls(_mesh, _df, cmap_dict)
+
     def __init__(
         self,
         mesh: SimpleMesh,
         df_data: pd.DataFrame,
         df_cmap: dict = None,
         time_resolution=0.4,
-        slow_motion=None,
     ):
         self._mesh: SimpleMesh = mesh
         # data frame with count data.
@@ -79,24 +96,27 @@ class DensityPlots:
         _d = np.array(df_data.index.get_level_values("timeStep"))
         self.df_data["time"] = self.time_resolution * _d
         self.df_data = self.df_data.set_index("time", append=True)
-        self.slow_motion_intervals = None
-        t = Timer.create_and_start(
-            "add slow down frames", label="__init__.DensityPlots"
+        self.slow_motion_intervals = []
+        frame_key = pd.Series(
+            np.ones(self.df_data.shape[0], dtype=int), name="num_of_frames"
         )
-        self.slow_motion_intervals = slow_motion
-        if slow_motion is not None:
-            self.slow_motion_intervals = slow_motion
-            self.df_data["num_of_frames"] = 1
-            for sm_area in self.slow_motion_intervals:
-                t_start, t_stop, frame_multiplier = sm_area
-                self.df_data.loc[
-                    (slice(None), slice(None), slice(t_start, t_stop)),
-                    ("num_of_frames"),
-                ] = frame_multiplier
-            self.df_data = self.df_data.set_index("num_of_frames", append=True)
-        # self.slow_motion_intervals = self.__apply_slow_motion(slow_motion)
-        t.stop()
+        self.df_data = self.df_data.set_index(frame_key, append=True)
         self.cmap_dict: dict = df_cmap if df_cmap is not None else {}
+
+    def set_slow_motion_intervals(self, slow_motion_intervals):
+        self.slow_motion_intervals.extend(slow_motion_intervals)
+        times = self.df_data.index.get_level_values("time").to_numpy()
+        frames = self.df_data.index.get_level_values("num_of_frames").to_numpy(
+            copy=True, dtype=int
+        )
+        for sm_area in slow_motion_intervals:
+            t_start, t_stop, frame_multiplier = sm_area
+            mask = (times >= t_start) & (times <= t_stop)
+            frames[mask] = frame_multiplier
+
+        frame_key = pd.Series(frames, name="num_of_frames")
+        self.df_data = self.df_data.reset_index(level="num_of_frames", drop=True)
+        self.df_data = self.df_data.set_index(frame_key, append=True)
 
     def __tripcolor(
         self,
@@ -106,7 +126,6 @@ class DensityPlots:
         option: PlotOptions = PlotOptions.DENSITY,
         **kwargs,
     ):
-
         if option == PlotOptions.COUNT:
             ax, tpc = tripcolor_costum(
                 ax, triang, facecolors=density_or_counts, **kwargs,
@@ -187,37 +206,11 @@ class DensityPlots:
 
         return triang, nodal_density_smooth
 
-    def __cache_data(self, data):
-        t = Timer.create_and_start("build pool_frames", label="__cache_data")
-        proc = 8
-        pool = Pool(processes=proc)
-        min_f = self.df_data.index.get_level_values("frame").min()
-        max_f = self.df_data.index.get_level_values("frame").max()
-        lower = np.linspace(min_f, max_f, num=proc + 1, dtype=int)[:-1]
-        upper = np.append(np.subtract(lower, 1)[1:], max_f)
-        pool_frames = np.concatenate((lower, upper)).reshape((-1, 2), order="F")
-
-        ret = []
-        t.stop_start("create cache")
-        for d in data:
-            ret.extend(pool.starmap(self.get_count, [(f, d) for f in pool_frames]))
-
-        t.stop_start("concat pools")
-        df = pd.concat(ret, axis=1)
-        t.stop()
-        return df
-
-    def select(self, df, data, type, frame):
-        s = pd.IndexSlice[data, type, frame]
-        mask = df.loc[:, s].notna()
-        return df.loc[mask, s]
-
     def get_count(self, f, data):
         # t = Timer.create_and_start("count", label="get_count")
         df = self.df_data.loc[(slice(*f)), :].copy()
         min_f = df.index.get_level_values("frame").min()
         max_f = df.index.get_level_values("frame").max()
-        # print(f"{min_f}:{max_f}")
 
         index_ret = np.array([])
         data_ret = []
@@ -247,25 +240,6 @@ class DensityPlots:
         # t.stop()
         return df
 
-    def __cached_plot_data(
-        self, cache, frame, data, option: PlotOptions = PlotOptions.DENSITY
-    ):
-
-        triang = self._mesh.tri
-        if option == PlotOptions.COUNT:
-            density_or_counts = self.select(cache, data, option.name, frame)
-        elif option == PlotOptions.DENSITY:
-            density_or_counts = self.select(cache, data, option.name, frame)
-        elif option == PlotOptions.DENSITY_SMOOTH:
-            # new triangulation !
-            triang, nodal_density_smooth = self.__get_smoothed_mesh(frame)
-            density_or_counts = nodal_density_smooth
-        else:
-            raise ValueError(
-                f"unknown option received got: {option} allowed: {PlotOptions}"
-            )
-        return triang, density_or_counts
-
     def __get_plot_attributes(
         self, frame, data, option: PlotOptions = PlotOptions.DENSITY
     ):
@@ -293,6 +267,14 @@ class DensityPlots:
             )
 
         return triang, density_or_counts
+
+    def frame_for_time(self, time):
+        frame = (
+            self.df_data.loc[(slice(None), slice(1), time), :]
+            .index.get_level_values("timeStep")
+            .to_list()[0]
+        )
+        return frame
 
     def time_for_frame(self, frame):
         time = (
@@ -335,10 +317,7 @@ class DensityPlots:
         frame_rate=24,
         multi_pool: Pool = None,
     ):
-        """
-
-        """
-        vid = f"{os.path.basename(save_mp4_as)}.mp4"
+        vid = f"{os.path.basename(save_mp4_as)}"
         if multi_pool is not None:
             print(f"build animate_density {vid} async in pool: {multi_pool}")
             multi_pool.apply_async(
@@ -493,7 +472,7 @@ class DensityPlots:
             anim = animation.FuncAnimation(fig, animate_smooth, frames=frames)
         else:
             anim = animation.FuncAnimation(fig, animate_count_density, frames=frames)
-        save_mp4_as = save_mp4_as + ".mp4"
+        save_mp4_as = save_mp4_as
 
         t.stop_start("save video")
         anim.save(save_mp4_as, fps=24, extra_args=["-vcodec", "libx264"])
@@ -503,22 +482,30 @@ class DensityPlots:
         self,
         time,
         option,
-        plot_data=(None,),  # define intput data key for df_data and df_cmap <---
-        fig_path=None,
+        fig_path,
+        plot_data=(None,),
+        color_bar_from=(0,),
         title=None,
+        cbar_lbl=(None,),
+        norm=(1.0,),
         min_density=0.0,
         max_density=1.5,
-        norm=1.0,
+        print_time=True,
     ):
-        fig2, ax2 = plt.subplots()
-        ax2.set_aspect("equal")
-
-        for data in plot_data:
+        fig, _ax = plt.subplots(figsize=(16, 9))
+        _ax.set_facecolor((0.66, 0.66, 0.66))
+        _ax.set_title(title)
+        _ax.set_aspect("equal")
+        sim_sec = np.floor(time)
+        sim_msec = time - sim_sec
+        frame = self.frame_for_time(time)
+        default_labels = []
+        for idx, data in enumerate(plot_data):
             cmap = self.__cmap_for(data)
-            triang, density_or_counts = self.__get_plot_attributes(time, data, option)
-            density_or_counts = density_or_counts / norm
-            ax2, tpc, title_option, label_option = self.__tripcolor(
-                ax2,
+            triang, density_or_counts = self.__get_plot_attributes(frame, data, option)
+            density_or_counts = density_or_counts / norm[idx]
+            _ax, tpc, default_title, default_label = self.__tripcolor(
+                _ax,
                 triang,
                 density_or_counts,
                 cmap=cmap,
@@ -526,16 +513,22 @@ class DensityPlots:
                 vmax=max_density,
                 override_cmap_alpha=False,
             )
+            default_labels.append(default_title)
+        if sim_msec == 0.0:
+            sim_t_str = f"{str(datetime.timedelta(seconds=sim_sec))}.000000"
+        else:
+            sim_t_str = f"{str(datetime.timedelta(seconds=sim_sec))}.{datetime.timedelta(seconds=sim_msec).microseconds}"
+        if print_time:
+            _ax.text(30, -20, f"Time: {sim_t_str}", fontsize=12)
+        for idx, lbl in zip(color_bar_from, cbar_lbl):
+            # choose given label or default if none.
+            _lbl = default_labels[idx] if lbl is None else lbl
+            fig.colorbar(_ax.collections[idx], ax=_ax, label=_lbl)
 
-        if title is not None:
-            title_option = title
-
-        fig2.colorbar(tpc, label=label_option)
-        ax2.set_title(title_option)
         if fig_path is not None:
-            fig2.savefig(fig_path)
-        fig2.show()
-        return fig2, ax2
+            fig.savefig(fig_path)
+        fig.show()
+        return fig, _ax
 
 
 class NumPedTimeSeries(PlotHelper):

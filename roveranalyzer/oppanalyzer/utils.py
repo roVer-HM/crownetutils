@@ -18,7 +18,7 @@ from roveranalyzer.oppanalyzer.configuration import Config
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
 from roveranalyzer.uitls.path import PathHelper
-from vadereanalyzer.scenario_output import ScenarioOutput
+from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
 
 def stack_vectors(
@@ -432,6 +432,12 @@ class RoverBuilder:
 
     def store_exists(self):
         return os.path.exists(self.hdf_path)
+
+    def store_and_key_exists(self, key):
+        if self.store_exists():
+            with self.store_ctx(mode="r") as store:
+                return key in store
+        return False
 
     def save_to_output(self, fig: plt.Figure, file_name, **kwargs):
         fig.savefig(os.path.join(self.out_dir, file_name), **kwargs)
