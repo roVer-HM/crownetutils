@@ -4,12 +4,9 @@ import pandas as pd
 
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from roveranalyzer.oppanalyzer.configuration import Config
-from roveranalyzer.oppanalyzer.utils import (
-    RoverBuilder,
-    ScaveTool,
-    cumulative_messages,
-    parse_cmdEnv_outout,
-)
+from roveranalyzer.oppanalyzer.utils import (RoverBuilder, ScaveTool,
+                                             cumulative_messages,
+                                             parse_cmdEnv_outout)
 from roveranalyzer.uitls.path import PathHelper
 
 
