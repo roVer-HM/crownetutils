@@ -5,12 +5,10 @@ from matplotlib import tri
 
 class SimpleMesh:
     @classmethod
-    def from_path(cls, poly_file_path):
+    def from_string(cls, poly_str):
         v, v1 = np.array([]), np.array([])
 
-        with open(poly_file_path) as file:
-            text = file.read().split("#")
-
+        text = poly_str.split("#")
         xy = text[1].splitlines()
         xy = xy[2:]
         for xy_ in xy:
@@ -31,13 +29,24 @@ class SimpleMesh:
 
         return cls(x, y, triangles)
 
+    @classmethod
+    def from_path(cls, poly_file_path):
+        v, v1 = np.array([]), np.array([])
+
+        with open(poly_file_path) as file:
+            text = file.read().split("#")
+
+        return cls(text)
+
     def __init__(self, x, y, triangles):
         self.x = x
         self.y = y
         self.triangles = triangles
-        # self.apping_matrices = self.get_mapping_matrices()
+        self.mapping_matrices = self.__build_mapping_matrices()
+        self.nodal_area = self.__build_nodal_areas()
+        self.tri: tri.Triangulation = tri.Triangulation(self.x, self.y, self.triangles)
 
-    def get_mapping_matrices(self):
+    def __build_mapping_matrices(self):
         rows, cols = np.array([], dtype=int), np.array([], dtype=int)
 
         ind = 0
@@ -51,7 +60,7 @@ class SimpleMesh:
 
         return mapping_matrix
 
-    def get_nodal_areas(self):
+    def __build_nodal_areas(self):
         # not used?
         # triang = tri.Triangulation(self.x, self.y, self.elements)
 

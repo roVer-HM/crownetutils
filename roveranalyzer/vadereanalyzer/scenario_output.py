@@ -41,6 +41,19 @@ class LazyDataFrameWrapper(object):
         else:
             return {"IDXCOL": 1, "DATACOL": -1, "SEP": " "}
 
+    def as_string(self, remove_meta=False):
+        if remove_meta:
+            with open(self.path, "r") as f:
+                meta = f.readline()
+                if not meta.startswith("#"):
+                    raise ValueError(f"expected metadata row but got 1: {meta}")
+                ret = f.read()
+        else:
+            with open(self.path, "r") as f:
+                ret = f.read()
+
+        return ret
+
     def df(self, set_index=False, column_names=None):
         meta = self._read_meta_data()
         df: pd.DataFrame = pd.read_csv(
@@ -56,7 +69,7 @@ class LazyDataFrameWrapper(object):
             nr_row_indices = int(meta["IDXCOL"])
             if 0 < nr_row_indices <= df.shape[1]:
                 idx_keys = df.columns[:nr_row_indices]
-                return df.set_index(idx_keys.tolist())
+                df = df.set_index(idx_keys.tolist())
         if len(df.columns) == len(column_names):
             if type(column_names) == list:
                 df = df.rename(

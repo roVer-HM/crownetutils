@@ -134,41 +134,28 @@ def mac_pending_queue_hist():
     fig.show()
 
 
-def mac_pkt_drop():
-    # builder_80 = RoverBuilder(
-    #     path=PathHelper.from_env(
-    #         "ROVER_MAIN", "simulation-campaigns/results/simpleDetour_miat0_85_20200313"
-    #     ),
-    #     analysis_name="mac_8020",
-    # )
-    # builder_80.set_scave_filter('module("*.hostMobile[*].*.mac")')
-    # builder_80.set_scave_input_path("*0.8*0.2*rep_0.vec")
-    # w80211.create_mac_pkt_drop_figures(
-    #     builder=builder_80,
-    #     log_file=builder_80.root.join("vars_p1Rate0.8_p2Rate0.2_rep_0.out"),
-    #     figure_title="Mac package drop ratio (80% module penetration)",
-    #     hdf_key = "/df_mac_pkt_drop_ts"
-    # )
-
-    builder_20 = RoverBuilder(
-        path=PathHelper.from_env(
-            "ROVER_MAIN",
-            "rover/simulations/simple_detoure/results/final_20200402-15:32:25/",
-        ),
-        analysis_name="mac",
+def mac_analysis(base_dir, fig_title, vec_input, prefix, out_input=None):
+    builder = RoverBuilder(
+        path=PathHelper(base_dir),
+        analysis_name=f"{prefix}mac",
         analysis_dir="analysis.d",
         hdf_store_name="analysis.h5",
     )
-    builder_20.set_scave_filter('module("*.hostMobile[*].*.mac")')
-    builder_20.set_scave_input_path("*.vec")
+    builder.set_scave_filter('module("*.hostMobile[*].*.mac")')
+    builder.set_scave_input_path(vec_input)
+    if out_input is not None:
+        _log_file = builder.root.join(out_input)
+    else:
+        _log_file = ""
     w80211.create_mac_pkt_drop_figures(
-        builder=builder_20,
-        # log_file=builder_20.root.join("vars_p1Rate0.2_p2Rate0.8_rep_0.out"),
-        figure_title="Mac package drop ratio (20% module penetration)",
-        hdf_key="/df/mac_pkt_drop_ts",
+        builder=builder,
+        log_file=_log_file,
+        figure_title=fig_title,
+        figure_prefix=prefix,
+        hdf_key=f"/df/{prefix}mac_pkt_drop_ts",
         show_fig=True,
     )
 
 
 if __name__ == "__main__":
-    mac_pkt_drop()
+    pass

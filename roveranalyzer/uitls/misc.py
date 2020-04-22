@@ -4,7 +4,7 @@ import time
 
 class Timer:
 
-    ACTIVE = False
+    ACTIVE = True
 
     @classmethod
     def create_and_start(cls, name, label=0):

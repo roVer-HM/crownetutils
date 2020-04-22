@@ -268,7 +268,7 @@ def create_mac_pkt_drop_figures(
     """
     timer = Timer.create_and_start("build graphic")
 
-    if use_hdf and builder.store_exists():
+    if use_hdf and builder.store_and_key_exists(hdf_key):
         df = builder.hdf_get(key=hdf_key)
     else:
         df = build_df_mac_pkt_drop_ts(builder=builder, hdf_key=hdf_key)
@@ -292,8 +292,6 @@ def create_mac_pkt_drop_figures(
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles, labels, loc="lower right")
 
-    # fig 1
-    ax.legend(l1, l1[0].get_label(), loc="upper left")
     builder.save_to_output(ax.figure, f"{figure_prefix}pkg_drop_sma_3.png")
     if show_fig:
         ax.figure.show()
