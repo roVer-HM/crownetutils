@@ -552,7 +552,13 @@ class OppPlot:
             self._set_labels(ax, s)
         if "label" not in kwargs:
             kwargs.setdefault("label", self.create_label(s.module, []))
-        return ax.plot(s.vectime, s.vecvalue, **self.plt_args(idx=0, **kwargs))
+
+        if "vecvalue" in s.index and "vectime" in s.index:
+            # omnetpp based Series with Index(['vectime', 'vecvalue'], dtype='object')
+            return ax.plot(s.vectime, s.vecvalue, **self.plt_args(idx=0, **kwargs))
+        else:
+            # standardized Series with shape (XXX,)
+            return ax.plot(s, **self.plt_args(idx=0, **kwargs))
 
     def create_histogram(
         self,
@@ -567,7 +573,12 @@ class OppPlot:
         if "density" not in kwargs:
             kwargs.setdefault("density", True)
 
-        ret = ax.hist(s.vecvalue, bins, **kwargs,)
+        if "vecvalue" in s.index:
+            # omnetpp based Series with Index(['vectime', 'vecvalue'], dtype='object')
+            ret = ax.hist(s.vecvalue, bins, **kwargs,)
+        else:
+            # standardized Series with shape (XXX,)
+            ret = ax.hist(s, bins, **kwargs)
 
         if auto_labels:
             attr = self._opp.attr.attr_for_series(s)

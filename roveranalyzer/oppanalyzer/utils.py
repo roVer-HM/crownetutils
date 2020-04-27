@@ -727,3 +727,59 @@ class StatsTool:
         )
 
         return table
+
+
+class PlotAttrs:
+    """
+    PlotAttrs is a singleton guaranteeing unique plot parameters
+    """
+    
+    class __PlotAttrs:
+        plot_marker = [".", "*", "o", "v", "1", "2", "3", "4"]
+        plot_color = ["b", "g", "r", "c", "m", "y", "k", "w"]
+
+        def __init__(self):
+            pass
+
+    instance: object = None
+
+    def __init__(self):
+        if not PlotAttrs.instance:
+            PlotAttrs.instance = PlotAttrs.__PlotAttrs()
+        self.idx_m = -1
+        self.idx_c = -1
+
+    def __getattr__(self, name):
+        return getattr(self.instance, name)
+
+    def get_marker(self) -> str:
+        ret = self.instance.plot_marker[self.idx_m]
+        self.idx_m += 1
+        if self.idx_m >= len(self.instance.plot_marker):
+            self.idx_m = 0
+        return ret
+
+    def get_color(self) -> str:
+        ret = self.instance.plot_color[self.idx_c]
+        self.idx_c += 1
+        if self.idx_c >= len(self.instance.plot_color):
+            self.idx_c = 0
+        return ret
+
+    def reset(self) -> object:
+        self.idx_c = 0;
+        self.idx_m = 0;
+
+
+class Simulation(object):
+    """
+    The Simulation class specifies the information required to read and plot a simulation scenario.
+
+    :param id:          Unique ID of the scenario
+    :param path:        Path to all *.vec and *.sca files produced by the scenario
+    :param description: Human readable description used in plot legend for this scenario
+    """
+    def __init__(self, id: str, path: str, description: str):
+        self.id = id
+        self.path = path
+        self.desc = description
