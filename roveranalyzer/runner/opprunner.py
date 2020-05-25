@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 
 import docker
 from docker.errors import ContainerError
@@ -11,7 +12,7 @@ from docker.types import LogConfig
 from runner.dockerrunner import OppRunner
 
 
-def parse_args(args):
+def parse_args_as_dict(args):
     # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -48,6 +49,15 @@ def parse_args(args):
         default="out",
         required=False,
         help="experiment-label used in the result path. Default: out",
+    )
+    parser.add_argument(
+        "--use-timestep-label",
+        dest="use_timestep_label",
+        default=False,
+        required=False,
+        action="store_true",
+        help="Use current timestamp (sanitized ISI-Format). If this is given '--experiment-label' will be ignored. "
+        "Default: False",
     )
     parser.add_argument(
         "--run-name",
@@ -95,7 +105,12 @@ def parse_args(args):
         required=False,
         help="If set the container is not NOT deleted after execution. This simplifies debugging.",
     )
-    return parser.parse_args(args)
+    ns = vars(parser.parse_args(args))
+    if ns["use_timestep_label"]:
+        ns["experiment_label"] = (
+            datetime.now().isoformat().replace("-", "").replace(":", "")
+        )
+    return ns
 
 
 class process_as:
@@ -116,7 +131,7 @@ class process_as:
 class BaseRunner:
     def __init__(self, working_dir, args):
         self.docker_client = docker.from_env()
-        self.ns = vars(parse_args(args))
+        self.ns = parse_args_as_dict(args)
         self.working_dir = working_dir
 
         # prepare post and pre map
@@ -220,4 +235,4 @@ if __name__ == "__main__":
         "/home/sts/repos/rover-main/rover/simulations/mucFreiNetdLTE2dMulticast/",
         ["--config", "vadere01"],
     )
-    runner.opp_query_details()
+    runner.run()
