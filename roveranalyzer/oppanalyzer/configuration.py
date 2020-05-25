@@ -1,4 +1,5 @@
 import os
+import pathlib
 import subprocess
 from pathlib import Path
 
@@ -28,6 +29,30 @@ class ConfigException(Exception):
     pass
 
 
+def check_setup(_cls):
+    if "ROVER_MAIN" not in os.environ:
+        raise ValueError("ROVER_MAIN not set.")
+    return _cls
+
+
+@check_setup
+class RoverConfig:
+    NAME_PACKAGE = "roveranalyzer"
+    NAME_ROVER_CONFIG_FILE = "roveranalyzer.conf"
+
+    @classmethod
+    def path_userhome(cls):
+        return pathlib.Path.home()
+
+    @classmethod
+    def path_rover_main(cls):
+        return os.environ.get("ROVER_MAIN")
+
+    @classmethod
+    def join_rover_main(cls, other):
+        return os.path.join(cls.path_rover_main(), other)
+
+
 class Config:
     """
     Config object to determine the correct way to call the scavetool.
@@ -43,23 +68,6 @@ class Config:
             "opp_container_path", _default_opp_container_path
         )
         self.rover_main = kwargs.get("rover_main", _default_rover_main)
-
-    def test_config(self):
-        try:
-            out = subprocess.check_output(
-                [self.opp_container_path, "exec", self.scave_tool_cmd, "--help"],
-                env=os.environ.copy(),
-            )
-            out_str = out.decode("utf-8").split("\n")[0:2]
-            print("using: " + " ".join(out_str))
-        except subprocess.CalledProcessError as e:
-            raise ConfigException(
-                f"Docker container found but scavetool created error: {e.cmd}"
-            )
-        except Exception as ee:
-            raise ConfigException(
-                f"container_path command not found. container_path was: {self.opp_container_path}"
-            )
 
     @property
     def scave_cmd(self):

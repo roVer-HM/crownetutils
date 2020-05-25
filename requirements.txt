@@ -1,3 +1,4 @@
+docker
 pandas
 numpy
 matplotlib
