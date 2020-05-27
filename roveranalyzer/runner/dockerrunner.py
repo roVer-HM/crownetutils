@@ -6,7 +6,7 @@ from pathlib import Path
 import docker
 from docker.errors import ContainerError
 from docker.types import LogConfig
-from oppanalyzer.configuration import RoverConfig
+from roveranalyzer.oppanalyzer.configuration import RoverConfig
 
 
 class DockerRunner:
@@ -97,6 +97,7 @@ class DockerRunner:
     def run(self, cmd="/init.sh", **run_args):
         self.build_run_args(**run_args)
         print("run container")
+
         command = self.wrap_command(cmd)
         return self.client.containers.run(
             image=self.image, command=command, **self.run_args

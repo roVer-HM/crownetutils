@@ -9,7 +9,7 @@ import docker
 from docker.errors import ContainerError
 from docker.types import LogConfig
 
-from runner.dockerrunner import OppRunner
+from roveranalyzer.runner.dockerrunner import OppRunner
 
 
 def parse_args_as_dict(args):
@@ -18,8 +18,6 @@ def parse_args_as_dict(args):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
-    parser.add_argument("--remove", dest="keep", action="store_true")
-    parser.add_argument("--keep", dest="keep", action="store_false")
     parser.add_argument(
         "-i",
         "--ini-file",
@@ -51,6 +49,7 @@ def parse_args_as_dict(args):
         help="experiment-label used in the result path. Default: out",
     )
     parser.add_argument(
+        # TODO rename
         "--use-timestep-label",
         dest="use_timestep_label",
         default=False,
