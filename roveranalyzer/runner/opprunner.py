@@ -9,10 +9,11 @@ import docker
 from docker.errors import ContainerError
 from docker.types import LogConfig
 
-from runner.dockerrunner import OppRunner
+from roveranalyzer.runner.dockerrunner import OppRunner
 
 
-def parse_args_as_dict(args):
+def parse_args_as_dict(args=None):
+
     # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -105,11 +106,16 @@ def parse_args_as_dict(args):
         required=False,
         help="If set the container is not NOT deleted after execution. This simplifies debugging.",
     )
-    ns = vars(parser.parse_args(args))
+    if args is None:
+        ns = vars(parser.parse_args())
+    else:
+        ns = vars(parser.parse_args(args))
+
     if ns["use_timestep_label"]:
         ns["experiment_label"] = (
             datetime.now().isoformat().replace("-", "").replace(":", "")
         )
+
     return ns
 
 
@@ -129,7 +135,7 @@ class process_as:
 
 
 class BaseRunner:
-    def __init__(self, working_dir, args):
+    def __init__(self, working_dir, args=None):
         self.docker_client = docker.from_env()
         self.ns = parse_args_as_dict(args)
         self.working_dir = working_dir

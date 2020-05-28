@@ -6,7 +6,7 @@ from pathlib import Path
 import docker
 from docker.errors import ContainerError
 from docker.types import LogConfig
-from oppanalyzer.configuration import RoverConfig
+from roveranalyzer.oppanalyzer.configuration import RoverConfig
 
 
 class DockerRunner:
