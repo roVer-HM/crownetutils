@@ -1,6 +1,5 @@
 import argparse
 import os
-import re
 import sys
 import time
 from datetime import datetime
@@ -18,6 +17,14 @@ def parse_args_as_dict(args):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
+    parser.add_argument(
+        "--pre",
+        action="append",
+        nargs="+",
+        help="specify preprocessing methods",
+        type=str,
+    )
+
     parser.add_argument(
         "-i",
         "--ini-file",
@@ -152,19 +159,33 @@ class BaseRunner:
         self.run_simulation()
         self.post()
 
+    def sort_processing(self, ptype, method_list):
+
+        map = self.f_map.get(ptype, [])
+        method_list = [
+            os.path.splitext(qoi)[0].replace("-", "_").lower() for qoi in method_list[0]
+        ]
+        filtered_map = [
+            [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
+        ]
+        filtered_map.sort(key=lambda x: x[0], reverse=True)
+        return filtered_map
+
     def post(self):
-        _post_map = self.f_map.get("post", [])
-        _post_map.sort(key=lambda x: x[0], reverse=True)
-        for prio, _f in _post_map:
-            print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
-            _f()
+        method_list = self.ns["qoi"]
+        if method_list:
+            _post_map = self.sort_processing("post", method_list)
+            for prio, _f in _post_map:
+                print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
+                _f()
 
     def pre(self):
-        _pre_map = self.f_map.get("pre", [])
-        _pre_map.sort(key=lambda x: x[0], reverse=True)
-        for prio, _f in _pre_map:
-            print(f"pre: '{_f.__name__}' as post function with prio: {prio} ...")
-            _f()
+        method_list = self.ns["pre"]
+        if method_list:
+            _pre_map = self.sort_processing("pre", method_list)
+            for prio, _f in _pre_map:
+                print(f"pre: '{_f.__name__}' as post function with prio: {prio} ...")
+                _f()
 
     def run_simulation(self):
         opp_runner, run_args_override = self._build_docker_runner()
