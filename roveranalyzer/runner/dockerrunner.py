@@ -191,6 +191,11 @@ class OppRunner(DockerRunner):
 
         return self.run(cmd, **run_args_override)
 
+    def _apply_default_run_args(self):
+        super()._apply_default_run_args()
+        self.run_args["remove"] = True
+
+
 
 class VadereRunner(DockerRunner):
     def __init__(
