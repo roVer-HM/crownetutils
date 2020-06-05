@@ -257,8 +257,5 @@ class BaseRunner:
 
 
 if __name__ == "__main__":
-    runner = BaseRunner(
-        "/home/sts/repos/rover-main/rover/simulations/mucFreiNetdLTE2dMulticast/",
-        ["--config", "vadere01"],
-    )
+    runner = BaseRunner(os.getcwd())
     runner.run()

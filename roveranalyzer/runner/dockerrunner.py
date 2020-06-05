@@ -6,6 +6,7 @@ from pathlib import Path
 import docker
 from docker.errors import ContainerError
 from docker.types import LogConfig
+
 from roveranalyzer.oppanalyzer.configuration import RoverConfig
 
 
@@ -196,7 +197,6 @@ class OppRunner(DockerRunner):
         self.run_args["remove"] = True
 
 
-
 class VadereRunner(DockerRunner):
     def __init__(
         self,
@@ -230,7 +230,7 @@ class VadereRunner(DockerRunner):
 
 if __name__ == "__main__":
     client = docker.from_env()
-    os.chdir("/home/sts/repos/rover-main/rover/simulations/mucFreiNetdLTE2dMulticast")
+    os.chdir(f"{os.environ['ROVER_MAIN']}/rover/simulations/mucFreiNetdLTE2dMulticast")
     opp = OppRunner(docker_client=client)
     log = LogConfig(type=LogConfig.types.JOURNALD, config={"tag": "opp_01"})
     opp.set_log_driver(log)
@@ -254,4 +254,4 @@ if __name__ == "__main__":
         print(f"\tstderr:", file=sys.stderr)
         err_str = cErr.stderr.decode("utf-8").strip().split("\n")
         for line in err_str:
-            print(f"\t{line}", )
+            print(f"\t{line}",)
