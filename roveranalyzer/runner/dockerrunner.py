@@ -1,21 +1,35 @@
+import logging
 import os
+import pprint
 import subprocess
-import sys
 from pathlib import Path
 
 import docker
-from docker.errors import ContainerError
+from docker.errors import NotFound
+from docker.models.containers import Container
 from docker.types import LogConfig
 
 from roveranalyzer.oppanalyzer.configuration import RoverConfig
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s:%(filename)s:%(levelname)s> %(message)s"
+)
 
 
 class DockerRunner:
 
     NET = "rovernet"
-    _default_enviroment = {}
 
-    def __init__(self, image, tag="latest", docker_client=None):
+    def __init__(
+        self,
+        image,
+        tag="latest",
+        docker_client=None,
+        name="",
+        remove=True,
+        detach=False,
+        journal_tag="",
+    ):
         if docker_client is None:
             self.client: docker.DockerClient = docker.from_env()
         else:
@@ -24,13 +38,38 @@ class DockerRunner:
         self.user_home = str(Path.home())
         self.user_id = os.getuid()
         self.working_dir = str(Path.cwd())
-        self.name = ""
-        self.hostname = ""
+        self.name = name
+        self.journal_tag = journal_tag
+        self.hostname = name
+        self.detach = detach
+        self.remove = remove
+        self.run_args = {}
 
         # last call in init.
         self._apply_default_volumes()
         self._apply_default_environment()
-        self._apply_default_run_args()
+        self.set_run_args()
+        if self.journal_tag != "":
+            self.set_log_driver(
+                LogConfig(
+                    type=LogConfig.types.JOURNALD, config={"tag": self.journal_tag}
+                )
+            )
+
+    def delete_if_container_exists(self):
+        try:
+            _container = self.client.containers.get(self.name)
+
+            if _container.status == "exited":
+                logging.info(f"remove existing container with name '{self.name}'")
+                _container.remove()
+            else:
+                raise RuntimeError(
+                    f"Cannot delete container {_container.name} with status '{_container.status}'. Container must be in "
+                    f"state 'exited' to be removed"
+                )
+        except NotFound as notFoundErr:
+            pass  # ignore do nothing
 
     def _apply_default_volumes(self):
         self.volumes: dict = {
@@ -64,16 +103,21 @@ class DockerRunner:
             self.client.networks.create(self.NET)
         return self.NET
 
-    def _apply_default_run_args(self):
-        self.run_args: dict = {
-            "cap_add": ["SYS_PTRACE"],
-            "user": self.user_id,
-            "network": self.check_create_network(),
-            "environment": self.environment,
-            "volumes": self.volumes,
-            "working_dir": self.working_dir,
-            "detach": True,
-        }
+    def set_run_args(self, run_args=None):
+        """
+        override default run args. If run_args is None use defaults.
+        """
+        if run_args is None:
+            self.run_args: dict = {
+                "cap_add": ["SYS_PTRACE"],
+                "user": self.user_id,
+                "network": self.check_create_network(),
+                "environment": self.environment,
+                "volumes": self.volumes,
+                "working_dir": self.working_dir,
+            }
+        else:
+            self.run_args = run_args
 
     def set_log_driver(self, driver: LogConfig):
         self.run_args["log_config"] = driver
@@ -95,14 +139,63 @@ class DockerRunner:
         else:
             return f'/bin/bash -c "cd {self.working_dir}; {cmd}"'
 
-    def run(self, cmd="/init.sh", **run_args):
-        self.build_run_args(**run_args)
-        print("run container")
-
+    def create_container(self, cmd="/init.sh", **run_args) -> Container:
+        """
+        run container. If no command is given execute the default entry point '/init.sh'
+        """
+        self.build_run_args(**run_args)  # set name if given
         command = self.wrap_command(cmd)
-        return self.client.containers.run(
+        logging.info(f"create container [image:{self.image}]")
+        logging.debug(f"   cmd: \n{pprint.pformat(command, indent=2)}")
+        logging.debug(f"   runargs: \n{pprint.pformat(self.run_args, indent=2)}")
+        c: Container = self.client.containers.create(
             image=self.image, command=command, **self.run_args
         )
+        logging.info(f"container created {c.name} [image:{self.image}]")
+        return c
+
+    def run(self, cmd, **run_args):
+        try:
+            _container = self.create_container(cmd, **run_args)
+            logging.info(
+                f"start container {_container.name} with {{detach: {self.detach},"
+                f" remove: {self.remove}, journal_tag: {self.journal_tag}}}"
+            )
+            _container.start()
+            if not self.detach:
+                ret = _container.wait()
+                if ret["StatusCode"] != 0:
+                    logging.error(f"Command returned {ret['StatusCode']}")
+                    if (
+                        "log_config" in self.run_args
+                        and self.run_args["log_config"].type == LogConfig.types.JOURNALD
+                    ):
+                        logging.error(
+                            f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
+                        )
+                    container_log = _container.logs()
+                    if container_log != b"":
+                        logging.error(
+                            f'Container Log:\n {container_log.decode("utf-8")}'
+                        )
+            else:
+                ret = {}
+        except KeyboardInterrupt as kInter:
+            logging.info(f"KeyboardInterrupt. Stop Container {_container.name} ...")
+            _container.stop(timeout=5)
+            ret = {}
+        except BaseException as e:
+            logging.error(f"some error occurred")
+            raise RuntimeError(e)
+        finally:
+            if not self.detach and self.remove:
+                logging.info(f"Stop and remove container {_container.name}")
+                _container.stop()
+                _container.remove()
+        return ret, _container
+
+    def __str__(self) -> str:
+        return f"{__name__}: Run Arguments: {pprint.pformat(self.run_args, indent=2)}"
 
 
 class OppRunner(DockerRunner):
@@ -111,8 +204,20 @@ class OppRunner(DockerRunner):
         image="sam-dev.cs.hm.edu:5023/rover/rover-main/omnetpp",
         tag="latest",
         docker_client=None,
+        name="",
+        remove=True,
+        detach=False,
+        journal_tag="",
     ):
-        super().__init__(image, tag, docker_client)
+        super().__init__(
+            image=image,
+            tag=tag,
+            docker_client=docker_client,
+            name=name,
+            remove=remove,
+            detach=detach,
+            journal_tag=journal_tag,
+        )
 
     def _apply_default_environment(self):
         super()._apply_default_environment()
@@ -124,8 +229,11 @@ class OppRunner(DockerRunner):
         self.environment["NEDPATH"] = nedpath
 
     @staticmethod
-    def __build_base_cmd(base_cmd):
-        cmd = [base_cmd]
+    def __build_base_opp_run(base_cmd):
+        if type(base_cmd) == str:
+            cmd = [base_cmd]
+        else:
+            cmd = base_cmd
         cmd.extend(["-u", "Cmdenv"])
         cmd.extend(["-l", RoverConfig.join_rover_main("inet4/src/INET")])
         cmd.extend(["-l", RoverConfig.join_rover_main("rover/src/ROVER")])
@@ -141,7 +249,7 @@ class OppRunner(DockerRunner):
         )
         return cmd
 
-    def opp_query_details(
+    def exec_opp_run_details(
         self,
         opp_ini="omnetpp.ini",
         config="final",
@@ -150,7 +258,7 @@ class OppRunner(DockerRunner):
         run_args_override=None,
         **kwargs,
     ):
-        cmd = self.__build_base_cmd("opp_run")
+        cmd = self.__build_base_opp_run("opp_run")
         cmd.extend(["-c", config])
         if experiment_label is not None:
             cmd.extend([f"--experiment-label={experiment_label}"])
@@ -160,98 +268,156 @@ class OppRunner(DockerRunner):
 
         return self.run(cmd, **run_args_override)
 
-    def opp_run(
+    def exec_opp_run_all(
         self,
         opp_ini="omnetpp.ini",
         config="final",
         result_dir="results",
         experiment_label="out",
-        debug=False,
-        run_all=True,
         jobs=-1,
         run_args_override=None,
-        **kwargs,
     ):
-        if run_all and debug:
-            raise ValueError("run_all and debug not supported")
-        cmd = "opp_run"
-        if debug:
-            cmd = f"{cmd}_dbg"
-        cmd = self.__build_base_cmd(cmd)
+        cmd = ["opp_run_all"]
+        if jobs > 0:
+            cmd.extend(["-j", jobs])
+        cmd = self.__build_base_opp_run(cmd)
         cmd.extend(["-c", config])
         if experiment_label is not None:
             cmd.extend([f"--experiment-label={experiment_label}"])
         cmd.extend([f"--result-dir={result_dir}"])
         cmd.append(opp_ini)
 
-        if run_all:
-            cmd.insert(0, "opp_runall")
-            if jobs > 0:
-                cmd.insert(1, "-j")
-                cmd.insert(2, str(jobs))
+        return self.run(cmd, **run_args_override)
+
+    def exec_opp_run(
+        self,
+        opp_ini="omnetpp.ini",
+        config="final",
+        result_dir="results",
+        experiment_label="out",
+        debug=False,
+        run_args_override=None,
+    ):
+        """
+        Execute opp_run in container.
+        """
+        cmd = "opp_run"
+        if debug:
+            cmd = f"{cmd}_dbg"
+        cmd = self.__build_base_opp_run(cmd)
+        cmd.extend(["-c", config])
+        if experiment_label is not None:
+            cmd.extend([f"--experiment-label={experiment_label}"])
+        cmd.extend([f"--result-dir={result_dir}"])
+        cmd.append(opp_ini)
 
         return self.run(cmd, **run_args_override)
 
-    def _apply_default_run_args(self):
-        super()._apply_default_run_args()
-        self.run_args["remove"] = True
+    def set_run_args(self, run_args=None):
+        super().set_run_args()
 
 
 class VadereRunner(DockerRunner):
+    class LogLevel:
+        OFF = "OFF"
+        FATAL = "FATAL"
+        ERROR = "ERROR"
+        WARN = "WARN"
+        INFO = "INFO"
+        DEBUG = "DEBUG"
+        TRACE = "TRACE"
+        ALL = "ALL"
+
     def __init__(
         self,
         image="sam-dev.cs.hm.edu:5023/rover/rover-main/vadere",
         tag="latest",
         docker_client=None,
+        name="",
+        remove=True,
+        detach=False,
+        journal_tag="",
     ):
-        super().__init__(image, tag, docker_client)
-        self.name = "vadere"
+        super().__init__(
+            image,
+            tag,
+            docker_client=docker_client,
+            name=name,
+            remove=remove,
+            detach=detach,
+            journal_tag=journal_tag,
+        )
 
     def _apply_default_volumes(self):
         super()._apply_default_volumes()
-        self.volumes.update({})
+        # add...
 
     def _apply_default_environment(self):
         super()._apply_default_environment()
-        self.environment.update(
-            {
-                "TRACI_PORT": 9998,
-                "TRACI_GUI": "false",
-                # "TRACI_DEBUG": "false",
-                # "VADERE_LOG_LEVEL": "INFO",
-                # "VADERE_LOG": self.working_dir,
-            }
-        )
+        # add...
 
-    def _apply_default_run_args(self):
-        super()._apply_default_run_args()
-        self.run_args["remove"] = True
+    def set_run_args(self, run_args=None):
+        super().set_run_args()
+        # add...
+
+    def exec_single_server(
+        self,
+        traci_port=9998,
+        loglevel=LogLevel.DEBUG,
+        logfile=os.devnull,
+        show_gui=False,
+        run_args_override=None,
+    ):
+        """
+        start Vadere server waiting for exactly ONE connection on given traci_port. After
+        simulation returns the container will stop.
+        """
+
+        cmd = [
+            "java",
+            "-jar",
+            "/opt/vadere/vadere/VadereManager/target/vadere-server.jar",
+            "--loglevel",
+            loglevel,
+            "--logname",
+            logfile,
+            "--port",
+            str(traci_port),
+            "--bind",
+            "0.0.0.0",
+            "--single-client",
+        ]
+        if show_gui:
+            cmd.append("--gui-mode")
+
+        logging.debug(f"exec_single_server cmd: {cmd}")
+        if run_args_override is None:
+            run_args_override = {}
+
+        return self.run(cmd, **run_args_override)
+
+    def exec_start_vadere_laucher(self):
+        """
+        start the vadere-laucher.py script in the container which creates multiple Vadere
+        instances inside ONE container.
+        """
+        pass
+
+    def exec_vadere_gui(self):
+        """
+        start vadere gui to create or execute vadere scenarios.
+        """
+        pass
 
 
 if __name__ == "__main__":
     client = docker.from_env()
-    os.chdir(f"{os.environ['ROVER_MAIN']}/rover/simulations/mucFreiNetdLTE2dMulticast")
-    opp = OppRunner(docker_client=client)
-    log = LogConfig(type=LogConfig.types.JOURNALD, config={"tag": "opp_01"})
-    opp.set_log_driver(log)
-    try:
-        r = opp.opp_run(
-            opp_ini="omnetpp.ini",
-            result_dir="result2",
-            config="vadere01",
-            debug=True,
-            run_all=False,
-            run_args_override={"detach": False},
-        )
-        print(r.decode("utf-8"))
-    except ContainerError as cErr:
-        print(
-            f"Error in container '{cErr.container.name}' exit_status: {cErr.exit_status}",
-            file=sys.stderr,
-        )
-        print(f"\tImage: {cErr.image}", file=sys.stderr)
-        print(f"\tCommand: {cErr.command}", file=sys.stderr)
-        print(f"\tstderr:", file=sys.stderr)
-        err_str = cErr.stderr.decode("utf-8").strip().split("\n")
-        for line in err_str:
-            print(f"\t{line}",)
+    opp = VadereRunner(
+        docker_client=client,
+        name="vadere",
+        remove=True,
+        detach=False,
+        journal_tag="vadere00_02",
+    )
+    opp.delete_if_container_exists()
+    opp.exec_single_server()

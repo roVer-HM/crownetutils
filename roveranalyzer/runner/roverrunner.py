@@ -1,14 +1,18 @@
 import argparse
+import logging
 import os
 import sys
 import time
 from datetime import datetime
 
 import docker
-from docker.errors import ContainerError
-from docker.types import LogConfig
+from requests.exceptions import ReadTimeout
 
-from roveranalyzer.runner.dockerrunner import OppRunner
+from roveranalyzer.runner.dockerrunner import OppRunner, VadereRunner
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s:%(filename)s:%(levelname)s> %(message)s"
+)
 
 
 def parse_args_as_dict(args=None):
@@ -112,6 +116,32 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set the container is not NOT deleted after execution. This simplifies debugging.",
     )
+
+    parser.add_argument(
+        "--v.traci-port",
+        dest="v_traci_port",
+        default="9998",
+        required=False,
+        help="Set TraCI Port in Vadere container. (Default: 9998)",
+    )
+
+    parser.add_argument(
+        "--v.loglevel",
+        dest="v_loglevel",
+        default="INFO",
+        required=False,
+        help="Set loglevel of TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
+    )
+
+    parser.add_argument(
+        "--v.logfile",
+        dest="v_logfile",
+        default="",
+        required=False,
+        help="Set log file name. If not set '', log file will not be created. "
+        "This setting has no effect on --log-journald. (Default: '') ",
+    )
+
     if args is None:
         ns = vars(parser.parse_args())
     else:
@@ -194,12 +224,63 @@ class BaseRunner:
                 _f()
 
     def run_simulation(self):
-        opp_runner, run_args_override = self._build_docker_runner()
+        run_name = self.ns["run_name"]
+        journal_tag = ""
+        if self.ns["log_journald"]:
+            journal_tag = run_name
+
+        opp_runner = OppRunner(
+            docker_client=self.docker_client,
+            name=f"omnetpp_{run_name}",
+            remove=True,
+            detach=False,  # do not detach --> wait on opp container
+            journal_tag=f"omnetpp_{journal_tag}",
+        )
+        opp_runner.delete_if_container_exists()
+        opp_runner.set_working_dir(self.working_dir)
+
+        vadere_runner = VadereRunner(
+            docker_client=self.docker_client,
+            name=f"vadere_{run_name}",
+            remove=True,
+            detach=True,  # detach at first and wait vadere container after opp container is done
+            journal_tag=f"vadere_{journal_tag}",
+        )
+        vadere_runner.delete_if_container_exists()
+        opp_runner.set_working_dir(self.working_dir)
+
         try:
-            run_args_override["detach"] = False
-            res = opp_runner.opp_run(**self.ns, run_args_override=run_args_override,)
-        except ContainerError as cErr:
-            self.__print_err(cErr)
+            logfile = os.devnull
+            if self.ns["v_logfile"] != "":
+                logfile = self.ns["v_logfile"]
+
+            ret_vadere, vadere_container = vadere_runner.exec_single_server(
+                traci_port=self.ns["v_traci_port"],
+                loglevel=self.ns["v_loglevel"],
+                logfile=logfile,
+            )
+
+            # todo: check if vadere_container is running
+            # while:....
+
+            # todo: check if namespace cleanup is needed due to v_***
+            ret_opp, opp_contaier = opp_runner.exec_opp_run(
+                **self.ns, run_args_override={}
+            )
+
+            # todo: wait for vadere container to reach exit state
+            try:
+                vadere_container.wait(timeout=180)
+            except ReadTimeout as err:
+                logging.error(
+                    f"Timeout reached while waiting for vadere container to finsh"
+                )
+                vadere_container.stop()
+                opp_contaier.stop()
+
+        except RuntimeError as cErr:
+            logging.error(cErr)
+            # self.__print_err(cErr)
             sys.exit(-1)
 
     def result_base_dir(self):
@@ -223,37 +304,22 @@ class BaseRunner:
                 raise TimeoutError(f"Timeout reached while waiting for {filepath}")
         return filepath
 
-    def __print_err(self, cErr):
-        print(
-            f"Error in container '{cErr.container.name}' exit_status: {cErr.exit_status}",
-            file=sys.stderr,
-        )
-        print(f"\tImage: {cErr.image}", file=sys.stderr)
-        print(f"\tCommand: {cErr.command}", file=sys.stderr)
-        print(f"\tstderr:", file=sys.stderr)
-        err_str = cErr.stderr.decode("utf-8").strip().split("\n")
-        for line in err_str:
-            print(f"\t{line}", file=sys.stderr)
-        if self.ns["log_journald"]:
-            print(
-                f'For full container output see: journalctl -b CONTAINER_TAG={self.ns["run_name"]} --all',
-                file=sys.stderr,
-            )
-
-    def _build_docker_runner(self):
-        _runner = OppRunner(docker_client=self.docker_client)
-        _runner.set_working_dir(self.working_dir)
-        if self.ns["log_journald"]:
-            _runner.set_log_driver(
-                LogConfig(
-                    type=LogConfig.types.JOURNALD, config={"tag": self.ns["run_name"]}
-                )
-            )
-        run_args_override = {}
-        if self.ns["keep_container"]:
-            run_args_override["remove"] = False
-
-        return _runner, run_args_override
+    # def __print_err(self, cErr):
+    #     print(
+    #         f"Error in container '{cErr.container.name}' exit_status: {cErr.exit_status}",
+    #         file=sys.stderr,
+    #     )
+    #     print(f"\tImage: {cErr.image}", file=sys.stderr)
+    #     print(f"\tCommand: {cErr.command}", file=sys.stderr)
+    #     print(f"\tstderr:", file=sys.stderr)
+    #     err_str = cErr.stderr.decode("utf-8").strip().split("\n")
+    #     for line in err_str:
+    #         print(f"\t{line}", file=sys.stderr)
+    #     if self.ns["log_journald"]:
+    #         print(
+    #             f'For full container output see: journalctl -b CONTAINER_TAG={self.ns["run_name"]} --all',
+    #             file=sys.stderr,
+    #         )
 
 
 if __name__ == "__main__":
