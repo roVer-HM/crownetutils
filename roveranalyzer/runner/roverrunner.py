@@ -281,7 +281,7 @@ class BaseRunner:
         if ret != 0:
             raise RuntimeError("Error in Simulation")
         logging.debug("execute post hooks")
-        # self.post()
+        self.post()
 
     def sort_processing(self, ptype, method_list):
 
