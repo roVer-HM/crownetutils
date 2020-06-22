@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import signal
 import sys
 import time
 from datetime import datetime
@@ -10,9 +11,11 @@ from requests.exceptions import ReadTimeout
 
 from roveranalyzer.runner.dockerrunner import OppRunner, VadereRunner
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s:%(filename)s:%(levelname)s> %(message)s"
-)
+if len(logging.root.handlers) == 0:
+    # set logger for dev (will be overwritten if needed)
+    logging.basicConfig(
+        level=logging.DEBUG, format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+    )
 
 
 def parse_args_as_dict(args=None):
@@ -61,22 +64,32 @@ def parse_args_as_dict(args=None):
         help="experiment-label used in the result path. Default: out",
     )
     parser.add_argument(
-        # TODO rename
         "--use-timestep-label",
         dest="use_timestep_label",
         default=False,
         required=False,
         action="store_true",
-        help="Use current timestamp (sanitized ISI-Format). If this is given '--experiment-label' will be ignored. "
+        help="Use current timestamp (sanitized ISO-Format). If this is given '--experiment-label' will be ignored. "
         "Default: False",
     )
     parser.add_argument(
         "--run-name",
         dest="run_name",
         nargs="?",
-        default="opp_run",
-        help="Set name of current run. This will be CONTAINER_TAG for journald. Default: opp_run",
+        default="rover_run",
+        help="Set name of current run. This will be CONTAINER_TAG for journald. Default: rover_run",
     )
+
+    parser.add_argument(
+        "--delete-existing-containers",
+        dest="delete_existing_containers",
+        action="store_true",
+        default=False,
+        required=False,
+        help="Delete existing (stopped) containers with the same name.",
+    )
+
+    # ToDo: not possible any more.
     parser.add_argument(
         "--debug",
         dest="debug",
@@ -85,6 +98,8 @@ def parse_args_as_dict(args=None):
         action="store_true",
         help="Use opp_run_debug Default: False",
     )
+
+    # ToDo: not possible any more.
     parser.add_argument(
         "--run-all",
         dest="run_all",
@@ -108,6 +123,7 @@ def parse_args_as_dict(args=None):
         default=True,
         required=False,
     )
+
     parser.add_argument(
         "--keep_container",
         dest="keep_container",
@@ -115,6 +131,51 @@ def parse_args_as_dict(args=None):
         default=False,
         required=False,
         help="If set the container is not NOT deleted after execution. This simplifies debugging.",
+    )
+
+    parser.add_argument(
+        "--create-log-file",
+        dest="create_log_file",
+        action="store_true",
+        default=False,
+        required=False,
+        help="Redirect log messages to Logfile at script location.",
+    )
+
+    parser.add_argument(
+        "--create-vadere-container",
+        dest="create_vadere_container",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        dest="verbose",
+        action="count",
+        default=0,
+        help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
+    )
+
+    parser.add_argument(
+        "--silent",
+        "-s",
+        dest="silent",
+        action="store_true",
+        default=False,
+        required=False,
+        help="No output is generated. Only fatal errors leading to non zero exit codes.",
+    )
+
+    parser.add_argument(
+        "--v.wait-timeout",
+        dest="v_wait_timeout",
+        default=360,
+        required=False,
+        help="Time to wait for vadere container to close after OMNeT++ container has finished. Default=360s",
     )
 
     parser.add_argument(
@@ -130,7 +191,7 @@ def parse_args_as_dict(args=None):
         dest="v_loglevel",
         default="INFO",
         required=False,
-        help="Set loglevel of TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
+        help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
     )
 
     parser.add_argument(
@@ -138,7 +199,7 @@ def parse_args_as_dict(args=None):
         dest="v_logfile",
         default="",
         required=False,
-        help="Set log file name. If not set '', log file will not be created. "
+        help="Set log file name of Vadere. If not set '', log file will not be created. "
         "This setting has no effect on --log-journald. (Default: '') ",
     )
 
@@ -152,6 +213,26 @@ def parse_args_as_dict(args=None):
             datetime.now().isoformat().replace("-", "").replace(":", "")
         )
 
+    # remove existing handlers and overwrite with user settings
+    for h in logging.root.handlers:
+        logging.root.removeHandler(h)
+
+    levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
+    if ns["silent"]:
+        level_idx = 0
+    else:
+        level_idx = ns["verbose"]
+    if ns["create_log_file"]:
+        logging.basicConfig(
+            level=levels[level_idx],
+            format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+            filename=f"{os.getcwd()}/runner.log",
+        )
+    else:
+        logging.basicConfig(
+            level=levels[level_idx],
+            format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+        )
     return ns
 
 
@@ -172,9 +253,11 @@ class process_as:
 
 class BaseRunner:
     def __init__(self, working_dir, args=None):
-        self.docker_client = docker.from_env()
         self.ns = parse_args_as_dict(args)
+        self.docker_client = docker.from_env()
         self.working_dir = working_dir
+        self.vadere_runner = None
+        self.opp_runner = None
 
         # prepare post and pre map
         self.f_map: dict = {}
@@ -191,9 +274,14 @@ class BaseRunner:
                     continue
 
     def run(self):
+        logging.debug("execute pre hooks")
         self.pre()
-        self.run_simulation()
-        self.post()
+        logging.debug("execute simulation")
+        ret = self.run_simulation()
+        if ret != 0:
+            raise RuntimeError("Error in Simulation")
+        logging.debug("execute post hooks")
+        # self.post()
 
     def sort_processing(self, ptype, method_list):
 
@@ -223,65 +311,83 @@ class BaseRunner:
                 print(f"pre: '{_f.__name__}' as post function with prio: {prio} ...")
                 _f()
 
-    def run_simulation(self):
+    def build_opp_runer(self):
         run_name = self.ns["run_name"]
-        journal_tag = ""
-        if self.ns["log_journald"]:
-            journal_tag = run_name
-
-        opp_runner = OppRunner(
+        self.opp_runner = OppRunner(
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",
-            remove=True,
+            remove=not self.ns["keep_container"],
             detach=False,  # do not detach --> wait on opp container
-            journal_tag=f"omnetpp_{journal_tag}",
+            journal_tag=f"omnetpp_{run_name}",
         )
-        opp_runner.delete_if_container_exists()
-        opp_runner.set_working_dir(self.working_dir)
+        self.opp_runner.check_existing_containers(self.ns["delete_existing_containers"])
+        self.opp_runner.set_working_dir(self.working_dir)
 
-        vadere_runner = VadereRunner(
+    def build_and_start_vadere_runner(self):
+        run_name = self.ns["run_name"]
+        self.vadere_runner = VadereRunner(
             docker_client=self.docker_client,
             name=f"vadere_{run_name}",
-            remove=True,
+            remove=not self.ns["keep_container"],
             detach=True,  # detach at first and wait vadere container after opp container is done
-            journal_tag=f"vadere_{journal_tag}",
+            journal_tag=f"vadere_{run_name}",
         )
-        vadere_runner.delete_if_container_exists()
-        opp_runner.set_working_dir(self.working_dir)
+        self.vadere_runner.check_existing_containers(
+            self.ns["delete_existing_containers"]
+        )
+        self.vadere_runner.set_working_dir(self.working_dir)
+
+        logfile = os.devnull
+        if self.ns["v_logfile"] != "":
+            logfile = self.ns["v_logfile"]
+
+        # start vadere container detached in the background. Will be stoped in the finally block
+        self.vadere_runner.exec_single_server(
+            traci_port=self.ns["v_traci_port"],
+            loglevel=self.ns["v_loglevel"],
+            logfile=logfile,
+        )
+
+    def run_simulation(self):
+        ret = 255
+        self.build_opp_runer()
 
         try:
-            logfile = os.devnull
-            if self.ns["v_logfile"] != "":
-                logfile = self.ns["v_logfile"]
 
-            ret_vadere, vadere_container = vadere_runner.exec_single_server(
-                traci_port=self.ns["v_traci_port"],
-                loglevel=self.ns["v_loglevel"],
-                logfile=logfile,
-            )
+            if self.ns["create_vadere_container"]:
+                self.build_and_start_vadere_runner()
 
-            # todo: check if vadere_container is running
-            # while:....
-
-            # todo: check if namespace cleanup is needed due to v_***
-            ret_opp, opp_contaier = opp_runner.exec_opp_run(
+            # start OMNeT++ container and attach to it.
+            logging.info(f"start simulation {self.ns['run_name']} ...")
+            ret_opp, opp_container = self.opp_runner.exec_opp_run(
                 **self.ns, run_args_override={}
             )
 
-            # todo: wait for vadere container to reach exit state
-            try:
-                vadere_container.wait(timeout=180)
-            except ReadTimeout as err:
-                logging.error(
-                    f"Timeout reached while waiting for vadere container to finsh"
-                )
-                vadere_container.stop()
-                opp_contaier.stop()
+            ret = 0  # all good if we reached this.
+            if self.vadere_runner is not None:
+                try:
+                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
+                except ReadTimeout:
+                    logging.error(
+                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
+                    )
+                    ret = 255
 
         except RuntimeError as cErr:
             logging.error(cErr)
-            # self.__print_err(cErr)
-            sys.exit(-1)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logging.debug(f"cleanup with ret={ret}")
+            if self.vadere_runner is not None:
+                self.vadere_runner.stop_and_remove(has_error_state=err_state)
+            self.opp_runner.stop_and_remove(has_error_state=err_state)
+        return ret
 
     def result_base_dir(self):
         """
@@ -304,24 +410,19 @@ class BaseRunner:
                 raise TimeoutError(f"Timeout reached while waiting for {filepath}")
         return filepath
 
-    # def __print_err(self, cErr):
-    #     print(
-    #         f"Error in container '{cErr.container.name}' exit_status: {cErr.exit_status}",
-    #         file=sys.stderr,
-    #     )
-    #     print(f"\tImage: {cErr.image}", file=sys.stderr)
-    #     print(f"\tCommand: {cErr.command}", file=sys.stderr)
-    #     print(f"\tstderr:", file=sys.stderr)
-    #     err_str = cErr.stderr.decode("utf-8").strip().split("\n")
-    #     for line in err_str:
-    #         print(f"\t{line}", file=sys.stderr)
-    #     if self.ns["log_journald"]:
-    #         print(
-    #             f'For full container output see: journalctl -b CONTAINER_TAG={self.ns["run_name"]} --all',
-    #             file=sys.stderr,
-    #         )
-
 
 if __name__ == "__main__":
-    runner = BaseRunner(os.getcwd())
+    runner = BaseRunner(
+        "/home/sts/repos/suq-controller/tutorial/first_examples_rover_01/simulation_runs/Sample__0_0",
+        [
+            "--qoi",
+            "degree_informed_extract.txt",
+            "poisson_parameter.txt",
+            "time_95_informed.txt",
+            "--run-name",
+            "Sample__0_0",
+            "--create-vadere-container",
+            "-vv",
+        ],
+    )
     runner.run()

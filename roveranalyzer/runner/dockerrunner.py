@@ -8,12 +8,12 @@ import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
-
 from roveranalyzer.oppanalyzer.configuration import RoverConfig
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s:%(filename)s:%(levelname)s> %(message)s"
-)
+if len(logging.root.handlers) == 0:
+    logging.basicConfig(
+        level=logging.DEBUG, format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+    )
 
 
 class DockerRunner:
@@ -44,6 +44,7 @@ class DockerRunner:
         self.detach = detach
         self.remove = remove
         self.run_args = {}
+        self._container = None
 
         # last call in init.
         self._apply_default_volumes()
@@ -56,18 +57,32 @@ class DockerRunner:
                 )
             )
 
-    def delete_if_container_exists(self):
+    @property
+    def container(self):
+        return self._container
+
+    @container.setter
+    def container(self, val):
+        self._container = val
+
+    def check_existing_containers(self, delete_old_container=True):
         try:
             _container = self.client.containers.get(self.name)
 
-            if _container.status == "exited":
+            if _container.status == "exited" and delete_old_container:
                 logging.info(f"remove existing container with name '{self.name}'")
                 _container.remove()
             else:
-                raise RuntimeError(
-                    f"Cannot delete container {_container.name} with status '{_container.status}'. Container must be in "
-                    f"state 'exited' to be removed"
-                )
+                if delete_old_container:
+                    raise RuntimeError(
+                        f"Container with name {_container.name} already exists. Container must be in "
+                        f"state 'exited' to be removed"
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Container with name {_container.name} already exists."
+                    )
+
         except NotFound as notFoundErr:
             pass  # ignore do nothing
 
@@ -155,15 +170,16 @@ class DockerRunner:
         return c
 
     def run(self, cmd, **run_args):
+        err = False
         try:
-            _container = self.create_container(cmd, **run_args)
+            self._container = self.create_container(cmd, **run_args)
             logging.info(
-                f"start container {_container.name} with {{detach: {self.detach},"
+                f"start container {self._container.name} with {{detach: {self.detach},"
                 f" remove: {self.remove}, journal_tag: {self.journal_tag}}}"
             )
-            _container.start()
+            self._container.start()
             if not self.detach:
-                ret = _container.wait()
+                ret = self._container.wait()
                 if ret["StatusCode"] != 0:
                     logging.error(f"Command returned {ret['StatusCode']}")
                     if (
@@ -173,26 +189,42 @@ class DockerRunner:
                         logging.error(
                             f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
                         )
-                    container_log = _container.logs()
+                    container_log = self._container.logs()
                     if container_log != b"":
                         logging.error(
                             f'Container Log:\n {container_log.decode("utf-8")}'
                         )
             else:
                 ret = {}
-        except KeyboardInterrupt as kInter:
-            logging.info(f"KeyboardInterrupt. Stop Container {_container.name} ...")
-            _container.stop(timeout=5)
-            ret = {}
+        except (KeyboardInterrupt, SystemExit) as kInter:
+            logging.warning(
+                f"KeyboardInterrupt. Stop Container {self._container.name} ..."
+            )
+            err = True  # stop but do not delete container
+            raise  # re-raise so other parts can react to SIGINT
         except BaseException as e:
             logging.error(f"some error occurred")
+            err = True  # stop but do not delete container
             raise RuntimeError(e)
         finally:
-            if not self.detach and self.remove:
-                logging.info(f"Stop and remove container {_container.name}")
-                _container.stop()
-                _container.remove()
-        return ret, _container
+            if not self.detach:
+                self.stop_and_remove(has_error_state=err)
+        return ret
+
+    def stop_and_remove(self, has_error_state=False):
+        """
+        stop container if running and delete it if self.remove ist set.
+        :wait:
+        """
+        if self._container is None:
+            return  # do nothing
+
+        logging.debug(f"Stop container {self._container.name} ...")
+        self._container.stop()
+        if self.remove and has_error_state is False:
+            logging.debug(f"remove container {self._container.name} ...")
+            self._container.remove()
+            self._container = None  # container removed so do not keep reference
 
     def __str__(self) -> str:
         return f"{__name__}: Run Arguments: {pprint.pformat(self.run_args, indent=2)}"
@@ -297,6 +329,7 @@ class OppRunner(DockerRunner):
         experiment_label="out",
         debug=False,
         run_args_override=None,
+        **kwargs,
     ):
         """
         Execute opp_run in container.
@@ -419,5 +452,5 @@ if __name__ == "__main__":
         detach=False,
         journal_tag="vadere00_02",
     )
-    opp.delete_if_container_exists()
+    opp.check_existing_containers()
     opp.exec_single_server()
