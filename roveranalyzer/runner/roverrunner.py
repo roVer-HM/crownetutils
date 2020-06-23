@@ -89,7 +89,6 @@ def parse_args_as_dict(args=None):
         help="Delete existing (stopped) containers with the same name.",
     )
 
-    # ToDo: not possible any more.
     parser.add_argument(
         "--debug",
         dest="debug",
@@ -319,6 +318,7 @@ class BaseRunner:
             remove=not self.ns["keep_container"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
+            debug=self.ns["debug"],
         )
         self.opp_runner.check_existing_containers(self.ns["delete_existing_containers"])
         self.opp_runner.set_working_dir(self.working_dir)

@@ -8,6 +8,7 @@ import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
+
 from roveranalyzer.oppanalyzer.configuration import RoverConfig
 
 if len(logging.root.handlers) == 0:
@@ -240,6 +241,7 @@ class OppRunner(DockerRunner):
         remove=True,
         detach=False,
         journal_tag="",
+        debug=False,
     ):
         super().__init__(
             image=image,
@@ -250,6 +252,10 @@ class OppRunner(DockerRunner):
             detach=detach,
             journal_tag=journal_tag,
         )
+        if debug:
+            self.run_cmd = "opp_run_dbg"
+        else:
+            self.run_cmd = "opp_run"
 
     def _apply_default_environment(self):
         super()._apply_default_environment()
@@ -290,7 +296,7 @@ class OppRunner(DockerRunner):
         run_args_override=None,
         **kwargs,
     ):
-        cmd = self.__build_base_opp_run("opp_run")
+        cmd = self.__build_base_opp_run(self.run_cmd)
         cmd.extend(["-c", config])
         if experiment_label is not None:
             cmd.extend([f"--experiment-label={experiment_label}"])
@@ -327,16 +333,13 @@ class OppRunner(DockerRunner):
         config="final",
         result_dir="results",
         experiment_label="out",
-        debug=False,
         run_args_override=None,
         **kwargs,
     ):
         """
         Execute opp_run in container.
         """
-        cmd = "opp_run"
-        if debug:
-            cmd = f"{cmd}_dbg"
+        cmd = self.run_cmd
         cmd = self.__build_base_opp_run(cmd)
         cmd.extend(["-c", config])
         if experiment_label is not None:
