@@ -409,20 +409,3 @@ class BaseRunner:
             if sec >= timeout_sec:
                 raise TimeoutError(f"Timeout reached while waiting for {filepath}")
         return filepath
-
-
-if __name__ == "__main__":
-    runner = BaseRunner(
-        "/home/sts/repos/suq-controller/tutorial/first_examples_rover_01/simulation_runs/Sample__0_0",
-        [
-            "--qoi",
-            "degree_informed_extract.txt",
-            "poisson_parameter.txt",
-            "time_95_informed.txt",
-            "--run-name",
-            "Sample__0_0",
-            "--create-vadere-container",
-            "-vv",
-        ],
-    )
-    runner.run()
