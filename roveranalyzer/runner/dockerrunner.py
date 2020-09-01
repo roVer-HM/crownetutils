@@ -35,6 +35,8 @@ class DockerRunner:
         else:
             self.client: docker.DockerClient = docker_client
         self.image = f"{image}:{tag}"
+        self.rep = image
+        self.tag = tag
         self.user_home = str(Path.home())
         self.user_id = os.getuid()
         self.working_dir = str(Path.cwd())
@@ -154,6 +156,16 @@ class DockerRunner:
         else:
             return f'/bin/bash -c "cd {self.working_dir}; {cmd}"'
 
+    def pull_images(self):
+
+        try:
+            self.client.images.get(self.image)
+        except:
+            logging.info(
+                f"Docker image is missing. Try to pull {self.image} from repository."
+            )
+            self.client.images.pull(repository=self.rep, tag=self.tag)
+
     def create_container(self, cmd="/init.sh", **run_args) -> Container:
         """
         run container. If no command is given execute the default entry point '/init.sh'
@@ -163,6 +175,7 @@ class DockerRunner:
         logging.info(f"create container [image:{self.image}]")
         logging.debug(f"   cmd: \n{pprint.pformat(command, indent=2)}")
         logging.debug(f"   runargs: \n{pprint.pformat(self.run_args, indent=2)}")
+
         c: Container = self.client.containers.create(
             image=self.image, command=command, **self.run_args
         )
@@ -171,6 +184,9 @@ class DockerRunner:
 
     def run(self, cmd, **run_args):
         err = False
+
+        self.pull_images()
+
         try:
             self._container = self.create_container(cmd, **run_args)
             logging.info(
