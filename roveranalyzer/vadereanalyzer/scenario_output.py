@@ -21,7 +21,7 @@ class LazyDataFrameWrapper(object):
     def __init__(self, path):
         self.path = path
 
-    def _read_meta_data(self):
+    def read_meta_data(self):
         with open(self.path, "r") as f:
             meta_data = f.readline().strip()
         if meta_data.startswith("#"):
@@ -55,7 +55,7 @@ class LazyDataFrameWrapper(object):
         return ret
 
     def df(self, set_index=False, column_names=None):
-        meta = self._read_meta_data()
+        meta = self.read_meta_data()
         df: pd.DataFrame = pd.read_csv(
             filepath_or_buffer=self.path,
             sep=meta["SEP"],

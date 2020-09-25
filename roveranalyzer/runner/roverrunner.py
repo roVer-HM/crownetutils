@@ -331,7 +331,7 @@ class BaseRunner:
         self.opp_runner = OppRunner(
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",
-            tag= self.ns['omnet_tag'],
+            tag=self.ns["omnet_tag"],
             remove=not self.ns["keep_container"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
@@ -345,7 +345,7 @@ class BaseRunner:
         self.vadere_runner = VadereRunner(
             docker_client=self.docker_client,
             name=f"vadere_{run_name}",
-            tag=self.ns['vadere_tag'],
+            tag=self.ns["vadere_tag"],
             remove=not self.ns["keep_container"],
             detach=True,  # detach at first and wait vadere container after opp container is done
             journal_tag=f"vadere_{run_name}",
