@@ -1,19 +1,17 @@
 import datetime
-import itertools
 import os
 import sys
 from enum import Enum
-from multiprocessing import Pool, TimeoutError
+from multiprocessing import Pool
 
 import matplotlib.animation as animation
-import matplotlib.pylab as pl
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import numpy as np
 import pandas as pd
+import trimesh
 from matplotlib.colors import ListedColormap
 
-import trimesh
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.mesh import SimpleMesh
 from roveranalyzer.uitls.plot_helper import PlotHelper
