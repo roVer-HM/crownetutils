@@ -19,6 +19,7 @@ from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.file import read_lines
 from roveranalyzer.uitls.path import PathHelper
 from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
+from uitls.dataframe import LazyDataFrame
 
 
 def stack_vectors(
@@ -155,6 +156,43 @@ def build_time_series(
     timer.stop()
     return _df_ret
 
+
+def build_density_map(csv_path):
+    _df = LazyDataFrame.from_path(csv_path)
+
+    meta = _df.read_meta_data()
+
+    # check if all metadata keys are present
+    expected_keys = ["XSIZE", "YSIZE", "CELLSIZE"]
+    if not all([k in meta for k in expected_keys]):
+        raise ValueError(f"expected all metadata keys present. "
+                         f"expected: { ', '.join(expected_keys)} | "
+                         f"found: {', '.join(meta.keys())}")
+
+    expected_columns = ["count", "measured_t", "recieved_t"]
+
+    # bound of szenario
+    bound = [float(meta["XSIZE"]), float(meta["YSIZE"])]
+    # cell size. First cell with [0, 0] is lower left cell
+    cell_size = float(meta["CELLSIZE"])
+    cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
+    df_raw = _df.df(set_index=True, column_names=expected_columns,)
+
+    # create full index: time * numXCells * numYCells
+    _idx = [
+        df_raw.index.levels[0].to_numpy(),      # time
+        np.arange(cell_count[0]),               # numXCell
+        np.arange(cell_count[1]),               # numYCell
+    ]
+    idx = pd.MultiIndex.from_product(_idx, names=("simtime", "x", "y"))
+    # create zero filled data frame with index
+    ret = pd.DataFrame(
+        data=np.zeros((len(idx), 3)), columns=["count", "measured_t", "received_t"]
+    )
+    # set index and update with raw measures. (most will stay at zero)
+    ret = ret.set_index(idx)
+    ret.update(df_raw)
+    return ret
 
 def simsec_per_sec(df, ax=None):
     fig = None

@@ -30,7 +30,7 @@ class LazyDataFrame(object):
                 or "SEP" not in meta_data
             ):
                 raise ValueError(f"worng keys {meta_data}")
-            meta_data["SEP"] = meta_data["SEP"][1:-1]
+            meta_data["SEP"] = meta_data["SEP"]
             return meta_data
         else:
             return {"IDXCOL": 1, "DATACOL": -1, "SEP": " "}
