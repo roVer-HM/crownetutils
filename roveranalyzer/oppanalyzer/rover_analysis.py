@@ -37,6 +37,10 @@ class OppFilterItem:
 
 
 class Opp:
+    """
+    Handle OMNeT++ module strings and transformations
+    """
+
     @staticmethod
     def root_mod(module, level: int):
         if not type(module) == str:
@@ -57,7 +61,8 @@ class Opp:
             )
         ]
 
-    def filter_by(self, df, module, name, value, apply_to_module_level=1):
+    @staticmethod
+    def filter_by(df, module, name, value, apply_to_module_level=1):
         """
         Each  statistic is uniquely identified by its run, module and name values.
         a module consists of point separated 'sub-modules'. eg.
@@ -95,6 +100,7 @@ class Opp:
         )
         dfg = dfg.groupby("run")
         dfg = dfg.filter()
+        return dfg
 
     @staticmethod
     def module_path(m_path, index, tuple_on_vector=False):
@@ -487,7 +493,7 @@ class OppAttributes:
 class OppPlot:
     """
     Plot helper functions.
-
+    todo: All based on OMNeT++ csv file structure
     set_xlabel
     set_xlimit(left, right)
     set_xscale() [linear, log, symlog, logit]

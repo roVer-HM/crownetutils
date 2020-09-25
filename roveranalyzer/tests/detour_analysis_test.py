@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from vadereanalyzer.scenario_output import LazyDataFrameWrapper
+from roveranalyzer.uitls.dataframe import LazyDataFrame
 
 if __name__ == "__main__":
     path = (
@@ -11,7 +11,7 @@ if __name__ == "__main__":
         "results/vadere00_geo_20200903-10:26:55/grid_9:1:268.csv"
     )
     # load csv with metdata as first line.
-    w = LazyDataFrameWrapper(path)
+    w = LazyDataFrame.from_path(path)
     meta = w.read_meta_data()
     # bound of szenario
     bound = [float(meta["XSIZE"]), float(meta["YSIZE"])]

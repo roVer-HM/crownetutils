@@ -4,9 +4,12 @@ import pandas as pd
 
 import roveranalyzer.oppanalyzer.wlan80211 as w80211
 from roveranalyzer.oppanalyzer.configuration import Config
-from roveranalyzer.oppanalyzer.utils import (RoverBuilder, ScaveTool,
-                                             cumulative_messages,
-                                             parse_cmdEnv_outout)
+from roveranalyzer.oppanalyzer.utils import (
+    OppDataProvider,
+    ScaveTool,
+    cumulative_messages,
+    parse_cmdEnv_outout,
+)
 from roveranalyzer.uitls.path import PathHelper
 
 
@@ -132,7 +135,7 @@ def mac_pending_queue_hist():
 
 
 def mac_analysis(base_dir, fig_title, vec_input, prefix, out_input=None):
-    builder = RoverBuilder(
+    builder = OppDataProvider(
         path=PathHelper(base_dir),
         analysis_name=f"{prefix}mac",
         analysis_dir="analysis.d",

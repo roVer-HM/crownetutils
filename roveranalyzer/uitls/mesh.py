@@ -61,13 +61,6 @@ class SimpleMesh:
         return mapping_matrix
 
     def __build_nodal_areas(self):
-        # not used?
-        # triang = tri.Triangulation(self.x, self.y, self.elements)
-
-        # vertices = np.array([x_, y_, 0 * x_]).T
-        # mesh = trimesh.Trimesh(vertices=vertices, faces=triangles_)
-        # areas = mesh.area_faces
-
         areas = []
 
         for triangle in self.triangles:

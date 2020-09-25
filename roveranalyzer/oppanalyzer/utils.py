@@ -80,7 +80,7 @@ def build_time_series(
     fill_na=None,
 ):
     """
-    Build normalized data frames for omnetpp vectors.
+    Build normalized data frames for OMNeT++ vectors.
     opp_df:         data frame from OMNeT++
     opp_vectors:    list of vector names to concatenate. The vectime axis of these vectors are merged.
     opp_vector_names:      same length as opp_vectors containing the column names for used for vecvalues
@@ -244,6 +244,10 @@ def parse_cmdEnv_outout(path):
 
 
 class ScaveConverter:
+    """
+    pandas csv to DataFrame converter. Provides a dict of functions to use while
+    reading csv file. The keys in the dict must match the column names.
+    """
     def __init__(self):
         pass
 
@@ -282,6 +286,12 @@ class ScaveConverter:
 
 
 class ScaveRunConverter(ScaveConverter):
+    """
+    pandas csv to DataFrame converter. Provides a dict of functions to use while
+    reading csv file. The keys in the dict must match the column names.
+
+    Simplify run name by providing a shorter name
+    """
     def __init__(self, run_short_hand="r"):
         super().__init__()
         self._short_hand = run_short_hand
@@ -322,22 +332,79 @@ class Suffix:
     DIR = ".d"
 
 
-class RoverBuilder:
+class HdfProvider:
+    """
+    Wrap access to a given HDF store (hdf_path) in a context manager. Wrapper is lazy and checks if store exist
+    are *Not* done. Caller must ensure file exists
+    """
+
+    def __init__(self, hdf_path):
+        self._hdf_path = hdf_path
+        self._hdf_args = {"complevel": 9, "complib": "zlib"}
+
+    @contextlib.contextmanager
+    def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
+        _args = dict(self._hdf_args)
+        _args.update(kwargs)
+        store = pd.HDFStore(self._hdf_path, mode=mode, **_args)
+        try:
+            yield store
+        finally:
+            store.close()
+
+    def set_args(self, append=False, **kwargs):
+        if append:
+            self._hdf_args.update(kwargs)
+        else:
+            self._hdf_args = kwargs
+
+    def get_data(self, key):
+        with self.ctx(mode="r") as store:
+            df = store.get(key=key)
+        return df
+
+    def exists(self):
+        """ check for HDF store """
+        return os.path.exists(self._hdf_path)
+
+    def has_key(self, key):
+        """
+        check if key exists in HDF Store. True if yes, False if key OR store does not exist
+        """
+        if self.exists():
+            with self.ctx(mode="r") as store:
+                return key in store
+        return False
+
+
+class OppDataProvider:
+    """
+    provide dataframe from OMneT++ output. The source of the data my be:
+    - *.sca or *.vec files,
+    - already processed *.csv files provided by some earlier run of the a ScaveTool or
+    - a HDF-Store containing preprocessed dataframes.
+    """
     def __init__(self, path: PathHelper, analysis_name, analysis_dir=None, hdf_store_name=None, cfg: Config = None):
         self._root = path
+        # output
         self._analysis_name = analysis_name
-        self._hdf_args: dict = {"complevel": 9, "complib": "zlib"}
-        self._scave_filter = ""
-        self._opp_input_paths = []
         self._analysis_dir = analysis_dir
         if analysis_dir is None:
             self._analysis_dir = f"{analysis_name}{Suffix.DIR}"
-        self._hdf_store_name = hdf_store_name
-        if hdf_store_name is None:
-            self._hdf_store_name = f"{analysis_name}{Suffix.HDF}"
-        self._root.make_dir(self._analysis_dir, exist_ok=True)
+
+        # ScaveTool
+        self._scave_filter = ""
+        self._opp_input_paths = []
         self._converter = ScaveRunConverter(run_short_hand="r")
         self._cfg = cfg
+
+        # initialize HDF store
+        _hdf_store_name = hdf_store_name
+        if _hdf_store_name is None:
+            _hdf_store_name = f"{analysis_name}{Suffix.HDF}"
+        self._hdf_store = HdfProvider(self._root.join(self._analysis_dir, _hdf_store_name))
+
+        self._root.make_dir(self._analysis_dir, exist_ok=True)
 
     @property
     def root(self):
@@ -352,17 +419,8 @@ class RoverBuilder:
         return self._root.join(self._analysis_dir, f"{self._analysis_name}{Suffix.CSV}")
 
     @property
-    def hdf_path(self):
-        return self._root.join(self._analysis_dir, self._hdf_store_name)
-
-    def set_hdf_args(self, append=False, **kwargs):
-        if append:
-            self._hdf_args.update(kwargs)
-        else:
-            self._hdf_args = kwargs
-
-    def get_hdf_args(self):
-        return self._hdf_args
+    def hdf_store(self):
+        return self._hdf_store
 
     def set_scave_filter(self, *scave_filters, append=False, operator="AND"):
         _op = f" {operator} "
@@ -412,32 +470,8 @@ class RoverBuilder:
         return _scv.load_csv(_csv, converters=self._converter)
 
     def save_converter_to_hdf(self, key, mode="a", **kwargs):
-        with self.store_ctx(mode=mode, **kwargs) as store:
+        with self.hdf_store.ctx(mode=mode, **kwargs) as store:
             self._converter.mapping_data_frame().to_hdf(store, key=key)
-
-    @contextlib.contextmanager
-    def store_ctx(self, mode="a", **kwargs) -> pd.HDFStore:
-        _args = dict(self._hdf_args)
-        _args.update(kwargs)
-        store = pd.HDFStore(self.hdf_path, mode=mode, **_args)
-        try:
-            yield store
-        finally:
-            store.close()
-
-    def hdf_get(self, key):
-        with self.store_ctx(mode="r") as store:
-            df = store.get(key=key)
-        return df
-
-    def store_exists(self):
-        return os.path.exists(self.hdf_path)
-
-    def store_and_key_exists(self, key):
-        if self.store_exists():
-            with self.store_ctx(mode="r") as store:
-                return key in store
-        return False
 
     def save_to_output(self, fig: plt.Figure, file_name, **kwargs):
         fig.savefig(os.path.join(self.out_dir, file_name), **kwargs)
@@ -575,11 +609,10 @@ class ScaveTool:
 
         if converters is None:
             converters = ScaveConverter()
+        # skip first row (container output)
         df = pd.read_csv(
-            io.BytesIO(stdout), encoding="utf-8", converters=converters.get()
+            io.BytesIO(stdout), encoding="utf-8", skiprows=1, converters=converters.get()
         )
-        # df = df.opp.pre_process()
-        # df.opp.attr["cmd"] = cmd
         return df
 
     def export_cmd(
@@ -766,9 +799,9 @@ class PlotAttrs:
             self.idx_c = 0
         return ret
 
-    def reset(self) -> object:
-        self.idx_c = 0;
-        self.idx_m = 0;
+    def reset(self):
+        self.idx_c = 0
+        self.idx_m = 0
 
 
 class Simulation(object):

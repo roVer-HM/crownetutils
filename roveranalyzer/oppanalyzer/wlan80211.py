@@ -5,9 +5,13 @@ import numpy as np
 import pandas as pd
 
 from roveranalyzer.oppanalyzer.rover_analysis import Opp
-from roveranalyzer.oppanalyzer.utils import (Config, RoverBuilder, ScaveTool,
-                                             build_time_series,
-                                             parse_cmdEnv_outout)
+from roveranalyzer.oppanalyzer.utils import (
+    Config,
+    OppDataProvider,
+    ScaveTool,
+    build_time_series,
+    parse_cmdEnv_outout,
+)
 from roveranalyzer.uitls import Timer
 
 
@@ -199,7 +203,7 @@ def mac_drop_ration_bar_chart(_df: pd.DataFrame, run, use_stat="mac_pkt_drop"):
     fig.show()
 
 
-def build_df_mac_pkt_drop_ts(builder: RoverBuilder, hdf_key="", get_raw_df=False):
+def build_df_mac_pkt_drop_ts(builder: OppDataProvider, hdf_key="", get_raw_df=False):
     """
     build time series data frame with received packets (bytes/packet) at the mac layer (from lower)
     and the drops occurring at the mac layer. A drop may occure because of packetDropDuplicateDetected,
@@ -233,7 +237,7 @@ def build_df_mac_pkt_drop_ts(builder: RoverBuilder, hdf_key="", get_raw_df=False
     )
     if hdf_key != "":
         timer.stop_start(f"save dataframe to HDF5: {builder.hdf_path}:{hdf_key}")
-        with builder.store_ctx(mode="a") as store:
+        with builder.hdf_store.ctx(mode="a") as store:
             d_ret.to_hdf(store, key=hdf_key)
             mapping = builder.get_converter().mapping_data_frame()
             mapping.to_hdf(store, key=f"{hdf_key}/mapping")
@@ -246,7 +250,7 @@ def build_df_mac_pkt_drop_ts(builder: RoverBuilder, hdf_key="", get_raw_df=False
 
 
 def create_mac_pkt_drop_figures(
-    builder: RoverBuilder,
+    builder: OppDataProvider,
     figure_title,
     log_file="",
     use_hdf=True,
@@ -264,8 +268,8 @@ def create_mac_pkt_drop_figures(
     """
     timer = Timer.create_and_start("build graphic")
 
-    if use_hdf and builder.store_and_key_exists(hdf_key):
-        df = builder.hdf_get(key=hdf_key)
+    if use_hdf and builder.hdf_store.has_key(hdf_key):
+        df = builder.hdf_store.get_data(key=hdf_key)
     else:
         df = build_df_mac_pkt_drop_ts(builder=builder, hdf_key=hdf_key)
 

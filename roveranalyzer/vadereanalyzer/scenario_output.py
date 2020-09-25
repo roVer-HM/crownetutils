@@ -4,8 +4,7 @@ import json
 import os
 from os.path import isdir, isfile, join
 
-import pandas as pd
-
+from roveranalyzer.uitls.dataframe import LazyDataFrame
 from roveranalyzer.uitls.file import clean_dir_name, read_json_to_dict
 from roveranalyzer.uitls.path import JsonPath
 
@@ -13,77 +12,6 @@ from roveranalyzer.uitls.path import JsonPath
 class NamedFiles:
     def __init__(self):
         pass
-
-
-class LazyDataFrameWrapper(object):
-    """https://stackoverflow.com/a/4827520 (Allows Pickeling)"""
-
-    def __init__(self, path):
-        self.path = path
-
-    def read_meta_data(self):
-        with open(self.path, "r") as f:
-            meta_data = f.readline().strip()
-        if meta_data.startswith("#"):
-            meta_data = meta_data[1:]
-            meta_data = {
-                i.split("=")[0].strip(): i.split("=")[1].strip()
-                for i in meta_data.split(",")
-            }
-            if (
-                "IDXCOL" not in meta_data
-                or "DATACOL" not in meta_data
-                or "SEP" not in meta_data
-            ):
-                raise ValueError(f"worng keys {meta_data}")
-            meta_data["SEP"] = meta_data["SEP"][1:-1]
-            return meta_data
-        else:
-            return {"IDXCOL": 1, "DATACOL": -1, "SEP": " "}
-
-    def as_string(self, remove_meta=False):
-        if remove_meta:
-            with open(self.path, "r") as f:
-                meta = f.readline()
-                if not meta.startswith("#"):
-                    raise ValueError(f"expected metadata row but got 1: {meta}")
-                ret = f.read()
-        else:
-            with open(self.path, "r") as f:
-                ret = f.read()
-
-        return ret
-
-    def df(self, set_index=False, column_names=None):
-        meta = self.read_meta_data()
-        df: pd.DataFrame = pd.read_csv(
-            filepath_or_buffer=self.path,
-            sep=meta["SEP"],
-            header=0,
-            decimal=".",
-            index_col=False,
-            encoding="utf-8",
-            comment="#",
-        )
-        if set_index:
-            nr_row_indices = int(meta["IDXCOL"])
-            if 0 < nr_row_indices <= df.shape[1]:
-                idx_keys = df.columns[:nr_row_indices]
-                df = df.set_index(idx_keys.tolist())
-        if len(df.columns) == len(column_names):
-            if type(column_names) == list:
-                df = df.rename(
-                    columns={i: c for i, c in zip(list(df.columns), column_names)}
-                )
-            elif type(column_names) == dict:
-                df = df.rename(columns=column_names)
-            else:
-                TypeError(f"Expected list or dict got {type(column_names)}")
-        return df
-
-    @DeprecationWarning
-    def __call__(self):
-        return self._create_df(set_index=False)
 
 
 class ScenarioOutput:
@@ -138,8 +66,10 @@ class ScenarioOutput:
             f_path = join(self.output_dir, f_name)
             if os.path.exists(f_path):
                 attr_df = clean_dir_name(f_name)
-                setattr(self.named_files, "df_" + attr_df, LazyDataFrameWrapper(f_path))
-                self.files[f_name] = LazyDataFrameWrapper(f_path)
+                setattr(
+                    self.named_files, "df_" + attr_df, LazyDataFrame.from_path(f_path)
+                )
+                self.files[f_name] = LazyDataFrame.from_path(f_path)
 
                 attr_info = "info_{}".format(attr_df)
                 attr_info_dict = dict()
