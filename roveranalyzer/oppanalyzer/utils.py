@@ -157,7 +157,7 @@ def build_time_series(
     return _df_ret
 
 
-def build_density_map(csv_path):
+def build_density_map(csv_path, real_coords=False):
     _df = LazyDataFrame.from_path(csv_path)
 
     meta = _df.read_meta_data()
@@ -192,6 +192,13 @@ def build_density_map(csv_path):
     # set index and update with raw measures. (most will stay at zero)
     ret = ret.set_index(idx)
     ret.update(df_raw)
+    if real_coords:
+        _idxOld = ret.index.to_frame(index=False)
+        _idxOld["x"] = _idxOld["x"]*cell_size
+        _idxOld["y"] = _idxOld["y"]*cell_size
+        _idxNew = pd.MultiIndex.from_frame(_idxOld)
+        ret = ret.set_index(_idxNew)
+
     return ret
 
 def simsec_per_sec(df, ax=None):

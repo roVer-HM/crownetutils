@@ -15,8 +15,7 @@ from matplotlib.colors import ListedColormap
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.mesh import SimpleMesh
 from roveranalyzer.uitls.plot_helper import PlotHelper
-from roveranalyzer.vadereanalyzer.plots.custom_tripcolor import \
-    tripcolor_costum
+from roveranalyzer.vadereanalyzer.plots.custom_tripcolor import tripcolor_costum
 
 sys.path.append(
     os.path.abspath("")
@@ -54,6 +53,11 @@ def mono_cmap(
     map = np.array([(0.0, 0.0, 0.0, 1.0) for i in np.arange(n)])
     map[:, base_color] = np.linspace(cspace[0], cspace[1], n)
     map[start:stop] = replace_with
+    return ListedColormap(map)
+
+
+def white_cmap(n=256):
+    map = np.array([(1.0, 1.0, 1.0, 1.0) for i in np.arange(n)])
     return ListedColormap(map)
 
 
