@@ -158,6 +158,13 @@ def build_time_series(
 
 
 def build_density_map(csv_path, real_coords=False):
+    """
+    build density maps from spare csv output.
+    expects a csv file with as header simtime;x;y;count;measured_t;received_t.
+    The first line must include a metadata line (starting with #) which
+    containing CELLSIZE and absolute size of the grid metadata.
+    #CELLSIZE=3.000000,DATACOL=-1,IDXCOL=3,SEP=;,XSIZE=581.135000,YSIZE=233.492000
+    """
     _df = LazyDataFrame.from_path(csv_path)
 
     meta = _df.read_meta_data()
