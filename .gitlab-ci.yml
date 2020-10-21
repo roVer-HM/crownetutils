@@ -14,5 +14,5 @@ unittests:
 black_check:
   stage: code_analysis
   script:
-    - black ./datafold/ --check --fast --diff
+    - black ./roveranalyzer/ --check --fast --diff
   allow_failure: true
