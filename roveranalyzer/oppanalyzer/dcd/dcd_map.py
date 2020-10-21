@@ -180,7 +180,7 @@ class DcdMap2D(DcdMap):
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
         cmap = t_cmap(cmap_name="Reds", replace_index=(0, 1, 0.0))
-        pcm = ax.pcolormesh(self.meta.X, self.meta.Y, df, cmap=cmap)
+        pcm = ax.pcolormesh(self.meta.X, self.meta.Y, df, cmap=cmap, shading="auto")
         f.colorbar(pcm, ax=ax, shrink=0.5)
 
         return ax

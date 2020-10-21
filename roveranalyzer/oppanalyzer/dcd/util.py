@@ -56,20 +56,25 @@ class DcdMetaData:
             ]
         return pd.MultiIndex.from_product(_idx, names=("x", "y"))
 
-    def create_full_index(self, df, real_coords=False):
+    def create_full_index(self, times, real_coords=False):
         if real_coords:
             _idx = [
-                df.index.levels[0].to_numpy(dtype=float),  # time
+                times,  # time
                 np.arange(self.x_count) * self.cell_size,  # numXCell
                 np.arange(self.y_count) * self.cell_size,  # numYCell
             ]
         else:
             _idx = [
-                df.index.levels[0].to_numpy(dtype=float),  # time
+                times,  # time
                 np.arange(self.x_count),  # numXCell
                 np.arange(self.y_count),  # numYCell
             ]
         return pd.MultiIndex.from_product(_idx, names=("simtime", "x", "y"))
+
+    def create_full_index_from_df(self, df, real_coords=False):
+        return self.create_full_index(
+            df.index.levels[0].to_numpy(dtype=float), real_coords
+        )
 
     @property
     def x_dim(self):
@@ -121,7 +126,7 @@ def _full_map(df, _m: DcdMetaData, col_types, real_coords=False):
     """
     create full index: time * numXCells * numYCells
     """
-    idx = _m.create_full_index(df, real_coords)
+    idx = _m.create_full_index_from_df(df, real_coords)
     # create zero filled data frame with index
     expected_columns = list(col_types.keys())
     ret = pd.DataFrame(
