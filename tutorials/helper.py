@@ -1,26 +1,21 @@
 import glob
 import os
-import urllib
-import zipfile
+
+from tests.utils import TestDataHandler
 
 
 def check_data():
 
-    if not os.path.isdir("test_data"):
-        print(f"Downloading test_data.zip")
-        # downloads file if it does not exist in this folder
-        urllib.request.urlretrieve(
-            "https://syncandshare.lrz.de/dl/fiMAmiaumaW3ASu9xf9JepYi/oppanalyzer_test_data_20200122.zip",
-            "test_data.zip",
-        )
-        with zipfile.ZipFile("test_data.zip", "r") as zip_ref:
-            zip_ref.extractall("test_data")
+    data = TestDataHandler.zip(
+        url="https://sam.cs.hm.edu/samcloud/index.php/s/ra6KTqinCX5WpWy/download",
+        file_name="test_data",
+        extract_to=".",
+    )
+    data.download_test_data(override=False)
 
-        os.remove("test_data.zip")
+    files = glob.glob("./test_data.d/**", recursive=True)
+    print(f"{os.path.abspath('.')}:")
+    for f in files:
+        print(f"  |-- {f[2:]}")
 
-        files = glob.glob("./test_data/**", recursive=True)
-        print(f"{os.path.abspath('.')}:")
-        for f in files:
-            print(f"  |-- {f[2:]}")
-
-    return os.path.abspath(os.path.join(".", "test_data"))
+    return os.path.abspath(data.data_dir)

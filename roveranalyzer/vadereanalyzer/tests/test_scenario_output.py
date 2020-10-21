@@ -1,20 +1,28 @@
+import os
 import unittest
 
 from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
 
 class ScenarioOutputTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base_path = os.path.dirname(__file__)
+
+    def abs_path(self, p):
+        return os.path.abspath(os.path.join(self.base_path, p))
+
     def test_output_dir(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertEqual(
-            out.output_dir, "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            out.output_dir,
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117"),
         )
 
     def test_scenario_dict(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertEqual(out.scenario["name"], "bridge_coordinates_kai")
 
@@ -22,18 +30,18 @@ class ScenarioOutputTests(unittest.TestCase):
         self.assertRaises(
             FileNotFoundError,
             ScenarioOutput.create_output_from_project_output,
-            "testData/s2ucre/output/invalid",
+            self.abs_path("testData/s2ucre/output/invalid"),
         )
 
     def test_scenario_output_dict(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertEqual(len(out.files), 3)
 
     def test_settattr_works(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertTrue("df_overlapCount_txt" in dir(out.named_files))
         self.assertTrue("df_overlaps_csv" in dir(out.named_files))
@@ -44,78 +52,78 @@ class ScenarioOutputTests(unittest.TestCase):
 
     def test_df_wrapper(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertTrue("df_postvis_trajectories" in dir(out.named_files))
-        df = out.named_files.df_postvis_trajectories()
+        df = out.named_files.df_postvis_trajectories.df()
         self.assertEqual(len(df), 20)
 
     def test_offset(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertEqual([564280.0, 5933391.0], out.get_bound_offset())
 
     def test_get_scenario_name(self):
         out = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         self.assertEqual("bridge_coordinates_kai", out.get_scenario_name())
 
     def test_scenario_md5sum(self):
         out_1 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         out_2 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-57-42.894"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-57-42.894")
         )
         out_3 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-43-08.160"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-43-08.160")
         )
         out_4 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-57-58.997"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-57-58.997")
         )
         out_5 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-46-13.488"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-46-13.488")
         )
         out_6 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-01-07.289"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-01-07.289")
         )
         out_7 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-49-31.248"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-49-31.248")
         )
         out_8 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-04-19.882"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-04-19.882")
         )
         out_9 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-49-48.269"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-49-48.269")
         )
         out_11 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-04-35.721"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-04-35.721")
         )
         out_12 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-53-04.555"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-53-04.555")
         )
         out_13 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-08-14.82"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-08-14.82")
         )
         out_14 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-56-18.210"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-56-18.210")
         )
         out_15 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-11-36.817"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-11-36.817")
         )
         out_16 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-56-34.297"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-56-34.297")
         )
         out_17 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-11-53.469"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-11-53.469")
         )
         out_18 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/empty_2018-11-16_13-56-50.397"
+            self.abs_path("testData/s2ucre/output/empty_2018-11-16_13-56-50.397")
         )
         out_19 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/empty_2018-11-16_14-12-09.609"
+            self.abs_path("testData/s2ucre/output/empty_2018-11-16_14-12-09.609")
         )
 
         self.assertEqual("774fc8aaaf93ee003709626bb4c0db1f", out_1.scenario_hash)
@@ -139,58 +147,58 @@ class ScenarioOutputTests(unittest.TestCase):
 
     def test_trajectories_md5sum(self):
         out_1 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-42-54.117"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-42-54.117")
         )
         out_2 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-57-42.894"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-57-42.894")
         )
         out_3 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-43-08.160"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-43-08.160")
         )
         out_4 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-57-58.997"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-57-58.997")
         )
         out_5 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-46-13.488"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-46-13.488")
         )
         out_6 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-01-07.289"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-01-07.289")
         )
         out_7 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-49-31.248"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-49-31.248")
         )
         out_8 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-04-19.882"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-04-19.882")
         )
         out_9 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-49-48.269"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-49-48.269")
         )
         out_11 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-04-35.721"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-04-35.721")
         )
         out_12 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-53-04.555"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-53-04.555")
         )
         out_13 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-08-14.82"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-08-14.82")
         )
         out_14 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-56-18.210"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-56-18.210")
         )
         out_15 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-11-36.817"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-11-36.817")
         )
         out_16 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_13-56-34.297"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_13-56-34.297")
         )
         out_17 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/b_2018-11-16_14-11-53.469"
+            self.abs_path("testData/s2ucre/output/b_2018-11-16_14-11-53.469")
         )
         out_18 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/empty_2018-11-16_13-56-50.397"
+            self.abs_path("testData/s2ucre/output/empty_2018-11-16_13-56-50.397")
         )
         out_19 = ScenarioOutput.create_output_from_project_output(
-            "testData/s2ucre/output/empty_2018-11-16_14-12-09.609"
+            self.abs_path("testData/s2ucre/output/empty_2018-11-16_14-12-09.609")
         )
 
         self.assertEqual("fca32f3f98ac8c3ffb111cac28f9b9a4", out_1.trajectories_hash)
@@ -211,3 +219,7 @@ class ScenarioOutputTests(unittest.TestCase):
         self.assertEqual("c1322a79513671d2fd70b1dfbebf0247", out_17.trajectories_hash)
         self.assertEqual("6f077db2b6af4e022f970cbe4ff3b1f8", out_18.trajectories_hash)
         self.assertEqual("6f077db2b6af4e022f970cbe4ff3b1f8", out_19.trajectories_hash)
+
+
+if __name__ == "__main__":
+    unittest.main()

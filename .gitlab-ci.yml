@@ -1,0 +1,18 @@
+stages:
+  - test
+  - code_analysis
+
+unittests:
+  stage: test
+  script:
+    - virtualenv --system-site-packages --python py38 ./venv
+    - source ./venv/bin/activate
+    - pip3 install -q -r requirements-dev.txt
+    - python3 -m unittest discover -v
+
+
+black_check:
+  stage: code_analysis
+  script:
+    - black ./datafold/ --check --fast --diff
+  allow_failure: true

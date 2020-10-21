@@ -2,7 +2,7 @@
 tags
 tags**
 *.h5
-tutorials/test_data
+tutorials/test_data.d
 .directory
 **/*.mp4
 
