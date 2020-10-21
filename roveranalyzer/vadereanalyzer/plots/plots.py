@@ -14,7 +14,7 @@ from matplotlib.colors import ListedColormap
 
 from roveranalyzer.uitls import Timer
 from roveranalyzer.uitls.mesh import SimpleMesh
-from roveranalyzer.uitls.plot_helper import PlotHelper
+from roveranalyzer.uitls.plot import PlotHelper
 from roveranalyzer.vadereanalyzer.plots.custom_tripcolor import tripcolor_costum
 
 sys.path.append(

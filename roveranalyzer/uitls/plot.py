@@ -2,6 +2,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
+def check_ax(ax=None):
+    """
+    check if axis exist if not create new figure with one axis
+    """
+    if ax is None:
+        f, ax = plt.subplots(1, 1, figsize=(16, 9))
+    else:
+        f = ax.get_figure()
+
+    return f, ax
+
+
 class PlotHelper:
     @classmethod
     def create(cls, ax: plt.Axes = None, **fig_kw):

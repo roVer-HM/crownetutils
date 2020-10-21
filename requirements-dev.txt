@@ -1,0 +1,7 @@
+-r requirements.txt
+black==19.10b0
+coverage==4.5.4
+jupyter>=1.0.0
+jupyter-client>=6.0.0
+jupyter-core>=4.6.3
+jupyterlab-pygments

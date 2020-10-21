@@ -14,6 +14,7 @@ class LazyDataFrame(object):
 
     def __init__(self, path):
         self.path = path
+        self.dtype = {}
 
     def read_meta_data(self):
         with open(self.path, "r") as f:
@@ -48,12 +49,14 @@ class LazyDataFrame(object):
 
         return ret
 
-    def df(self, set_index=False, column_names=None):
+    def df(self, set_index=False, column_selection=None, column_names=None):
         meta = self.read_meta_data()
         df: pd.DataFrame = pd.read_csv(
             filepath_or_buffer=self.path,
             sep=meta["SEP"],
             header=0,
+            usecols=column_selection,
+            dtype=self.dtype,
             decimal=".",
             index_col=False,
             encoding="utf-8",
@@ -64,7 +67,9 @@ class LazyDataFrame(object):
             if 0 < nr_row_indices <= df.shape[1]:
                 idx_keys = df.columns[:nr_row_indices]
                 df = df.set_index(idx_keys.tolist())
-        if len(df.columns) == len(column_names):
+
+        # rename
+        if column_names is not None and len(df.columns) == len(column_names):
             if type(column_names) == list:
                 df = df.rename(
                     columns={i: c for i, c in zip(list(df.columns), column_names)}
