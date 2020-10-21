@@ -247,6 +247,7 @@ class ScaveConverter:
     pandas csv to DataFrame converter. Provides a dict of functions to use while
     reading csv file. The keys in the dict must match the column names.
     """
+
     def __init__(self):
         pass
 
@@ -291,6 +292,7 @@ class ScaveRunConverter(ScaveConverter):
 
     Simplify run name by providing a shorter name
     """
+
     def __init__(self, run_short_hand="r"):
         super().__init__()
         self._short_hand = run_short_hand
@@ -383,7 +385,15 @@ class OppDataProvider:
     - already processed *.csv files provided by some earlier run of the a ScaveTool or
     - a HDF-Store containing preprocessed dataframes.
     """
-    def __init__(self, path: PathHelper, analysis_name, analysis_dir=None, hdf_store_name=None, cfg: Config = None):
+
+    def __init__(
+        self,
+        path: PathHelper,
+        analysis_name,
+        analysis_dir=None,
+        hdf_store_name=None,
+        cfg: Config = None,
+    ):
         self._root = path
         # output
         self._analysis_name = analysis_name
@@ -401,7 +411,9 @@ class OppDataProvider:
         _hdf_store_name = hdf_store_name
         if _hdf_store_name is None:
             _hdf_store_name = f"{analysis_name}{Suffix.HDF}"
-        self._hdf_store = HdfProvider(self._root.join(self._analysis_dir, _hdf_store_name))
+        self._hdf_store = HdfProvider(
+            self._root.join(self._analysis_dir, _hdf_store_name)
+        )
 
         self._root.make_dir(self._analysis_dir, exist_ok=True)
 
@@ -610,7 +622,10 @@ class ScaveTool:
             converters = ScaveConverter()
         # skip first row (container output)
         df = pd.read_csv(
-            io.BytesIO(stdout), encoding="utf-8", skiprows=1, converters=converters.get()
+            io.BytesIO(stdout),
+            encoding="utf-8",
+            skiprows=1,
+            converters=converters.get(),
         )
         return df
 
@@ -743,9 +758,10 @@ class StatsTool:
         """
         table = "=============================================================\n"
         if len(name) > 0:
-            table += (f"! Data: {name:51} !\n"
-                      "-------------------------------------------------------------\n"
-                      )
+            table += (
+                f"! Data: {name:51} !\n"
+                "-------------------------------------------------------------\n"
+            )
 
         table += (
             f"! nr of values : {len(data):15}                            !\n"
@@ -765,7 +781,7 @@ class PlotAttrs:
     """
     PlotAttrs is a singleton guaranteeing unique plot parameters
     """
-    
+
     class __PlotAttrs:
         plot_marker = [".", "*", "o", "v", "1", "2", "3", "4"]
         plot_color = ["b", "g", "r", "c", "m", "y", "k", "w"]
@@ -811,6 +827,7 @@ class Simulation(object):
     :param path:        Path to all *.vec and *.sca files produced by the scenario
     :param description: Human readable description used in plot legend for this scenario
     """
+
     def __init__(self, id: str, path: str, description: str):
         self.id = id
         self.path = path

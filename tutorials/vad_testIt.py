@@ -2,9 +2,9 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
-
 import seaborn as sns
 from drawnow import drawnow, figure
+
 from roveranalyzer import vadereanalyzer as v
 from roveranalyzer.uitls.path import PathHelper
 from roveranalyzer.vadereanalyzer.plots.plots import NumPedTimeSeries

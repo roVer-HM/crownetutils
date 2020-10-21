@@ -4,9 +4,11 @@ import numpy as np
 import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from roveranalyzer.oppanalyzer.utils import (DcdMetaData,
-                                             build_global_density_map,
-                                             build_local_density_map)
+from roveranalyzer.oppanalyzer.utils import (
+    DcdMetaData,
+    build_global_density_map,
+    build_local_density_map,
+)
 from roveranalyzer.uitls.path import PathHelper
 from roveranalyzer.vadereanalyzer.plots.plots import t_cmap
 from roveranalyzer.vadereanalyzer.plots.scenario import VaderScenarioPlotHelper

@@ -2,7 +2,6 @@ import os
 from os.path import join
 
 from oppanalyzer.utils import OppDataProvider
-
 from uitls import Timer
 from uitls.path import PathHelper
 from vadereanalyzer.plots.plots import DensityPlots, PlotOptions, t_cmap
