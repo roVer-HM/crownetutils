@@ -116,7 +116,9 @@ def mac_pending_queue_hist():
     fig, axes = plt.subplots(3, 1, figsize=(16, 9))
 
     axes[0].hist(
-        df_n["qtime"], 60, density=True,
+        df_n["qtime"],
+        60,
+        density=True,
     )
     df.opp.plot.create_histogram(
         axes[1],

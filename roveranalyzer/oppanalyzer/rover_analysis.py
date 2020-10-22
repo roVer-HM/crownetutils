@@ -525,7 +525,10 @@ class OppPlot:
             ret.setdefault("label", f"{idx}-data")
 
         ret.update(
-            {"marker": cls.marker(idx), "color": cls.color(idx),}
+            {
+                "marker": cls.marker(idx),
+                "color": cls.color(idx),
+            }
         )
         if kwargs:
             ret.update(kwargs)
@@ -581,7 +584,11 @@ class OppPlot:
 
         if "vecvalue" in s.index:
             # omnetpp based Series with Index(['vectime', 'vecvalue'], dtype='object')
-            ret = ax.hist(s.vecvalue, bins, **kwargs,)
+            ret = ax.hist(
+                s.vecvalue,
+                bins,
+                **kwargs,
+            )
         else:
             # standardized Series with shape (XXX,)
             ret = ax.hist(s, bins, **kwargs)

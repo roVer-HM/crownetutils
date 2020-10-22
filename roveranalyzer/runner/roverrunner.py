@@ -14,7 +14,8 @@ from roveranalyzer.runner.dockerrunner import OppRunner, VadereRunner
 if len(logging.root.handlers) == 0:
     # set logger for dev (will be overwritten if needed)
     logging.basicConfig(
-        level=logging.DEBUG, format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
     )
 
 

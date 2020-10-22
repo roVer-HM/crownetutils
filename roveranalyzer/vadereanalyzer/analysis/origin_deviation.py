@@ -6,9 +6,9 @@ from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
 
 class OriginDeviation:
-    """ Calculate deviation of origin after transforming it form 0 to X.
-        In output_pair a array like structure with output_pair[0] (no translation)
-        and output_pair[1] (with translation) is expected.
+    """Calculate deviation of origin after transforming it form 0 to X.
+    In output_pair a array like structure with output_pair[0] (no translation)
+    and output_pair[1] (with translation) is expected.
     """
 
     def __init__(self, output_pair, name="", max_diff_ok=1e-7, max_diff_warn=1e-4):

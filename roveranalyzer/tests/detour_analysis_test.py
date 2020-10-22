@@ -9,7 +9,8 @@ from vadereanalyzer.plots.plots import DensityPlots, PlotOptions, t_cmap
 if __name__ == "__main__":
     builder = OppDataProvider(
         path=PathHelper.from_env(
-            "ROVER_MAIN", "rover/simulations/simple_detoure/results/",
+            "ROVER_MAIN",
+            "rover/simulations/simple_detoure/results/",
         ),
         analysis_name="stream_video",
         analysis_dir="analysis.d",
