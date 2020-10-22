@@ -16,7 +16,7 @@ black_check:
   script:
     - virtualenv --system-site-packages --python py38 ./venv
     - source ./venv/bin/activate
-    - pip3 install black
-    - black --help
+    - pip3 install -I black==19.10b0
+    - black --version
     - black ./roveranalyzer/ --fast --check --diff
   allow_failure: true
