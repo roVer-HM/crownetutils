@@ -14,6 +14,9 @@ unittests:
 black_check:
   stage: code_analysis
   script:
+    - virtualenv --system-site-packages --python py38 ./venv
+    - source ./venv/bin/activate
+    - pip3 install black
     - black --help
     - black ./roveranalyzer/ --fast --check --diff
   allow_failure: true
