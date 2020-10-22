@@ -14,5 +14,6 @@ unittests:
 black_check:
   stage: code_analysis
   script:
-    - black ./roveranalyzer/ --fast
+    - black --help
+    - black ./roveranalyzer/ --fast --check --diff
   allow_failure: true
