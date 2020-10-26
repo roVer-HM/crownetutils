@@ -34,18 +34,21 @@ class DcdMapTests(unittest.TestCase):
         return DcdMap2D(meta, {1: 1}, df)
 
 
+test_data_001 = TestDataHandler.tar(
+    url="https://sam.cs.hm.edu/samcloud/index.php/s/7RAg26eB3JmTKsX/download",
+    file_name="tutorialTest",
+    archive_base_dir="2020-10-21_densityMap_test001",
+    keep_archive=True,  # keep archive to reduce unnecessary downloads
+)
+
+
 class DcdMapTutorialTests(DcdMapTests):
     def tearDown(self):
         self.handler.remove_data()
 
     def setUp(self) -> None:
         # load test data from url and save to /tmp
-        self.handler = TestDataHandler.tar(
-            url="https://sam.cs.hm.edu/samcloud/index.php/s/7RAg26eB3JmTKsX/download",
-            file_name="tutorialTest",
-            archive_base_dir="2020-10-21_densityMap_test001",
-            keep_archive=True,  # keep archive to reduce unnecessary downloads
-        )
+        self.handler = test_data_001
         self.handler.download_test_data(override=True)
 
         scenario_path = self.handler.abs_path("vadere.d/mf_2peds.scenario")

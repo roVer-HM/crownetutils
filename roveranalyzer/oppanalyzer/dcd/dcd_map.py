@@ -12,9 +12,12 @@ class DcdMap:
 
     cell_features = ["count", "measured_t", "received_t", "delay", "m_aoi", "r_aoi"]
 
-    def __init__(self, m_glb: DcdMetaData, id_map, plotter=None):
+    def __init__(
+        self, m_glb: DcdMetaData, id_map, glb_loc_df: pd.DataFrame, plotter=None
+    ):
         self.meta = m_glb
         self.node_to_id = id_map
+        self.glb_loc_df = glb_loc_df
         self.id_to_node = {v: k for k, v in id_map.items()}
         self.scenario_plotter = plotter
 
@@ -41,11 +44,10 @@ class DcdMap2D(DcdMap):
         # pandas.DataFrame with [simtime, node_id] -> x,y
         # global position map for all node_ids
         glb_m, glb_df = global_data
-        glb_ids = glb_df["node_id"].copy().reset_index()
-        glb_ids = glb_ids.assign(node_id=glb_ids["node_id"].str.split(",")).explode(
-            "node_id"
-        )
-        glb_ids = glb_ids.set_index(["simtime", "node_id"])
+        glb_loc_df = glb_df["node_id"].copy().reset_index()
+        glb_loc_df = glb_loc_df.assign(
+            node_id=glb_loc_df["node_id"].str.split(",")
+        ).explode("node_id")
         # remove node_id column from global
         glb_df = glb_df.drop(labels=["node_id"], axis="columns")
 
@@ -57,6 +59,8 @@ class DcdMap2D(DcdMap):
         node_to_id = {n[1]: n[0] for n in ids}
         id_map = pd.DataFrame(ids, columns=["ID", "node_id"]).set_index(["ID"])
 
+        glb_loc_df["node_id"] = glb_loc_df["node_id"].apply(lambda x: node_to_id[x])
+        glb_loc_df = glb_loc_df.set_index(["simtime", "node_id"])
         # merge node frames
         input_df = [(glb_m, glb_df), *node_data]
         node_dfs = []
@@ -84,10 +88,17 @@ class DcdMap2D(DcdMap):
         # AoI_NR == update_age (time since last update)
         _df_ret["update_age"] = now - _df_ret["received_t"]
 
-        return cls(glb_m, node_to_id, _df_ret)
+        return cls(glb_m, node_to_id, _df_ret, glb_loc_df)
 
-    def __init__(self, m_glb: DcdMetaData, id_map, tc2d_df: pd.DataFrame, plotter=None):
-        super().__init__(m_glb, id_map, plotter)
+    def __init__(
+        self,
+        m_glb: DcdMetaData,
+        id_map,
+        tc2d_df: pd.DataFrame,
+        glb_loc_df: pd.DataFrame,
+        plotter=None,
+    ):
+        super().__init__(m_glb, id_map, glb_loc_df, plotter)
         self.raw2d = tc2d_df
 
     def iter_nodes_d2d(self, first=0, last=-1):
@@ -134,7 +145,7 @@ class DcdMap2D(DcdMap):
                 df_time.index, df_time["count"], label=f"{id}_{self.id_to_node[id]}"
             )
 
-        g = self.glb_2d
+        g = self.glb_2d.groupby(level=self.tsc_time_idx_name).sum()
         ax.plot(
             g.index.get_level_values(self.tsc_time_idx_name),
             g["count"],

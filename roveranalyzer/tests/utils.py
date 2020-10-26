@@ -49,7 +49,31 @@ class ZipDownloader(Downloader):
             archive.extractall(data_dir)
 
 
+class LocalDownloader(Downloader):
+    def __init__(self):
+        super().__init__("")
+
+    def download(self, path, override=False):
+        pass
+
+    def extract(self, archive_dir, dir, **kwargs):
+        pass
+
+
 class TestDataHandler:
+    @classmethod
+    def local(cls, path):
+        d = LocalDownloader()
+        base, fname = os.path.split(path)
+        return cls(
+            downloader=d,
+            file_name=fname,
+            suffix="",
+            archive_base_dir="",
+            extract_to=base,
+            keep_archive=True,
+        )
+
     @classmethod
     def tar(
         cls,
@@ -110,20 +134,21 @@ class TestDataHandler:
         :keep_archive:      Delete archive after extraction.
         """
         self.downloader: Downloader = downloader
-        if len(file_name) == 0:
-            self.file_name = "".join(random.choice(ascii_lowercase) for i in range(6))
-        else:
-            self.file_name = file_name
         self.suffix = suffix
         self.archive_base_dir = archive_base_dir
         self.extract_base_path = extract_to
         self.keep_archive = keep_archive
+        if len(file_name) == 0:
+            self.file_name = "".join(random.choice(ascii_lowercase) for i in range(6))
+            self.data_dir = os.path.join(self.extract_base_path, f"{self.file_name}.d")
+        else:
+            self.file_name = file_name
+            self.data_dir = os.path.join(self.extract_base_path, self.file_name)
 
         # build paths
         self.archive_path = os.path.join(
             self.extract_base_path, f"{self.file_name}.{self.suffix}"
         )
-        self.data_dir = os.path.join(self.extract_base_path, f"{self.file_name}.d")
 
     def download_test_data(self, override=True):
         # get archive file
@@ -131,10 +156,6 @@ class TestDataHandler:
 
         # extract files
         self.downloader.extract(self.archive_path, self.data_dir)
-        # with open(self.test_data_archive, "rb") as archive:
-        #     tar = tarfile.open(fileobj=archive, mode="r:gz")
-        #     print(f"extract to : {self.test_data_dir}")
-        #     tar.extractall(path=self.test_data_dir)
 
         # cleanup
         if not self.keep_archive:
