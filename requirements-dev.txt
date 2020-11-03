@@ -1,5 +1,6 @@
 -r requirements.txt
 black==20.8b1
+isort==5.6.4
 coverage==4.5.4
 jupyter>=1.0.0
 jupyter-client>=6.0.0

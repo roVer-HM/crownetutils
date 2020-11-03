@@ -89,6 +89,22 @@ class DcdMetaData:
         return np.arange(self.y_count * self.cell_size, step=self.cell_size)
 
     @property
+    def X_flat(self):
+        """
+        add one additional element at the end to use flat shading of matplotlib without dropping
+        data. See. https://matplotlib.org/gallery/images_contours_and_fields/pcolormesh_levels.html?highlight=pcolormesh%20grids%20shading#centered-coordinates
+        """
+        return np.arange((1 + self.x_count) * self.cell_size, step=self.cell_size)
+
+    @property
+    def Y_flat(self):
+        """
+        add one additional element at the end to use flat shading of matplotlib without dropping
+        data. See. https://matplotlib.org/gallery/images_contours_and_fields/pcolormesh_levels.html?highlight=pcolormesh%20grids%20shading#centered-coordinates
+        """
+        return np.arange((1 + self.y_count) * self.cell_size, step=self.cell_size)
+
+    @property
     def y_dim(self):
         return self.bound[1]
 

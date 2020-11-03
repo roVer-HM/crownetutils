@@ -6,6 +6,8 @@ import urllib.request
 import zipfile
 from string import ascii_lowercase
 
+from roveranalyzer.uitls import PathHelper
+
 
 class Downloader:
     def __init__(self, url):
@@ -140,10 +142,15 @@ class TestDataHandler:
         self.keep_archive = keep_archive
         if len(file_name) == 0:
             self.file_name = "".join(random.choice(ascii_lowercase) for i in range(6))
-            self.data_dir = os.path.join(self.extract_base_path, f"{self.file_name}.d")
+            _data_dir = os.path.join(self.extract_base_path, f"{self.file_name}.d")
         else:
             self.file_name = file_name
-            self.data_dir = os.path.join(self.extract_base_path, self.file_name)
+            _data_dir = os.path.join(self.extract_base_path, self.file_name)
+        # extract archive here
+        self.base_dir = _data_dir
+        self.data_dir: PathHelper = PathHelper(self.base_dir)
+        # data base dir inside the archive
+        self.data_dir.extend_base(self.archive_base_dir)
 
         # build paths
         self.archive_path = os.path.join(
@@ -155,7 +162,7 @@ class TestDataHandler:
         self.downloader.download(self.archive_path, override=override)
 
         # extract files
-        self.downloader.extract(self.archive_path, self.data_dir)
+        self.downloader.extract(self.archive_path, self.base_dir)
 
         # cleanup
         if not self.keep_archive:
@@ -163,13 +170,5 @@ class TestDataHandler:
             os.remove(self.archive_path)
 
     def remove_data(self):
-        print(f"remove data in {self.data_dir}")
-        shutil.rmtree(self.data_dir)
-
-    def abs_path(self, path):
-        return os.path.abspath(self.join(path))
-
-    def join(self, path):
-        if type(path) == str:
-            path = [path]
-        return os.path.join(self.data_dir, self.archive_base_dir, *path)
+        print(f"remove data in {self.base_dir}")
+        shutil.rmtree(self.base_dir)
