@@ -137,8 +137,10 @@ class PathHelper:
         else:
             raise KeyError(f"no Variable name '{env_var}' found")
 
-    def __init__(self, base):
+    def __init__(self, base, create_missing=False):
         self._base = os.path.abspath(base)
+        if create_missing and not os.path.exists(self._base):
+            os.makedirs(self._base, exist_ok=True)
         if not os.path.exists(self._base):
             raise FileNotFoundError(f"given base path does not exist. '{self._base}'")
 
@@ -150,9 +152,19 @@ class PathHelper:
                 )
         return self.abs_path(*paths)
 
-    def glob(self, *paths, recursive=True):
+    def glob(self, *paths, recursive=True, expect=-1):
         p = self.join(*paths)
-        return glob.glob(p, recursive=recursive)
+        _ret = glob.glob(p, recursive=recursive)
+        if expect <= 0:
+            # expect any output empyt list, 1, 2,... items
+            return _ret
+        elif len(_ret) == expect:
+            if len(_ret) == 1:
+                return _ret[0]
+            else:
+                return _ret
+        else:
+            raise ValueError(f"expected {expect} items but got {len(_ret)}")
 
     def abs_path(self, *paths):
         return os.path.join(self._base, *paths)
@@ -168,3 +180,24 @@ class PathHelper:
         d_path = self.join(*paths)
         os.makedirs(d_path, exist_ok=exist_ok)
         return d_path
+
+
+class ResultPath(PathHelper):
+    @classmethod
+    def create(cls, simulation, run_name):
+        _obj = cls.rover_sim(simulation, run_name)
+        return _obj
+
+    @property
+    def scenario_path(self):
+        _p = self.glob("vadere.d/*.scenario")
+        if len(_p) == 0:
+            raise FileNotFoundError(
+                f"Expected scenario file at {self.abs_path('vadere.d')}"
+            )
+        elif len(_p) > 1:
+            print(
+                f"Warning: expected one scenario file but found more: [{' '.join(_p)}]"
+            )
+
+        return _p[0]
