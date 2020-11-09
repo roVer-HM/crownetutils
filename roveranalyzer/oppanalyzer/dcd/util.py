@@ -117,15 +117,19 @@ class DcdMetaData:
         return self.cell_count[1]
 
 
-def _density_get_raw(csv_path, col_types):
-    # todo
+def _density_get_raw(csv_path, index, col_types):
+    """
+    read csv and set index
+    """
     _df = LazyDataFrame.from_path(csv_path)
     _df.dtype = col_types
 
-    select_columns = ["simtime", "x", "y", *list(col_types.keys())]
-    df_raw = _df.df(set_index=True, column_selection=select_columns)
-    meta = _df.read_meta_data()
+    select_columns = [*index, *list(col_types.keys())]
+    df_raw: pd.DataFrame = _df.df(set_index=False, column_selection=select_columns)
+    df_raw = df_raw.set_index(index)
+    df_raw = df_raw.sort_index()
 
+    meta = _df.read_meta_data()
     _m = DcdMetaData.from_dict(meta)
 
     return df_raw, _m
@@ -139,7 +143,7 @@ def _apply_real_coords(_df, _meta: DcdMetaData):
     return _df.set_index(_idxNew)
 
 
-def _full_map(df, _m: DcdMetaData, col_types, real_coords=False):
+def _full_map(df, _m: DcdMetaData, index, col_types, real_coords=False):
     """
     create full index: time * numXCells * numYCells
     """
@@ -156,7 +160,7 @@ def _full_map(df, _m: DcdMetaData, col_types, real_coords=False):
     return ret
 
 
-def build_density_map(csv_path, col_types, real_coords=False, full_map=False):
+def build_density_map(csv_path, index, column_types, real_coords=False, full_map=False):
     """
     build density maps from spare csv output.
     expects a csv file with as header simtime;x;y;count;measured_t;received_t.
@@ -164,42 +168,13 @@ def build_density_map(csv_path, col_types, real_coords=False, full_map=False):
     containing CELLSIZE and absolute size of the grid metadata.
     #CELLSIZE=3.000000,DATACOL=-1,IDXCOL=3,SEP=;,XSIZE=581.135000,YSIZE=233.492000
     """
-    ret, _m = _density_get_raw(csv_path, col_types)
+    ret, meta = _density_get_raw(csv_path, index, column_types)
 
     if real_coords:
-        ret = _apply_real_coords(ret, _m)
+        ret = _apply_real_coords(ret, meta)
 
     # create full index with missing cells. Values will be set to '0' (type dependent)
     if full_map:
-        ret = _full_map(ret, _m, col_types, real_coords)
+        ret = _full_map(ret, meta, index, column_types, real_coords)
 
-    return _m, ret
-
-
-# todo: merge multiple nodes.
-def build_local_density_map(csv_path, real_coords=False, full_map=False):
-    col = {
-        "count": np.int,
-        "measured_t": np.float,
-        "received_t": np.float,
-        "source": np.str,
-        "own_cell": np.int,
-    }
-    meta, df = build_density_map(csv_path, col, real_coords, full_map)
-    return meta, df
-
-
-def build_global_density_map(
-    csv_path, real_coords=False, with_id_list=False, full_map=False
-):
-    col = {
-        "count": np.int,
-        "measured_t": np.float,
-        "received_t": np.float,
-        "source": np.str,
-        "own_cell": np.int,
-    }
-    if with_id_list:
-        col["node_id"] = np.str
-    meta, df = build_density_map(csv_path, col, real_coords, full_map)
-    return meta, df
+    return meta, ret

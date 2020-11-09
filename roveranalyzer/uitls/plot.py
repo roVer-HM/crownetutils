@@ -2,12 +2,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-def check_ax(ax=None):
+def check_ax(ax=None, **kwargs):
     """
     check if axis exist if not create new figure with one axis
     """
+    args = kwargs.copy()
+    args.setdefault("figsize", (16, 9))
     if ax is None:
-        f, ax = plt.subplots(1, 1, figsize=(16, 9))
+        f, ax = plt.subplots(1, 1, **args)
     else:
         f = ax.get_figure()
 
