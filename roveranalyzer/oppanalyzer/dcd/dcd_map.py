@@ -52,6 +52,19 @@ class DcdMap:
         self.scenario_plotter = plotter
         self.plot_wrapper = None
 
+    def get_location(self, simtime, node_id, cell_id=False):
+        try:
+            ret = self.glb_loc_df.loc[simtime, node_id]
+            if ret.shape == (2,):
+                ret = ret.to_numpy()
+                if cell_id:
+                    ret = np.floor(ret / self.meta.cell_size)
+            else:
+                raise TypeError()
+        except TypeError as e:
+            ret = np.array([-1, -1])
+        return ret
+
     def set_scenario_plotter(self, plotter):
         self.scenario_plotter = plotter
 
@@ -259,9 +272,9 @@ class DcdMap2D(DcdMap):
     @plot_decorator
     def plot_count_diff(self, *, ax=None, **kwargs):
         f, ax = check_ax(ax, **kwargs)
-        ax.set_title("Node count over Error time")
+        ax.set_title("Node Count over Time")
         ax.set_xlabel("time [s]")
-        ax.set_ylabel("MES of count")
+        ax.set_ylabel("Count")
         _i = pd.IndexSlice
         nodes = (
             self.raw2d.loc[_i[1:], _i["count"]]
@@ -270,11 +283,35 @@ class DcdMap2D(DcdMap):
             .groupby(level="simtime")
             .mean()
         )
+        nodes_std = (
+            self.raw2d.loc[_i[1:], _i["count"]]
+            .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
+            .sum()
+            .groupby(level="simtime")
+            .std()
+        )
         glb = self.glb_2d.groupby(level=self.tsc_time_idx_name).sum()["count"]
-        ax.plot(nodes.index, nodes, label="mean node count")
-        ax.plot(glb.index, glb, label="actual node count")
+        ax.plot(nodes.index, nodes, label="count mean")
+        ax.fill_between(
+            nodes.index,
+            nodes + nodes_std,
+            nodes - nodes_std,
+            alpha=0.35,
+            interpolate=True,
+            label="count +/- 1 std",
+        )
+        ax.plot(glb.index, glb, label="actual count")
         f.legend()
         return ax
+
+    @staticmethod
+    def update_dict(user_overrides: dict, **defaults):
+        if user_overrides is None:
+            return defaults
+        else:
+            for k, v in defaults.items():
+                user_overrides.setdefault(k, v)
+            return user_overrides
 
     @plot_decorator
     def plot_density_map(
@@ -284,6 +321,8 @@ class DcdMap2D(DcdMap):
         *,
         ax=None,
         make_interactive=False,
+        cmap_dic=None,
+        pcolormesh_dic=None,
         **kwargs,
     ):
         _i = pd.IndexSlice
@@ -295,17 +334,23 @@ class DcdMap2D(DcdMap):
         df = df.unstack().T
         f, ax = check_ax(ax, **kwargs)
 
-        ax.set_title(
-            f"Density map for node {node_id}_{self.id_to_node[node_id]} at time {time_step}"
-        )
+        cell = self.get_location(time_step, node_id, cell_id=False)
+        if "title" in kwargs:
+            ax.set_title(kwargs["title"])
+        else:
+            ax.set_title(
+                f"Density map for node {node_id}_{self.id_to_node[node_id]} at time {time_step} cell [{cell[0]}, {cell[1]}]"
+            )
         ax.set_aspect("equal")
 
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
-        cmap = t_cmap(cmap_name="Reds", replace_index=(0, 1, 0.0))
-        pcm = ax.pcolormesh(
-            self.meta.X_flat, self.meta.Y_flat, df, cmap=cmap, shading="flat"
-        )
+
+        _d = self.update_dict(cmap_dic, cmap_name="Reds", replace_index=(0, 1, 0.0))
+        cmap = t_cmap(**_d)
+
+        _d = self.update_dict(pcolormesh_dic, cmap=cmap, shading="flat")
+        pcm = ax.pcolormesh(self.meta.X_flat, self.meta.Y_flat, df, **_d)
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         cax.set_label("colorbar")
@@ -791,16 +836,21 @@ class InteractiveDensityPlot(InteractivePlotHandler):
 
     def update(self):
         print("update!")
-        self.ax.clear()
-        for _ax in self.fig.axes:
-            if _ax.get_label() == "colorbar":
-                self.fig.delaxes(_ax)
-                break
+        try:
+            self.ax.clear()
+            for _ax in self.fig.axes:
+                if _ax.get_label() == "colorbar":
+                    self.fig.delaxes(_ax)
+                    break
 
-        self.fig, self.ax = self.dcd.plot_density_map(
-            self.time_step, self.node_id, ax=self.ax, make_interactive=False
-        )
-        self.meta_tbl = self.dcd.create_meta_data_table(
-            self.tbl, 0.0, 0.0, self.time_step, self.node_id
-        )
-        self.fig.canvas.draw_idle()
+            self.fig, self.ax = self.dcd.plot_density_map(
+                self.time_step, self.node_id, ax=self.ax, make_interactive=False
+            )
+            self.meta_tbl = self.dcd.create_meta_data_table(
+                self.tbl, 0.0, 0.0, self.time_step, self.node_id
+            )
+        except KeyError as e:
+            print("key err")
+            pass
+        finally:
+            self.fig.canvas.draw_idle()

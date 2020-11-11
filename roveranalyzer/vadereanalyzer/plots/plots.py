@@ -499,8 +499,8 @@ class DensityPlots:
     def plot_density(
         self,
         time,
-        option,
-        fig_path,
+        option=PlotOptions.DENSITY,
+        fig_path=None,
         plot_data=(None,),
         color_bar_from=(0,),
         title=None,
