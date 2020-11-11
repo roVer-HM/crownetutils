@@ -98,19 +98,6 @@ class DcdMapTestLocal(DcdMapSimpleTest, unittest.TestCase):
         )
         self.load()
 
-    def test_foo(self):
-        # f = self.dcd.plot_annotated_location(12.0)
-        self.dcd.plot_wrapper = plot_wrap
-        # ret0 = self.dcd.plot_count()
-        # ret1 = self.dcd.plot_density_map(12, 0, make_interactive=True)
-        ret2 = self.dcd.plot_density_map(12, 5, make_interactive=True)
-        i = pd.IndexSlice
-        _ = self.dcd.raw2d.loc[
-            i[1, 0:15, 15.0, 138.0], ("count", "measured_t", "received_t", "source")
-        ]
-        x = self.dcd.raw2d.loc[i[:, 2:8, 15.0, 138.0], :]
-        plt.show(block=True)
-        print("foo")
 
     def test_intersect(self):
         a = np.array([1.0, 1.0])
