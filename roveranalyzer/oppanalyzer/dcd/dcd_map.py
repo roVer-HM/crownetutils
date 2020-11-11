@@ -2,12 +2,10 @@ from functools import wraps
 from itertools import combinations
 from typing import List, Union
 
-import ipywidgets as widgets
 import matplotlib.pyplot as plt
 import matplotlib.table as tbl
 import numpy as np
 import pandas as pd
-from ipywidgets import interact
 from matplotlib.widgets import Slider
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -302,7 +300,7 @@ class DcdMap2D(DcdMap):
         )
         ax.plot(glb.index, glb, label="actual count")
         f.legend()
-        return ax
+        return f, ax
 
     @staticmethod
     def update_dict(user_overrides: dict, **defaults):
