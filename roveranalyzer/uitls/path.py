@@ -1,12 +1,43 @@
+import functools
 import glob
-import json
 import os
 import pathlib
+import pickle
 import re
 from enum import Enum
-from typing import Any
 
-import pandas as pd
+
+def from_pickle(_func=None, *, path="./analysis.p"):
+    """
+    Use as decorator for function which return expensive objects to create such as
+    pd.DataFrames or objects containing such data.
+    If a function is decorated. The function execution is postponed and it is first
+    checked if the given path points to a pickle file. If yes the pickle is read and
+    returned instead of executing the function.
+    """
+    def _pickle(func):
+        @functools.wraps(func)
+        def _wrap(*args, **kwargs):
+            if path is not None and os.path.exists(path):
+                print(f"read from pickle {path}")
+                ret = pickle.load(open(path, "rb"))
+            else:
+                print(f"crate from raw data {path}")
+                ret = func(*args, **kwargs)
+
+            if path is not None and not os.path.exists(path):
+                print(f"expected pickle but did not exist.")
+                print(f"save pickle now to {path}")
+                pickle.dump(ret, open(path, "wb"))
+            return ret
+        return _wrap
+
+    if _func is None:
+        # decorator with arguments
+        return _pickle
+    else:
+        # decorator without arguments
+        return _pickle(_func)
 
 
 class JsonPath:
