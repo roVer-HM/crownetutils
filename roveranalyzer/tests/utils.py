@@ -148,7 +148,7 @@ class TestDataHandler:
             _data_dir = os.path.join(self.extract_base_path, self.file_name)
         # extract archive here
         self.base_dir = _data_dir
-        self.data_dir: PathHelper = PathHelper(self.base_dir)
+        self.data_dir: PathHelper = PathHelper(self.base_dir, create_missing=True)
         # data base dir inside the archive
         self.data_dir.extend_base(self.archive_base_dir)
 

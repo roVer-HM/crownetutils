@@ -1,14 +1,23 @@
 import os
 import unittest
 
-import matplotlib
+import importlib
 
-matplotlib.use("Qt5Agg")
+hasQt = importlib.util.find_spec("PyQt5")
+import matplotlib
+if 'DISPLAY' not in os.environ:
+    matplotlib.use('agg')
+elif hasQt is not None:
+    matplotlib.use("Qt5Agg")
+else:
+    matplotlib.use("TkAgg")
+print(f"using backend: {matplotlib.get_backend()}")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
-from oppanalyzer.dcd.dcd_map import DcdMap2DMulti
+from roveranalyzer.oppanalyzer.dcd.dcd_map import DcdMap2DMulti
 
 from roveranalyzer.oppanalyzer.dcd import DcdMap2D, DcdMetaData
 from roveranalyzer.tests.utils import TestDataHandler
@@ -42,7 +51,7 @@ class DcdMapSimpleTest(DcdMapTests):
             "global.csv", recursive=False, expect=1
         )
         node_map_paths = self.handler.data_dir.glob("0a:*.csv")
-        self.dcd = DcdMap2DMulti.from_paths(
+        self.dcd = DcdMap2D.from_paths(
             global_data=global_map_path,
             node_data=node_map_paths,
             real_coords=True,
@@ -57,7 +66,7 @@ class DcdMapTutorialTests(DcdMapSimpleTest, unittest.TestCase):
     def setUp(self) -> None:
         # load test data from url and save to /tmp
         test_data_001 = TestDataHandler.tar(
-            url="https://sam.cs.hm.edu/samcloud/index.php/s/7RAg26eB3JmTKsX/download",
+            url="https://sam.cs.hm.edu/samcloud/index.php/s/8dLe2gxQ99SBL2M/download",
             file_name="tutorialTest",
             archive_base_dir="2020-10-21_densityMap_test001",
             keep_archive=True,  # keep archive to reduce unnecessary downloads
