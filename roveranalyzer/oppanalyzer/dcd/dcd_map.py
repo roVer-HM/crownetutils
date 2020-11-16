@@ -365,7 +365,7 @@ class DcdMap2D(DcdMap):
                     time_step=time_step,
                     node_id=node_id,
                 ),
-            )
+            ), ax
         else:
             return f, ax
 
