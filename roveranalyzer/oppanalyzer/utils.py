@@ -21,12 +21,12 @@ from roveranalyzer.vadereanalyzer.scenario_output import ScenarioOutput
 
 
 def stack_vectors(
-        df,
-        index,
-        columns=("vectime", "vecvalue"),
-        col_data_name="data",
-        drop=None,
-        time_as_index=False,
+    df,
+    index,
+    columns=("vectime", "vecvalue"),
+    col_data_name="data",
+    drop=None,
+    time_as_index=False,
 ):
     """
     data frame which only contains opp vector rows.
@@ -67,16 +67,16 @@ def stack_vectors(
 
 
 def build_time_series(
-        opp_df,
-        opp_vector_names,
-        opp_vector_col_names=None,
-        opp_index=("run", "module", "name"),
-        opp_drop=("name", "module"),
-        hdf_store=None,
-        hdf_key=None,
-        time_bin_size=0.0,
-        index=None,
-        fill_na=None,
+    opp_df,
+    opp_vector_names,
+    opp_vector_col_names=None,
+    opp_index=("run", "module", "name"),
+    opp_drop=("name", "module"),
+    hdf_store=None,
+    hdf_key=None,
+    time_bin_size=0.0,
+    index=None,
+    fill_na=None,
 ):
     """
     Build normalized data frames for OMNeT++ vectors.
@@ -172,11 +172,11 @@ def simsec_per_sec(df, ax=None):
 
 
 def cumulative_messages(
-        df,
-        ax=None,
-        msg=("msg_present", "msg_in_fes"),
-        lbl=("number of messages", "messages in fes"),
-        set_lbl=True,
+    df,
+    ax=None,
+    msg=("msg_present", "msg_in_fes"),
+    lbl=("number of messages", "messages in fes"),
+    set_lbl=True,
 ):
     fig = None
     if ax is None:
@@ -387,12 +387,12 @@ class OppDataProvider:
     """
 
     def __init__(
-            self,
-            path: PathHelper,
-            analysis_name,
-            analysis_dir=None,
-            hdf_store_name=None,
-            cfg: Config = None,
+        self,
+        path: PathHelper,
+        analysis_name,
+        analysis_dir=None,
+        hdf_store_name=None,
+        cfg: Config = None,
     ):
         self._root = path
         # output
@@ -551,13 +551,13 @@ class ScaveTool:
         return df
 
     def create_or_get_csv_file(
-            self,
-            csv_path,
-            input_paths: List[str],
-            override=False,
-            scave_filter: str = None,
-            recursive=True,
-            print_selected_files=True,
+        self,
+        csv_path,
+        input_paths: List[str],
+        override=False,
+        scave_filter: str = None,
+        recursive=True,
+        print_selected_files=True,
     ):
         """
         #create_or_get_csv_file to create (or use existing) csv files from one or
@@ -588,11 +588,11 @@ class ScaveTool:
         return os.path.abspath(csv_path)
 
     def load_df_from_scave(
-            self,
-            input_paths: List[str],
-            scave_filter: str = None,
-            recursive=True,
-            converters=None,
+        self,
+        input_paths: List[str],
+        scave_filter: str = None,
+        recursive=True,
+        converters=None,
     ) -> pd.DataFrame:
         """
          Directly load data into Dataframe from *.vec and *.sca files without creating a
@@ -630,13 +630,13 @@ class ScaveTool:
         return df
 
     def export_cmd(
-            self,
-            input_paths,
-            output,
-            scave_filter=None,
-            recursive=True,
-            options=None,
-            print_selected_files=False,
+        self,
+        input_paths,
+        output,
+        scave_filter=None,
+        recursive=True,
+        options=None,
+        print_selected_files=False,
     ):
         cmd = self._SCAVE_TOOL[:]
         cmd.append(self._EXPORT)

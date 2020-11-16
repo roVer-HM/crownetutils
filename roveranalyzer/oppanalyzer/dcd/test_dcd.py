@@ -98,7 +98,6 @@ class DcdMapTestLocal(DcdMapSimpleTest, unittest.TestCase):
         )
         self.load()
 
-
     def test_intersect(self):
         a = np.array([1.0, 1.0])
         b = np.array([3.0, 2.0])

@@ -15,6 +15,7 @@ def from_pickle(_func=None, *, path="./analysis.p"):
     checked if the given path points to a pickle file. If yes the pickle is read and
     returned instead of executing the function.
     """
+
     def _pickle(func):
         @functools.wraps(func)
         def _wrap(*args, **kwargs):
@@ -30,6 +31,7 @@ def from_pickle(_func=None, *, path="./analysis.p"):
                 print(f"save pickle now to {path}")
                 pickle.dump(ret, open(path, "wb"))
             return ret
+
         return _wrap
 
     if _func is None:

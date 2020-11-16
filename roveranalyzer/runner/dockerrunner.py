@@ -108,12 +108,11 @@ class DockerRunner:
         if "OPP_EXTERN_DATA_MNT" in os.environ:
             _mnt = os.environ["OPP_EXTERN_DATA_MNT"].split(":")
             if len(_mnt) != 3:
-                raise ValueError(f"expected 3 tuple seperated by >:< link /mnt/foo:/mnt/bar:rw but"
-                                 f" got {os.environ['OPP_EXTERN_DATA_MNT']}")
-            self.volumes[_mnt[0]] = {
-                "bind": _mnt[1],
-                "mode": _mnt[2]
-            }
+                raise ValueError(
+                    f"expected 3 tuple seperated by >:< link /mnt/foo:/mnt/bar:rw but"
+                    f" got {os.environ['OPP_EXTERN_DATA_MNT']}"
+                )
+            self.volumes[_mnt[0]] = {"bind": _mnt[1], "mode": _mnt[2]}
 
     def set_runargs(self, key, value):
         self.run_args[key] = value
