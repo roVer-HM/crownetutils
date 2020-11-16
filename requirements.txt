@@ -1,4 +1,4 @@
-ipywidgets
+ipywidgets>=7.5.1
 docker
 pandas
 numpy
