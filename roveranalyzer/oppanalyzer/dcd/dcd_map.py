@@ -59,7 +59,7 @@ class DcdMap:
                     ret = np.floor(ret / self.meta.cell_size)
             else:
                 raise TypeError()
-        except TypeError as e:
+        except (TypeError, KeyError) as e:
             ret = np.array([-1, -1])
         return ret
 
