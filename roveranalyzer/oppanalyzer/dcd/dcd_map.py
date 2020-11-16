@@ -356,16 +356,19 @@ class DcdMap2D(DcdMap):
 
         if make_interactive:
             return (
-                f,
-                ax,
-                InteractiveDensityPlot(
-                    dcd=self,
-                    data=pd.DataFrame(),
-                    ax=ax,
-                    time_step=time_step,
-                    node_id=node_id,
+                (
+                    f,
+                    ax,
+                    InteractiveDensityPlot(
+                        dcd=self,
+                        data=pd.DataFrame(),
+                        ax=ax,
+                        time_step=time_step,
+                        node_id=node_id,
+                    ),
                 ),
-            ), ax
+                ax,
+            )
         else:
             return f, ax
 

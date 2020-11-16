@@ -1,28 +1,28 @@
+import importlib
 import os
 import unittest
 
-import importlib
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pandas.testing as pdt
+
+from roveranalyzer.oppanalyzer.dcd import DcdMap2D, DcdMetaData
+from roveranalyzer.oppanalyzer.dcd.dcd_map import DcdMap2DMulti
+from roveranalyzer.tests.utils import TestDataHandler
+from roveranalyzer.uitls import PathHelper
+from roveranalyzer.uitls.misc import intersect
 
 hasQt = importlib.util.find_spec("PyQt5")
-import matplotlib
-if 'DISPLAY' not in os.environ:
-    matplotlib.use('agg')
+
+if "DISPLAY" not in os.environ:
+    matplotlib.use("agg")
 elif hasQt is not None:
     matplotlib.use("Qt5Agg")
 else:
     matplotlib.use("TkAgg")
 print(f"using backend: {matplotlib.get_backend()}")
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import pandas.testing as pdt
-from roveranalyzer.oppanalyzer.dcd.dcd_map import DcdMap2DMulti
-
-from roveranalyzer.oppanalyzer.dcd import DcdMap2D, DcdMetaData
-from roveranalyzer.tests.utils import TestDataHandler
-from roveranalyzer.uitls import PathHelper
-from roveranalyzer.uitls.misc import intersect
 
 
 class DcdMapTests:
