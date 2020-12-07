@@ -2,7 +2,7 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
-from oppanalyzer.utils import ScaveTool
+from oppanalyzer import ScaveTool
 
 from tutorials.helper import check_data
 
