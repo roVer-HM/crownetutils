@@ -13,9 +13,9 @@ from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from simulators.opp.configuration import Config
-from simulators.vadere.scenario_output import ScenarioOutput
 
+from roveranalyzer.simulators.opp.configuration import Config
+from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
 from roveranalyzer.utils import PathHelper, Timer
 from roveranalyzer.utils.file import read_lines
 

@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from simulators.vadere.scenario_output import ScenarioOutput
+from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
 
 
 class ScenarioOutputTests(unittest.TestCase):

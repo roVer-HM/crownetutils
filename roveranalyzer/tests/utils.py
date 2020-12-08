@@ -6,7 +6,7 @@ import urllib.request
 import zipfile
 from string import ascii_lowercase
 
-from utils import PathHelper
+from roveranalyzer.utils import PathHelper
 
 
 class Downloader:

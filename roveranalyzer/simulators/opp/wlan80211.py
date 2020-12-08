@@ -3,9 +3,13 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from simulators.opp.opp_analysis import Opp
-from simulators.opp.utils import OppDataProvider, build_time_series, parse_cmdEnv_outout
 
+from roveranalyzer.simulators.opp.opp_analysis import Opp
+from roveranalyzer.simulators.opp.utils import (
+    OppDataProvider,
+    build_time_series,
+    parse_cmdEnv_outout,
+)
 from roveranalyzer.utils import Timer
 
 

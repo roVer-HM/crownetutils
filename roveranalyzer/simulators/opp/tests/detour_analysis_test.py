@@ -1,9 +1,12 @@
 import os
 from os.path import join
 
-from simulators.vadere.plots.plots import DensityPlots, PlotOptions, t_cmap
-
 from roveranalyzer.simulators.opp.utils import OppDataProvider
+from roveranalyzer.simulators.vadere.plots.plots import (
+    DensityPlots,
+    PlotOptions,
+    t_cmap,
+)
 from roveranalyzer.utils import PathHelper, Timer
 
 if __name__ == "__main__":

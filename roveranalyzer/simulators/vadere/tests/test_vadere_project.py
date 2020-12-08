@@ -2,7 +2,7 @@ import os
 import shutil
 import unittest
 
-from simulators.vadere.vadere_project import VadereProject
+from roveranalyzer.simulators.vadere.vadere_project import VadereProject
 
 
 class VadereProjectTests(unittest.TestCase):

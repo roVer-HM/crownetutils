@@ -2,7 +2,8 @@ import os
 import sys
 
 import numpy as np
-from simulators.vadere.plots.plots import DensityPlots
+
+from roveranalyzer.simulators.vadere.plots.plots import DensityPlots
 
 sys.path.append(
     os.path.abspath("")

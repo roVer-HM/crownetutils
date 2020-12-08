@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 from matplotlib.widgets import Slider
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from simulators.rover.dcd.util import DcdMetaData, build_density_map
-from simulators.vadere.plots.plots import t_cmap
-from simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
+from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, build_density_map
+from roveranalyzer.simulators.vadere.plots.plots import t_cmap
+from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils import check_ax
 from roveranalyzer.utils.misc import intersect
 

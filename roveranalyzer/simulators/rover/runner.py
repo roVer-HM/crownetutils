@@ -18,7 +18,7 @@ if len(logging.root.handlers) == 0:
         format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
     )
 
-
+# todo: split in default and simulator specific arguments
 def parse_args_as_dict(args=None):
 
     # parse arguments

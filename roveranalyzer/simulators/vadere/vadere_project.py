@@ -3,8 +3,7 @@ import os
 import re
 import shutil
 
-from simulators.vadere import scenario_output
-
+from roveranalyzer.simulators.vadere import scenario_output
 from roveranalyzer.utils.file import clean_dir_name, read_lines
 
 

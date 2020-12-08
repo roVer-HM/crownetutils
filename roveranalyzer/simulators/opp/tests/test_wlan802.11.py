@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from simulators.opp.configuration import Config
 
 import roveranalyzer.simulators.opp.wlan80211 as w80211
+from roveranalyzer.simulators.opp.configuration import Config
 from roveranalyzer.simulators.opp.utils import (
     OppDataProvider,
     ScaveTool,

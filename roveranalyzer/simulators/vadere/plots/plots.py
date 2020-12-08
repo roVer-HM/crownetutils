@@ -11,10 +11,10 @@ import numpy as np
 import pandas as pd
 import trimesh
 from matplotlib.colors import ListedColormap
-from simulators.vadere.plots.custom_tripcolor import tripcolor_costum
-from utils.mesh import SimpleMesh
 
+from roveranalyzer.simulators.vadere.plots.custom_tripcolor import tripcolor_costum
 from roveranalyzer.utils import PlotHelper, Timer
+from roveranalyzer.utils.mesh import SimpleMesh
 
 sys.path.append(
     os.path.abspath("")
