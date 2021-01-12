@@ -153,7 +153,7 @@ class PathHelper:
     @classmethod
     def rover_sim(cls, sim_name, *extend_base):
         return cls.from_env(
-            "ROVER_MAIN", "rover/simulations/", sim_name, "results", *extend_base
+            "CROWNET_HOME", "rover/simulations/", sim_name, "results", *extend_base
         )
 
     @classmethod

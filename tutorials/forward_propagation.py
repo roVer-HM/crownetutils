@@ -112,7 +112,7 @@ def get_sampling(nr_samples=2000, is_test=False):
 def path2ini():
 
     path2ini = os.path.join(
-        os.environ["ROVER_MAIN"],
+        os.environ["CROWNET_HOME"],
         "rover/simulations/simple_detoure_suqc_traffic/omnetpp.ini",
     )
     return path2ini

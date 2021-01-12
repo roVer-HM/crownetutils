@@ -12,7 +12,7 @@ from roveranalyzer.utils import PathHelper, Timer
 if __name__ == "__main__":
     builder = OppDataProvider(
         path=PathHelper.from_env(
-            "ROVER_MAIN",
+            "CROWNET_HOME",
             "rover/simulations/simple_detoure/results/",
         ),
         analysis_name="stream_video",

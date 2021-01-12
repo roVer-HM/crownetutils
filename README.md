@@ -57,7 +57,7 @@ scavetool.load_csv('some.csv')
 
 The default configuration `Config()` will use
 containrized a version of the scavetool, which means
-the `$ROVER_MAIN` variable must be set to the
+the `$CROWNET_HOME` variable must be set to the
 root of this repository. See [tutorial/README](tutorial/README.md)
 for configuration setup if you dont use the containers.
 

@@ -16,7 +16,7 @@ from roveranalyzer.utils import PathHelper
 def drop_ration():
     cfg = Config()
     scv = ScaveTool(cfg)
-    path = PathHelper.from_env("ROVER_MAIN").extend_base(
+    path = PathHelper.from_env("CROWNET_HOME").extend_base(
         "simulation-campaigns", "results"
     )
     single_run = "simpleDetour_miat0_85_20200313"
@@ -34,7 +34,7 @@ def drop_ration():
 def detour_stats():
     cfg = Config()
     scv = ScaveTool(cfg)
-    path = PathHelper.from_env("ROVER_MAIN").extend_base(
+    path = PathHelper.from_env("CROWNET_HOME").extend_base(
         "simulation-campaigns", "results"
     )
     single_run = "simpleDetour_miat0_85_20200313"
@@ -60,7 +60,7 @@ def detour_stats():
 def sim_messages():
     cfg = Config()
     scv = ScaveTool(cfg)
-    path = PathHelper.from_env("ROVER_MAIN").extend_base(
+    path = PathHelper.from_env("CROWNET_HOME").extend_base(
         "simulation-campaigns", "results"
     )
     single_run = "simpleDetour_miat0_85_20200313"
@@ -72,7 +72,7 @@ def sim_messages():
 def mac_pending_queue_hist():
     cfg = Config()
     scv = ScaveTool(cfg)
-    path = PathHelper.from_env("ROVER_MAIN").extend_base(
+    path = PathHelper.from_env("CROWNET_HOME").extend_base(
         "simulation-campaigns", "results"
     )
     single_run = "simpleDetour_miat0_85_20200313"

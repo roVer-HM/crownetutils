@@ -16,14 +16,14 @@ sys.path.append(os.path.abspath(".."))  # in tutorial directly
 
 
 # Config object sets the path to the scavetool based on
-# the $ROVER_MAIN environment variable. If $ROVER_MAIN is not set
+# the $CROWNET_HOME environment variable. If $CROWNET_HOME is not set
 # the config guesses the location an prints a warning. Below an
 # example to override the default behaviour
 cfg = Config()
 # cfg = Config(
 #     use_docker_container=True,              # If False the scave_tool_cmd must be in the $PATH
 #     rover_main="/opt/rover-main",
-#     opp_container_path="scripts/omnetpp",   # relative to $ROVER_MAIN
+#     opp_container_path="scripts/omnetpp",   # relative to $CROWNET_HOME
 #     scave_tool_cmd="scavetool",
 # )
 

@@ -34,7 +34,7 @@ class OppRunner(DockerRunner):
     def _apply_default_environment(self):
         super()._apply_default_environment()
         nedpath = (
-            subprocess.check_output(f"{os.environ['ROVER_MAIN']}/scripts/nedpath")
+            subprocess.check_output(f"{os.environ['CROWNET_HOME']}/scripts/nedpath")
             .decode("utf-8")
             .strip()
         )

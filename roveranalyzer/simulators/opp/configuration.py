@@ -5,22 +5,22 @@ from pathlib import Path
 _default_scavetool_cmd = "scavetool"
 _default_use_docker_container = True
 
-if "ROVER_MAIN" in os.environ:
-    _default_rover_main = os.environ.get("ROVER_MAIN")
+if "CROWNET_HOME" in os.environ:
+    _default_rover_main = os.environ.get("CROWNET_HOME")
     _default_opp_container_path = os.path.join(
-        os.environ.get("ROVER_MAIN"), "scripts/omnetpp"
+        os.environ.get("CROWNET_HOME"), "scripts/omnetpp"
     )
 else:
 
     _default_rover_main = os.path.join(str(Path.home().absolute()), "rover-main")
     if not os.path.exists(_default_rover_main):
         print(
-            f"ROVER_MAIN not set and not in default location. Deactivate docker support"
+            f"CROWNET_HOME not set and not in default location. Deactivate docker support"
         )
         _default_use_docker_container = False
         _default_opp_container_path = ""
     else:
-        print(f"ROVER_MAIN not set, use  default {_default_rover_main}")
+        print(f"CROWNET_HOME not set, use  default {_default_rover_main}")
         os.path.join(_default_rover_main, "scripts/omnetpp")
 
 
@@ -29,8 +29,8 @@ class ConfigException(Exception):
 
 
 def check_setup(_cls):
-    if "ROVER_MAIN" not in os.environ:
-        raise ValueError("ROVER_MAIN not set.")
+    if "CROWNET_HOME" not in os.environ:
+        raise ValueError("CROWNET_HOME not set.")
     return _cls
 
 
@@ -45,7 +45,7 @@ class RoverConfig:
 
     @classmethod
     def path_rover_main(cls):
-        return os.environ.get("ROVER_MAIN")
+        return os.environ.get("CROWNET_HOME")
 
     @classmethod
     def join_rover_main(cls, other):
