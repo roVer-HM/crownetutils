@@ -22,7 +22,7 @@ sys.path.append(os.path.abspath(".."))  # in tutorial directly
 cfg = Config()
 # cfg = Config(
 #     use_docker_container=True,              # If False the scave_tool_cmd must be in the $PATH
-#     rover_main="/opt/rover-main",
+#     crownet="/opt/crownet",
 #     opp_container_path="scripts/omnetpp",   # relative to $CROWNET_HOME
 #     scave_tool_cmd="scavetool",
 # )

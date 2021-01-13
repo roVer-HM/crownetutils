@@ -17,7 +17,7 @@ class VadereRunner(DockerRunner):
 
     def __init__(
         self,
-        image="sam-dev.cs.hm.edu:5023/rover/rover-main/vadere",
+        image="sam-dev.cs.hm.edu:5023/rover/crownet/vadere",
         tag="latest",
         docker_client=None,
         name="",

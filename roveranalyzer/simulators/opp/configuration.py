@@ -6,22 +6,22 @@ _default_scavetool_cmd = "scavetool"
 _default_use_docker_container = True
 
 if "CROWNET_HOME" in os.environ:
-    _default_rover_main = os.environ.get("CROWNET_HOME")
+    _default_crownet = os.environ.get("CROWNET_HOME")
     _default_opp_container_path = os.path.join(
         os.environ.get("CROWNET_HOME"), "scripts/omnetpp"
     )
 else:
 
-    _default_rover_main = os.path.join(str(Path.home().absolute()), "rover-main")
-    if not os.path.exists(_default_rover_main):
+    _default_crownet = os.path.join(str(Path.home().absolute()), "crownet")
+    if not os.path.exists(_default_crownet):
         print(
             f"CROWNET_HOME not set and not in default location. Deactivate docker support"
         )
         _default_use_docker_container = False
         _default_opp_container_path = ""
     else:
-        print(f"CROWNET_HOME not set, use  default {_default_rover_main}")
-        os.path.join(_default_rover_main, "scripts/omnetpp")
+        print(f"CROWNET_HOME not set, use  default {_default_crownet}")
+        os.path.join(_default_crownet, "scripts/omnetpp")
 
 
 class ConfigException(Exception):
@@ -66,7 +66,7 @@ class Config:
         self.opp_container_path = kwargs.get(
             "opp_container_path", _default_opp_container_path
         )
-        self.rover_main = kwargs.get("rover_main", _default_rover_main)
+        self.rover_main = kwargs.get("crownet", _default_crownet)
 
     @property
     def scave_cmd(self):

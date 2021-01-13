@@ -8,7 +8,7 @@ from roveranalyzer.simulators.opp.configuration import RoverConfig
 class OppRunner(DockerRunner):
     def __init__(
         self,
-        image="sam-dev.cs.hm.edu:5023/rover/rover-main/omnetpp",
+        image="sam-dev.cs.hm.edu:5023/rover/crownet/omnetpp",
         tag="latest",
         docker_client=None,
         name="",
