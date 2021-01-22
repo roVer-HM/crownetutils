@@ -1,7 +1,7 @@
 import logging
 import os
 
-from roveranalyzer.dockerrunner.dockerrunner import DockerRunner
+from roveranalyzer.dockerrunner.dockerrunner import DockerRunner, DockerCleanup, DockerReuse
 
 
 class VadereRunner(DockerRunner):
@@ -21,7 +21,8 @@ class VadereRunner(DockerRunner):
         tag="latest",
         docker_client=None,
         name="",
-        remove=True,
+        cleanup_policy=DockerCleanup.REMOVE,
+        reuse_policy=DockerReuse.REMOVE_STOPPED,
         detach=False,
         journal_tag="",
     ):
@@ -30,7 +31,8 @@ class VadereRunner(DockerRunner):
             tag,
             docker_client=docker_client,
             name=name,
-            remove=remove,
+            cleanup_policy=cleanup_policy,
+            reuse_policy=reuse_policy,
             detach=detach,
             journal_tag=journal_tag,
         )

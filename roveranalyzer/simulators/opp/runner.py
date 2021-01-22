@@ -1,8 +1,8 @@
 import os
 import subprocess
 
-from roveranalyzer.dockerrunner.dockerrunner import DockerRunner
-from roveranalyzer.simulators.opp.configuration import RoverConfig
+from roveranalyzer.dockerrunner.dockerrunner import DockerRunner, DockerCleanup, DockerReuse
+from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 
 
 class OppRunner(DockerRunner):
@@ -12,7 +12,8 @@ class OppRunner(DockerRunner):
         tag="latest",
         docker_client=None,
         name="",
-        remove=True,
+        cleanup_policy=DockerCleanup.REMOVE,
+        reuse_policy=DockerReuse.REMOVE_STOPPED,
         detach=False,
         journal_tag="",
         debug=False,
@@ -22,7 +23,8 @@ class OppRunner(DockerRunner):
             tag=tag,
             docker_client=docker_client,
             name=name,
-            remove=remove,
+            cleanup_policy=cleanup_policy,
+            reuse_policy=reuse_policy,
             detach=detach,
             journal_tag=journal_tag,
         )
@@ -47,14 +49,14 @@ class OppRunner(DockerRunner):
         else:
             cmd = base_cmd
         cmd.extend(["-u", "Cmdenv"])
-        cmd.extend(["-l", RoverConfig.join_rover_main("inet4/src/INET")])
-        cmd.extend(["-l", RoverConfig.join_rover_main("rover/src/ROVER")])
-        cmd.extend(["-l", RoverConfig.join_rover_main("simulte/src/lte")])
-        cmd.extend(["-l", RoverConfig.join_rover_main("veins/src/veins")])
+        cmd.extend(["-l", CrowNetConfig.join_home("inet4/src/INET")])
+        cmd.extend(["-l", CrowNetConfig.join_home("rover/src/ROVER")])
+        cmd.extend(["-l", CrowNetConfig.join_home("simulte/src/lte")])
+        cmd.extend(["-l", CrowNetConfig.join_home("veins/src/veins")])
         cmd.extend(
             [
                 "-l",
-                RoverConfig.join_rover_main(
+                CrowNetConfig.join_home(
                     "veins/subprojects/veins_inet/src/veins_inet"
                 ),
             ]

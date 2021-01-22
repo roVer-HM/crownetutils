@@ -8,6 +8,7 @@ from datetime import datetime
 import docker
 from requests.exceptions import ReadTimeout
 
+from roveranalyzer.dockerrunner.dockerrunner import DockerCleanup, DockerReuse
 from roveranalyzer.simulators.opp.runner import OppRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 
@@ -124,14 +125,24 @@ def parse_args_as_dict(args=None):
         required=False,
     )
 
-    parser.add_argument(
-        "--keep_container",
-        dest="keep_container",
-        action="store_true",
-        default=False,
-        required=False,
-        help="If set the container is not NOT deleted after execution. This simplifies debugging.",
-    )
+    parser.add_argument("--cleanup-policy",
+                        dest="cleanup_policy",
+                        type=DockerCleanup,
+                        choices=list(DockerCleanup),
+                        default=DockerCleanup.REMOVE,
+                        required=False,
+                        help="select what to do with container that are done."
+                        )
+
+    parser.add_argument("--reuse-policy",
+                        dest="reuse_policy",
+                        type=DockerCleanup,
+                        choices=list(DockerReuse),
+                        default=DockerReuse.REMOVE_RUNNING,
+                        required=False,
+                        help="select policy to reuse or remove existing running or stopped containers."
+                        )
+
 
     parser.add_argument(
         "--create-log-file",
@@ -333,12 +344,13 @@ class BaseRunner:
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",
             tag=self.ns["omnet_tag"],
-            remove=not self.ns["keep_container"],
+            cleanup_policy= self.ns["cleanup_policy"],
+            reuse_policy=self.ns["reuse_policy"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
             debug=self.ns["debug"],
         )
-        self.opp_runner.check_existing_containers(self.ns["delete_existing_containers"])
+        self.opp_runner.apply_reuse_policy()
         self.opp_runner.set_working_dir(self.working_dir)
 
     def build_and_start_vadere_runner(self):
@@ -347,13 +359,12 @@ class BaseRunner:
             docker_client=self.docker_client,
             name=f"vadere_{run_name}",
             tag=self.ns["vadere_tag"],
-            remove=not self.ns["keep_container"],
+            cleanup_policy=self.ns["cleanup_policy"],
+            reuse_policy=self.ns["reuse_policy"],
             detach=True,  # detach at first and wait vadere container after opp container is done
             journal_tag=f"vadere_{run_name}",
         )
-        self.vadere_runner.check_existing_containers(
-            self.ns["delete_existing_containers"]
-        )
+        self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
 
         logfile = os.devnull
@@ -404,8 +415,8 @@ class BaseRunner:
             err_state = ret != 0
             logging.debug(f"cleanup with ret={ret}")
             if self.vadere_runner is not None:
-                self.vadere_runner.stop_and_remove(has_error_state=err_state)
-            self.opp_runner.stop_and_remove(has_error_state=err_state)
+                self.vadere_runner.container_cleanup(has_error_state=err_state)
+            self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
     def result_base_dir(self):
@@ -428,3 +439,8 @@ class BaseRunner:
             if sec >= timeout_sec:
                 raise TimeoutError(f"Timeout reached while waiting for {filepath}")
         return filepath
+
+if __name__ == "__main__":
+
+    b = BaseRunner(".")
+    print("hi")

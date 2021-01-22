@@ -35,7 +35,7 @@ def check_setup(_cls):
 
 
 @check_setup
-class RoverConfig:
+class CrowNetConfig:
     NAME_PACKAGE = "roveranalyzer"
     NAME_ROVER_CONFIG_FILE = "roveranalyzer.conf"
 
@@ -44,12 +44,12 @@ class RoverConfig:
         return pathlib.Path.home()
 
     @classmethod
-    def path_rover_main(cls):
+    def path_crownet_home(cls):
         return os.environ.get("CROWNET_HOME")
 
     @classmethod
-    def join_rover_main(cls, other):
-        return os.path.join(cls.path_rover_main(), other)
+    def join_home(cls, other):
+        return os.path.join(cls.path_crownet_home(), other)
 
 
 class Config:
