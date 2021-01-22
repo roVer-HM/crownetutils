@@ -89,6 +89,8 @@ class DockerRunner:
 
     def apply_reuse_policy(self):
         try:
+            if self.name == '':
+                return
             _container = self.client.containers.get(self.name)
             reuse_policy = self.reuse_policy
 
