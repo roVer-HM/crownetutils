@@ -71,7 +71,7 @@ class DcdMap:
         # global position map for all node_ids
         glb_loc_df = glb_df["node_id"].copy().reset_index()
         glb_loc_df = glb_loc_df.assign(
-            node_id=glb_loc_df["node_id"].str.split(",")
+            node_id=glb_loc_df["node_id"].str.split(", ")
         ).explode("node_id")
         # remove node_id column from global
         glb_df = glb_df.drop(labels=["node_id"], axis="columns")

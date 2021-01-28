@@ -10,32 +10,6 @@ import pandas as pd
 from roveranalyzer.tempaltes import read_tmpl_str
 
 
-class OppFilterItem:
-    """
-    Filter item applicable to OMNeT++ based data frame. #name corresponds to column of df.
-    """
-
-    @classmethod
-    def list_filter(cls, name, value):
-        ret = cls(name, value, regex=False)
-        ret.is_list = True
-        return ret
-
-    def __init__(self, name, value, regex):
-        self.name = name
-        self.value = value
-        self.regex = regex
-        self.is_list = False
-
-    def __str__(self):
-        return self.value
-
-    def __repr__(self) -> str:
-        return (
-            f"FilterItem(name: {self.name}, value: {self.value}, regex: {self.regex})"
-        )
-
-
 class Opp:
     """
     Handle OMNeT++ module strings and transformations
@@ -142,22 +116,29 @@ class Opp:
                 return ret[0]
 
     @staticmethod
-    def normalize_vectors(df, vec_names):
-        df_filters = df.opp.filter().vector().name_in(vec_names).apply()
+    def normalize_vectors(df_vec, axis=0):
+        """
+        def_vec data frame of opp vector values only. This will transform the values into normalized
+        column vectors  ['time', 'value']
+        """
         frames = []
-        for idx in df_filters.index:
-            mod_name = f"{Opp.module_path(df_filters.loc[idx]['module'], index=1)}"
-            stat_name = df_filters.loc[idx]["name"].split(":")[0]
-            time_name = f"{mod_name}.{stat_name}.time"
-            value_name = f"{mod_name}.{stat_name}.value"
-            data = df_filters.loc[idx]["vectime"].copy()
-            data = np.append(data, df_filters.loc[idx]["vecvalue"].copy())
+        time_name = "time"
+        value_name = "value"
+        for idx in df_vec.index:
+            if axis == 1:
+                mod_name = f"{Opp.module_path(df_vec.loc[idx]['module'], index=1)}"
+                stat_name = df_vec.loc[idx]["name"].split(":")[0]
+                time_name = f"{mod_name}.{stat_name}.time"
+                value_name = f"{mod_name}.{stat_name}.value"
+
+            data = df_vec.loc[idx]["vectime"].copy()
+            data = np.append(data, df_vec.loc[idx]["vecvalue"].copy())
             data = data.reshape((-1, 2), order="F")
             tmp_d = pd.DataFrame(data, columns=[time_name, value_name])
             tmp_d.reset_index(drop=True, inplace=True)
             frames.append(tmp_d)
 
-        df_n = pd.concat(frames, axis=1)
+        df_n = pd.concat(frames, axis=axis, ignore_index=True if axis == 0 else False)
 
         return df_n
 
@@ -276,6 +257,32 @@ class OppTex:
         else:
             with open(output_file, "w") as f:
                 f.write(tmpl)
+
+
+class OppFilterItem:
+    """
+    Filter item applicable to OMNeT++ based data frame. #name corresponds to column of df.
+    """
+
+    @classmethod
+    def list_filter(cls, name, value):
+        ret = cls(name, value, regex=False)
+        ret.is_list = True
+        return ret
+
+    def __init__(self, name, value, regex):
+        self.name = name
+        self.value = value
+        self.regex = regex
+        self.is_list = False
+
+    def __str__(self):
+        return self.value
+
+    def __repr__(self) -> str:
+        return (
+            f"FilterItem(name: {self.name}, value: {self.value}, regex: {self.regex})"
+        )
 
 
 class OppFilter:
@@ -403,6 +410,15 @@ class OppFilter:
             ret = self._df.loc[bool_filter]
 
         return ret.copy() if copy else ret
+
+    def normalize_vectors(self, axis=0):
+        """
+        transform to column based vectors.
+        axis=0 creates a (n, 2)-shaped data frame with columns ['time', 'value']
+        axis=1 column based data frame with two columns ['time', 'value'] for each vector.
+        """
+        _df = self.apply()
+        return Opp.normalize_vectors(_df, axis)
 
     def __str__(self) -> str:
         return self._filter_dict.__str__()
@@ -637,95 +653,12 @@ class OppAccessor:
         self.tex: OppTex = OppTex(self)
         self.attr: OppAttributes = OppAttributes(self._obj)
 
-    # @property
-    # def plot(self):
-    #     if self._plot is None:
-    #         raise ValueError(
-    #             "OppAccessor not fully initialized. Did you call opp.pre_process()?"
-    #         )
-    #     return self._plot
-    #
-    # @property
-    # def tex(self):
-    #     if self._tex is None:
-    #         raise ValueError(
-    #             "OppAccessor not fully initialized. Did you call opp.pre_process()?"
-    #         )
-    #     return self._tex
-
-    #
-    # def pre_process(self):
-    #     """
-    #     :return: returns copy!
-    #     """
-    #     # subset of attribute information
-    #     run_cnf = self._obj.loc[
-    #         (self._obj.type == "runattr")
-    #         | (self._obj.type == "param")
-    #         | (self._obj.type == "itervar"),
-    #         ["run", "type", "attrname", "attrvalue"],
-    #     ]
-    #
-    #     self._obj.drop(self._obj.loc[(self._obj.type == "runattr")].index, inplace=True)
-    #     self._obj.drop(self._obj.loc[(self._obj.type == "param")].index, inplace=True)
-    #     self._obj.drop(self._obj.loc[(self._obj.type == "itervar")].index, inplace=True)
-    #
-    #     attr = self._obj.loc[
-    #         self._obj.type == "attr", ["run", "module", "name", "attrname", "attrvalue"]
-    #     ]
-    #     attr["full_data_path"] = attr.module + "." + attr.name
-    #
-    #     # drop rows with attribute information
-    #     self._obj.drop(self._obj.loc[self._obj.type == "attr"].index, inplace=True)
-    #
-    #     # add run_id column
-    #     self._obj["run_id"] = self._obj["run"].copy()
-    #     runs = self._obj["run_id"].unique()
-    #     runs.sort()
-    #     self._obj["run_id"] = self._obj["run_id"].apply(
-    #         lambda x: np.where(runs == x)[0][0]
-    #     )
-    #
-    #     _opp_attr_dict = {}
-    #     for _, row in run_cnf.iterrows():
-    #         # get dictionary for run or create new one
-    #         run_dict = _opp_attr_dict.get(row["run"], {})
-    #
-    #         # write item
-    #         item = run_dict.get(row["type"], {})
-    #         item.setdefault(row["attrname"], row["attrvalue"])
-    #
-    #         # write back
-    #         run_dict.setdefault(row["type"], item)
-    #         _opp_attr_dict.setdefault(row["run"], run_dict)
-    #
-    #     for _, row in attr.iterrows():
-    #         # get dictionary for run or create new one
-    #         run_dict = _opp_attr_dict.get(row["run"], {})
-    #
-    #         # write item
-    #         item = run_dict.get(row["full_data_path"], {})
-    #         item.setdefault(row["attrname"], row["attrvalue"])
-    #         item.setdefault("module", row["module"])
-    #         item.setdefault("name", row["name"])
-    #
-    #         # write back
-    #         run_dict.setdefault(row["full_data_path"], item)
-    #         _opp_attr_dict.setdefault(row["run"], run_dict)
-    #
-    #     # run->runattr->{all run attributes for run}
-    #     # run->full_data_path->{all attributes for full_module_path in run}
-    #     # full_data_path is the combination of "<module>.<name>" columns were name is the name of the data point.
-    #     self.attr: OppAttributes = OppAttributes(_opp_attr_dict, self._obj)
-    #     print("OppAccessor initialized")
-    #     return self._obj.copy()
-
     @staticmethod
     def _validate(obj: pd.DataFrame):
         cols = ["run", "type", "module", "name", "attrname", "attrvalue"]
-        for c in cols:
-            if c not in obj.columns:
-                raise AttributeError(f"Must have '{c}' column. ")
+        if not all([c in obj.columns for c in cols]):
+            raise AttributeError(f"Not all columns found. expected: ['{' '.join(cols)}'] column. "
+                                 f"got: [{' '.join(obj.columns)}] ")
 
     def module_summary(self):
         ret = self._obj[

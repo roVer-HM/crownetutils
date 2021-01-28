@@ -3,19 +3,10 @@ import json as j
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patches
+from typing import Union
 
 
-class VaderScenarioPlotHelper:
-    """
-    Plot helper that adds patches for obstacles, targets and source to a given
-    axis.
-    """
-
-    default_colors = {
-        "obstacles": "#B3B3B3",  # grey
-        "targets": "#DD8452",  # orange
-        "sources": "#55A868",  # green
-    }
+class Scenario:
 
     def __init__(self, path):
         with open(path, "r", encoding="utf-8") as f:
@@ -28,6 +19,42 @@ class VaderScenarioPlotHelper:
     @property
     def topography(self):
         return self._scenario_json["scenario"]["topography"]
+
+    @property
+    def obstacles(self):
+        return self._scenario_json["scenario"]["topography"]["obstacles"]
+
+    @property
+    def measurementAreas(self):
+        return self._scenario_json["scenario"]["topography"]["measurementAreas"]
+
+    @property
+    def stairs(self):
+        return self._scenario_json["scenario"]["topography"]["stairs"]
+
+    @property
+    def targets(self):
+        return self._scenario_json["scenario"]["topography"]["targets"]
+
+    @property
+    def target_changers(self):
+        return self._scenario_json["scenario"]["topography"]["targetChangers"]
+
+    @property
+    def absorbing_areas(self):
+        return self._scenario_json["scenario"]["topography"]["absorbingAreas"]
+
+    @property
+    def sources(self):
+        return self._scenario_json["scenario"]["topography"]["sources"]
+
+    @property
+    def dynamic_elements(self):
+        return self._scenario_json["scenario"]["topography"]["dynamicElements"]
+
+    @property
+    def attr_pedestrian(self):
+        return self._scenario_json["scenario"]["topography"]["attributesPedestrian"]
 
     @property
     def bound(self):
@@ -50,6 +77,25 @@ class VaderScenarioPlotHelper:
             raise ValueError("Expected POLYGON or RECTANGLE")
         return points
 
+
+class VaderScenarioPlotHelper:
+    """
+    Plot helper that adds patches for obstacles, targets and source to a given
+    axis.
+    """
+
+    default_colors = {
+        "obstacles": "#B3B3B3",  # grey
+        "targets": "#DD8452",  # orange
+        "sources": "#55A868",  # green
+    }
+
+    def __init__(self, scenario: Union[str, Scenario]):
+        if type(Scenario):
+            self.scenario = scenario
+        else:
+            self.scenario = Scenario(scenario)
+
     def add_obstacles(self, ax: plt.Axes):
         return self.add_patches(ax, {"obstacles": "#B3B3B3"})
 
@@ -59,8 +105,8 @@ class VaderScenarioPlotHelper:
             element_type_map = self.default_colors
 
         for element, color in element_type_map.items():
-            elements = self.topography[element]
-            polygons = [self.shape_to_list(e["shape"]) for e in elements]
+            elements = self.scenario.topography[element]
+            polygons = [self.scenario.shape_to_list(e["shape"]) for e in elements]
             for poly in polygons:
                 patch = patches.Polygon(poly, facecolor=color, fill=True, closed=True)
                 ax.add_patch(patch)

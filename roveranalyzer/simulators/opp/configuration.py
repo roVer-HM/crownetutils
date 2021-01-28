@@ -2,7 +2,7 @@ import os
 import pathlib
 from pathlib import Path
 
-_default_scavetool_cmd = "scavetool"
+_default_scavetool_cmd = "opp_scavetool"
 _default_use_docker_container = True
 
 if "CROWNET_HOME" in os.environ:
@@ -68,10 +68,12 @@ class Config:
         )
         self.rover_main = kwargs.get("crownet", _default_crownet)
 
-    @property
-    def scave_cmd(self):
+    def scave_cmd(self, silent=False):
         if self.use_docker_container:
-            return [self.opp_container_path, "exec", self.scave_tool_cmd]
+            if silent:
+                return [self.opp_container_path, "execs", self.scave_tool_cmd]
+            else:
+                return [self.opp_container_path, "exec", self.scave_tool_cmd]
         else:
             return [self.scave_tool_cmd]
 

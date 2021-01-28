@@ -8,7 +8,7 @@ import re
 import signal
 import subprocess
 import time
-from typing import List
+from typing import List, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,12 +21,12 @@ from roveranalyzer.utils.file import read_lines
 
 
 def stack_vectors(
-    df,
-    index,
-    columns=("vectime", "vecvalue"),
-    col_data_name="data",
-    drop=None,
-    time_as_index=False,
+        df,
+        index,
+        columns=("vectime", "vecvalue"),
+        col_data_name="data",
+        drop=None,
+        time_as_index=False,
 ):
     """
     data frame which only contains opp vector rows.
@@ -67,16 +67,16 @@ def stack_vectors(
 
 
 def build_time_series(
-    opp_df,
-    opp_vector_names,
-    opp_vector_col_names=None,
-    opp_index=("run", "module", "name"),
-    opp_drop=("name", "module"),
-    hdf_store=None,
-    hdf_key=None,
-    time_bin_size=0.0,
-    index=None,
-    fill_na=None,
+        opp_df,
+        opp_vector_names,
+        opp_vector_col_names=None,
+        opp_index=("run", "module", "name"),
+        opp_drop=("name", "module"),
+        hdf_store=None,
+        hdf_key=None,
+        time_bin_size=0.0,
+        index=None,
+        fill_na=None,
 ):
     """
     Build normalized data frames for OMNeT++ vectors.
@@ -172,11 +172,11 @@ def simsec_per_sec(df, ax=None):
 
 
 def cumulative_messages(
-    df,
-    ax=None,
-    msg=("msg_present", "msg_in_fes"),
-    lbl=("number of messages", "messages in fes"),
-    set_lbl=True,
+        df,
+        ax=None,
+        msg=("msg_present", "msg_in_fes"),
+        lbl=("number of messages", "messages in fes"),
+        set_lbl=True,
 ):
     fig = None
     if ax is None:
@@ -387,12 +387,12 @@ class OppDataProvider:
     """
 
     def __init__(
-        self,
-        path: PathHelper,
-        analysis_name,
-        analysis_dir=None,
-        hdf_store_name=None,
-        cfg: Config = None,
+            self,
+            path: PathHelper,
+            analysis_name,
+            analysis_dir=None,
+            hdf_store_name=None,
+            cfg: Config = None,
     ):
         self._root = path
         # output
@@ -497,6 +497,118 @@ class OppDataProvider:
         return ScenarioOutput.create_output_from_project_output(vout_dir)
 
 
+class RunParameters:
+
+    def __init__(self):
+        self._df = "none"
+
+
+class ScaveFilter:
+    """
+    Build opp_scavetool filter using builder pattern.
+    """
+
+    @classmethod
+    def create(cls):
+        return cls()
+
+    def __init__(self, config: Config = None):
+        if config is None:
+            self._config = Config()  # default
+        else:
+            self._config = config
+        self._filter = []
+        self._groups = 0
+
+    def gOpen(self):
+        self._filter.append("(")
+        self._groups += 1
+        return self
+
+    def gClose(self):
+        self._filter.append(")")
+        self._groups -= 1
+        if self._groups < 0:
+            raise ValueError(f"Scave filter group mismatch. Closed one group that was not "
+                             f"opened: '{' '.join(self._filter)}'")
+        return self
+
+    def AND(self):
+        self._filter.append("AND")
+        return self
+
+    def OR(self):
+        self._filter.append("OR")
+        return self
+
+    def file(self, val):
+        self._filter.extend(["file", "=~", val])
+        return self
+
+    def run(self, val):
+        self._filter.extend(["run", "=~", val])
+        return self
+
+    def t_scalar(self):
+        self._filter.extend(["type", "=~", "scalar"])
+        return self
+
+    def t_vector(self):
+        self._filter.extend(["type", "=~", "vector"])
+        return self
+
+    def t_statistics(self):
+        self._filter.extend(["type", "=~", "statistics"])
+        return self
+
+    def t_histogram(self):
+        self._filter.extend(["type", "=~", "histogram"])
+        return self
+
+    def t_parameter(self):
+        self._filter.extend(["type", "=~", "parameter"])
+        return self
+
+
+    def type(self, val):
+        self._filter.extend(["type", "=~", val])
+        return self
+
+    def name(self, val):
+        self._filter.extend(["name", "=~", val])
+        return self
+
+    def module(self, val):
+        self._filter.extend(["module", "=~", val])
+        return self
+
+    def runattr(self, name):
+        self._filter.append(f"runattr:{name}")
+        return self
+
+    def itervar(self, name):
+        self._filter.append(f"itervar:{name}")
+        return self
+
+    def config(self, name):
+        self._filter.append(f"config:{name}")
+        return self
+
+    def attr(self, name):
+        self._filter.append(f"attr:{name}")
+        return self
+
+    def build(self, escape=True):
+        if self._groups != 0:
+            raise ValueError(f"Scave filter group mismatch."
+                             f"opened: '{' '.join(self._filter)}'")
+        if escape:
+            return self._config.escape(' '.join(self._filter))
+        else:
+            return ' '.join(self._filter)
+
+
+
 class ScaveTool:
     """
     Python wrapper for OMNeT++ scavetool.
@@ -526,7 +638,7 @@ class ScaveTool:
             self._config = Config()  # default
         else:
             self._config = config
-        self._SCAVE_TOOL = self._config.scave_cmd
+        self._SCAVE_TOOL = self._config.scave_cmd(silent=True)
         self.timeout = timeout
 
     @classmethod
@@ -535,6 +647,9 @@ class ScaveTool:
             if os.path.exists(file):
                 return True
         return False
+
+    def filter_builder(self) -> ScaveFilter:
+        return ScaveFilter(self._config)
 
     def load_csv(self, csv_file, converters=None) -> pd.DataFrame:
         """
@@ -547,17 +662,16 @@ class ScaveTool:
         if converters is None:
             converters = ScaveConverter()
         df = pd.read_csv(csv_file, converters=converters.get())
-        # df.opp.attr["csv_path"] = csv_file
         return df
 
     def create_or_get_csv_file(
-        self,
-        csv_path,
-        input_paths: List[str],
-        override=False,
-        scave_filter: str = None,
-        recursive=True,
-        print_selected_files=True,
+            self,
+            csv_path,
+            input_paths: List[str],
+            override=False,
+            scave_filter: Union[str, ScaveFilter] = None,
+            recursive=True,
+            print_selected_files=True,
     ):
         """
         #create_or_get_csv_file to create (or use existing) csv files from one or
@@ -588,11 +702,11 @@ class ScaveTool:
         return os.path.abspath(csv_path)
 
     def load_df_from_scave(
-        self,
-        input_paths: List[str],
-        scave_filter: str = None,
-        recursive=True,
-        converters=None,
+            self,
+            input_paths: Union[str, List[str]],
+            scave_filter: Union[str, ScaveFilter] = None,
+            recursive=True,
+            converters=None,
     ) -> pd.DataFrame:
         """
          Directly load data into Dataframe from *.vec and *.sca files without creating a
@@ -605,6 +719,9 @@ class ScaveTool:
         :param recursive:       (default: True) use recursive glob patterns
         :return:
         """
+        if type(input_paths) == str:
+            input_paths = [input_paths]
+
         cmd = self.export_cmd(
             input_paths=input_paths,
             output="-",  # read from stdout of scavetool
@@ -612,7 +729,7 @@ class ScaveTool:
             recursive=recursive,
             options=["-F", "CSV-R"],
         )
-        stdout, stderr = self.read_stdout(cmd)
+        stdout, stderr = self.read_stdout(cmd, encoding="")
         if stdout == b"":
             logging.error("error executing scavetool")
             print(str(stderr, encoding="utf8"))
@@ -624,19 +741,18 @@ class ScaveTool:
         df = pd.read_csv(
             io.BytesIO(stdout),
             encoding="utf-8",
-            skiprows=1,
             converters=converters.get(),
         )
         return df
 
     def export_cmd(
-        self,
-        input_paths,
-        output,
-        scave_filter=None,
-        recursive=True,
-        options=None,
-        print_selected_files=False,
+            self,
+            input_paths,
+            output,
+            scave_filter: Union[str, ScaveFilter] = None,
+            recursive=True,
+            options=None,
+            print_selected_files=False,
     ):
         cmd = self._SCAVE_TOOL[:]
         cmd.append(self._EXPORT)
@@ -644,7 +760,10 @@ class ScaveTool:
         cmd.append(output)
         if scave_filter is not None:
             cmd.append(self._FILTER)
-            cmd.append(self._config.escape(scave_filter))
+            if type(scave_filter) == str:
+                cmd.append(self._config.escape(scave_filter))
+            else:
+                cmd.append(scave_filter.build(escape=True))
 
         if options is not None:
             cmd.extend(options)
@@ -652,9 +771,13 @@ class ScaveTool:
         if len(input_paths) == 0:
             raise ValueError("no *.vec or *.sca files given.")
 
+        # todo check if glob pattern exists first only then do this and the check
         opp_result_files = list()
-        for file in input_paths:
-            opp_result_files.extend(glob.glob(file, recursive=recursive))
+        if any([_f for _f in input_paths if "*" in _f]):
+            for file in input_paths:
+                opp_result_files.extend(glob.glob(file, recursive=recursive))
+        else:
+            opp_result_files.extend(input_paths)
 
         opp_result_files = [
             f for f in opp_result_files if f.endswith(".vec") or f.endswith(".sca")
@@ -689,7 +812,28 @@ class ScaveTool:
         cmd.append("filter")
         self.exec(cmd)
 
-    def read_stdout(self, cmd):
+    def read_parameters(self, result_file, scave_filter=None):
+        if scave_filter is None:
+            scave_filter = self.filter_builder().t_parameter().build()
+        cmd = self._config.scave_cmd(silent=True)
+        cmd.extend(["query",
+                    "--list-results",
+                    "--bare",
+                    "--grep-friendly",
+                    "--tabs",
+                    "--filter",
+                    scave_filter,
+                    result_file
+                    ])
+        out, err = self.read_stdout(cmd)
+        if err != "":
+            raise RuntimeError("container return error: \n{err}")
+
+        out = [line.split("\t") for line in out.split("\n") if line != ""]
+        return pd.DataFrame(out, columns=["run", "type", "module", "name", "value"])
+
+
+    def read_stdout(self, cmd, encoding="utf-8"):
         scave_cmd = subprocess.Popen(
             cmd,
             cwd=os.path.curdir,
@@ -700,7 +844,10 @@ class ScaveTool:
         )
         try:
             out, err = scave_cmd.communicate(timeout=self.timeout)
-            return out, err
+            if encoding != "":
+                return out.decode(encoding), err.decode(encoding)
+            else:
+                return out, err
         except subprocess.TimeoutExpired:
             logging.error("Timout reached")
             scave_cmd.kill()
