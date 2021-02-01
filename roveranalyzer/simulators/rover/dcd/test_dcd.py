@@ -77,7 +77,7 @@ class DcdMapTutorialTests(DcdMapSimpleTest, unittest.TestCase):
         self.load()
 
     def test_dcd_count_sum_all(self):
-        count_per_id_is = self.dcd.raw2d.groupby(level=["ID"]).sum()["count"]
+        count_per_id_is = self.dcd.map.groupby(level=["ID"]).sum()["count"]
         count_per_id_should = pd.Series(
             data=[105, 388, 460, 439, 28, 442, 440, 445], name="count"
         )

@@ -1,6 +1,7 @@
 from functools import wraps
 from itertools import combinations
 from typing import List, Union
+import re
 
 import matplotlib.pyplot as plt
 import matplotlib.table as tbl
@@ -72,7 +73,7 @@ class DcdMap:
         # global position map for all node_ids
         glb_loc_df = glb_df["node_id"].copy().reset_index()
         glb_loc_df = glb_loc_df.assign(
-            node_id=glb_loc_df["node_id"].str.split(", ")
+            node_id=glb_loc_df["node_id"].str.split(r",\s*")
         ).explode("node_id")
         # remove node_id column from global
         glb_df = glb_df.drop(labels=["node_id"], axis="columns")
@@ -151,11 +152,11 @@ class DcdMap2D(DcdMap):
             csv_path=global_data,
             index=cls.view_index[1:],  # ID will be set later
             column_types={
-                "count": np.int,
-                "measured_t": np.float,
-                "received_t": np.float,
+                "count": int,
+                "measured_t": float,
+                "received_t": float,
                 "source": np.str,
-                "own_cell": np.int,
+                "own_cell": int,
                 "node_id": np.str,
             },
             real_coords=real_coords,
@@ -166,11 +167,11 @@ class DcdMap2D(DcdMap):
                 csv_path=p,
                 index=cls.view_index[1:],  # ID will be set later
                 column_types={
-                    "count": np.int,
-                    "measured_t": np.float,
-                    "received_t": np.float,
+                    "count": int,
+                    "measured_t": float,
+                    "received_t": float,
                     "source": np.str,
-                    "own_cell": np.int,
+                    "own_cell": int,
                 },
                 real_coords=real_coords,
                 full_map=False,
