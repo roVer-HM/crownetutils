@@ -5,6 +5,8 @@ tags**
 tutorials/test_data.d
 .directory
 **/*.mp4
+analysis_loc
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
