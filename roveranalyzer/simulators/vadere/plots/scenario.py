@@ -91,7 +91,7 @@ class VaderScenarioPlotHelper:
     }
 
     def __init__(self, scenario: Union[str, Scenario]):
-        if type(Scenario):
+        if type(scenario) == Scenario:
             self.scenario = scenario
         else:
             self.scenario = Scenario(scenario)

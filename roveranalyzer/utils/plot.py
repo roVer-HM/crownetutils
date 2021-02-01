@@ -16,6 +16,17 @@ def check_ax(ax=None, **kwargs):
     return f, ax
 
 
+def update_dict(_dic: dict, **defaults):
+    """
+    set default values for values given in defaults
+    """
+    if _dic is None:
+        return defaults
+    else:
+        for k, v in defaults.items():
+            _dic.setdefault(k, v)
+        return _dic
+
 class PlotHelper:
     @classmethod
     def create(cls, ax: plt.Axes = None, **fig_kw):
