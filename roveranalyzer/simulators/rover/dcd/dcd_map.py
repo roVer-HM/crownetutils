@@ -1,21 +1,21 @@
+import re
 from functools import wraps
 from itertools import combinations
 from typing import List, Union
-import re
 
 import matplotlib.pyplot as plt
 import matplotlib.table as tbl
 import numpy as np
 import pandas as pd
-from matplotlib.widgets import Slider
 from matplotlib.collections import QuadMesh
+from matplotlib.widgets import Slider
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, build_density_map
 from roveranalyzer.simulators.vadere.plots.plots import t_cmap
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
-from roveranalyzer.utils.plot import check_ax, update_dict
 from roveranalyzer.utils.misc import intersect
+from roveranalyzer.utils.plot import check_ax, update_dict
 
 
 def plot_decorator(method):
@@ -43,7 +43,7 @@ class DcdMap:
     tsc_global_id = 0
 
     def __init__(
-            self, m_glb: DcdMetaData, id_map, glb_loc_df: pd.DataFrame, plotter=None
+        self, m_glb: DcdMetaData, id_map, glb_loc_df: pd.DataFrame, plotter=None
     ):
         self.meta = m_glb
         self.node_to_id = id_map
@@ -142,11 +142,11 @@ class DcdMap2D(DcdMap):
 
     @classmethod
     def from_paths(
-            cls,
-            global_data: str,
-            node_data: List,
-            real_coords=True,
-            scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
+        cls,
+        global_data: str,
+        node_data: List,
+        real_coords=True,
+        scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
     ):
         _df_global = build_density_map(
             csv_path=global_data,
@@ -205,12 +205,12 @@ class DcdMap2D(DcdMap):
         return cls(glb_m, node_to_id, _df_ret, glb_loc_df)
 
     def __init__(
-            self,
-            glb_meta: DcdMetaData,
-            node_id_map: dict,
-            map_view_df: pd.DataFrame,
-            location_df: pd.DataFrame,
-            plotter=None,
+        self,
+        glb_meta: DcdMetaData,
+        node_id_map: dict,
+        map_view_df: pd.DataFrame,
+        location_df: pd.DataFrame,
+        plotter=None,
     ):
         super().__init__(glb_meta, node_id_map, location_df, plotter)
         self._map = map_view_df
@@ -224,7 +224,9 @@ class DcdMap2D(DcdMap):
 
     @property
     def glb_map(self):
-        return self._map.loc[self.tsc_global_id,]
+        return self._map.loc[
+            self.tsc_global_id,
+        ]
 
     @property
     def map(self):
@@ -282,7 +284,7 @@ class DcdMap2D(DcdMap):
         qmesh.set_array(qmesh.get_array() * default_val)
 
     def create_meta_data_table(
-            self, ax, x, y, time_step, node_id, update_table: tbl.Table = None
+        self, ax, x, y, time_step, node_id, update_table: tbl.Table = None
     ):
         _i = pd.IndexSlice
         try:
@@ -321,11 +323,11 @@ class DcdMap2D(DcdMap):
 
     @staticmethod
     def table(
-            ax: plt.Axes,
-            data: pd.array,
-            row_height=0.045,
-            col_height=(0.14, 0.16),
-            **kwargs,
+        ax: plt.Axes,
+        data: pd.array,
+        row_height=0.045,
+        col_height=(0.14, 0.16),
+        **kwargs,
     ):
         """
         Cell_Id
@@ -347,12 +349,10 @@ class DcdMap2D(DcdMap):
     def own_cell(self):
         own_cell_mask = self._map["own_cell"] == 1
         places = (
-            self._map[
-                own_cell_mask
-            ]  # only own cells (cells where one node is located)
-                .index.to_frame()  # make the index to the dataframe
-                .reset_index(["x", "y"], drop=True)  # remove not needed index
-                .drop(
+            self._map[own_cell_mask]  # only own cells (cells where one node is located)
+            .index.to_frame()  # make the index to the dataframe
+            .reset_index(["x", "y"], drop=True)  # remove not needed index
+            .drop(
                 columns=["ID", "simtime"]
             )  # and remove columns created by to_frame we do not need
         )
@@ -384,13 +384,13 @@ class DcdMap2D(DcdMap):
                 # if overlapping change check overlapping
                 l1 = (
                     places.loc[n1, ["x_center", "y_center", "x_text", "y_text"]]
-                        .to_numpy()
-                        .reshape(-1, 2)
+                    .to_numpy()
+                    .reshape(-1, 2)
                 )
                 l2 = (
                     places.loc[n2, ["x_center", "y_center", "x_text", "y_text"]]
-                        .to_numpy()
-                        .reshape(-1, 2)
+                    .to_numpy()
+                    .reshape(-1, 2)
                 )
                 if intersect(l1, l2):
                     _dir = int(np.floor(np.random.random() * directions))
@@ -488,17 +488,17 @@ class DcdMap2D(DcdMap):
 
     @plot_decorator
     def plot_density_map(
-            self,
-            time_step,
-            node_id,
-            *,
-            ax=None,
-            make_interactive=False,
-            cmap_dic: dict = None,
-            pcolormesh_dic: dict = None,
-            fig_dict: dict = None,
-            ax_prop: dict = None,
-            **kwargs,
+        self,
+        time_step,
+        node_id,
+        *,
+        ax=None,
+        make_interactive=False,
+        cmap_dic: dict = None,
+        pcolormesh_dic: dict = None,
+        fig_dict: dict = None,
+        ax_prop: dict = None,
+        **kwargs,
     ):
         df = self.create_2d_map(time_step, node_id)
         f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
@@ -577,17 +577,17 @@ class DcdMap2D(DcdMap):
         _i = pd.IndexSlice
         nodes = (
             self._map.loc[_i[1:], _i["count"]]
-                .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
-                .sum()
-                .groupby(level="simtime")
-                .mean()
+            .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
+            .sum()
+            .groupby(level="simtime")
+            .mean()
         )
         nodes_std = (
             self._map.loc[_i[1:], _i["count"]]
-                .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
-                .sum()
-                .groupby(level="simtime")
-                .std()
+            .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
+            .sum()
+            .groupby(level="simtime")
+            .std()
         )
         glb = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()["count"]
         ax.plot(nodes.index, nodes, label="count mean")
@@ -610,11 +610,11 @@ class DcdMap2DMulti(DcdMap2D):
     # single map in data frame
     @classmethod
     def from_paths(
-            cls,
-            global_data: str,
-            node_data: List,
-            real_coords=True,
-            scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
+        cls,
+        global_data: str,
+        node_data: List,
+        real_coords=True,
+        scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
     ):
         # load global map global.csv -> [metaObject, DataFrame]
         _df_global = build_density_map(
@@ -695,16 +695,14 @@ class DcdMap2DMulti(DcdMap2D):
         return cls(glb_meta, node_id_map, map_view_df, location_df, map_all_df)
 
     def __init__(
-            self,
-            glb_meta: DcdMetaData,
-            node_id_map: dict,
-            map_view_df: pd.DataFrame,
-            location_df: pd.DataFrame,
-            map_all_df: pd.DataFrame,
+        self,
+        glb_meta: DcdMetaData,
+        node_id_map: dict,
+        map_view_df: pd.DataFrame,
+        location_df: pd.DataFrame,
+        map_all_df: pd.DataFrame,
     ):
-        """
-
-        """
+        """"""
         super().__init__(glb_meta, node_id_map, map_view_df, location_df)
         self.map_all_df = map_all_df
 
@@ -757,7 +755,7 @@ class InteractivePlotHandler:
 
 class InteractiveDensityPlot(InteractivePlotHandler):
     def __init__(
-            self, dcd: DcdMap2D, data: pd.DataFrame, ax: plt.Axes, time_step, node_id
+        self, dcd: DcdMap2D, data: pd.DataFrame, ax: plt.Axes, time_step, node_id
     ):
         super().__init__(dcd, data, ax)
         self.time_step = time_step

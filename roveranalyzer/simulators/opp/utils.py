@@ -21,12 +21,12 @@ from roveranalyzer.utils.file import read_lines
 
 
 def stack_vectors(
-        df,
-        index,
-        columns=("vectime", "vecvalue"),
-        col_data_name="data",
-        drop=None,
-        time_as_index=False,
+    df,
+    index,
+    columns=("vectime", "vecvalue"),
+    col_data_name="data",
+    drop=None,
+    time_as_index=False,
 ):
     """
     data frame which only contains opp vector rows.
@@ -67,16 +67,16 @@ def stack_vectors(
 
 
 def build_time_series(
-        opp_df,
-        opp_vector_names,
-        opp_vector_col_names=None,
-        opp_index=("run", "module", "name"),
-        opp_drop=("name", "module"),
-        hdf_store=None,
-        hdf_key=None,
-        time_bin_size=0.0,
-        index=None,
-        fill_na=None,
+    opp_df,
+    opp_vector_names,
+    opp_vector_col_names=None,
+    opp_index=("run", "module", "name"),
+    opp_drop=("name", "module"),
+    hdf_store=None,
+    hdf_key=None,
+    time_bin_size=0.0,
+    index=None,
+    fill_na=None,
 ):
     """
     Build normalized data frames for OMNeT++ vectors.
@@ -172,11 +172,11 @@ def simsec_per_sec(df, ax=None):
 
 
 def cumulative_messages(
-        df,
-        ax=None,
-        msg=("msg_present", "msg_in_fes"),
-        lbl=("number of messages", "messages in fes"),
-        set_lbl=True,
+    df,
+    ax=None,
+    msg=("msg_present", "msg_in_fes"),
+    lbl=("number of messages", "messages in fes"),
+    set_lbl=True,
 ):
     fig = None
     if ax is None:
@@ -387,12 +387,12 @@ class OppDataProvider:
     """
 
     def __init__(
-            self,
-            path: PathHelper,
-            analysis_name,
-            analysis_dir=None,
-            hdf_store_name=None,
-            cfg: Config = None,
+        self,
+        path: PathHelper,
+        analysis_name,
+        analysis_dir=None,
+        hdf_store_name=None,
+        cfg: Config = None,
     ):
         self._root = path
         # output
@@ -498,7 +498,6 @@ class OppDataProvider:
 
 
 class RunParameters:
-
     def __init__(self):
         self._df = "none"
 
@@ -529,8 +528,10 @@ class ScaveFilter:
         self._filter.append(")")
         self._groups -= 1
         if self._groups < 0:
-            raise ValueError(f"Scave filter group mismatch. Closed one group that was not "
-                             f"opened: '{' '.join(self._filter)}'")
+            raise ValueError(
+                f"Scave filter group mismatch. Closed one group that was not "
+                f"opened: '{' '.join(self._filter)}'"
+            )
         return self
 
     def AND(self):
@@ -569,7 +570,6 @@ class ScaveFilter:
         self._filter.extend(["type", "=~", "parameter"])
         return self
 
-
     def type(self, val):
         self._filter.extend(["type", "=~", val])
         return self
@@ -600,13 +600,13 @@ class ScaveFilter:
 
     def build(self, escape=True):
         if self._groups != 0:
-            raise ValueError(f"Scave filter group mismatch."
-                             f"opened: '{' '.join(self._filter)}'")
+            raise ValueError(
+                f"Scave filter group mismatch." f"opened: '{' '.join(self._filter)}'"
+            )
         if escape:
-            return self._config.escape(' '.join(self._filter))
+            return self._config.escape(" ".join(self._filter))
         else:
-            return ' '.join(self._filter)
-
+            return " ".join(self._filter)
 
 
 class ScaveTool:
@@ -665,13 +665,13 @@ class ScaveTool:
         return df
 
     def create_or_get_csv_file(
-            self,
-            csv_path,
-            input_paths: List[str],
-            override=False,
-            scave_filter: Union[str, ScaveFilter] = None,
-            recursive=True,
-            print_selected_files=True,
+        self,
+        csv_path,
+        input_paths: List[str],
+        override=False,
+        scave_filter: Union[str, ScaveFilter] = None,
+        recursive=True,
+        print_selected_files=True,
     ):
         """
         #create_or_get_csv_file to create (or use existing) csv files from one or
@@ -702,11 +702,11 @@ class ScaveTool:
         return os.path.abspath(csv_path)
 
     def load_df_from_scave(
-            self,
-            input_paths: Union[str, List[str]],
-            scave_filter: Union[str, ScaveFilter] = None,
-            recursive=True,
-            converters=None,
+        self,
+        input_paths: Union[str, List[str]],
+        scave_filter: Union[str, ScaveFilter] = None,
+        recursive=True,
+        converters=None,
     ) -> pd.DataFrame:
         """
          Directly load data into Dataframe from *.vec and *.sca files without creating a
@@ -746,13 +746,13 @@ class ScaveTool:
         return df
 
     def export_cmd(
-            self,
-            input_paths,
-            output,
-            scave_filter: Union[str, ScaveFilter] = None,
-            recursive=True,
-            options=None,
-            print_selected_files=False,
+        self,
+        input_paths,
+        output,
+        scave_filter: Union[str, ScaveFilter] = None,
+        recursive=True,
+        options=None,
+        print_selected_files=False,
     ):
         cmd = self._SCAVE_TOOL[:]
         cmd.append(self._EXPORT)
@@ -816,22 +816,24 @@ class ScaveTool:
         if scave_filter is None:
             scave_filter = self.filter_builder().t_parameter().build()
         cmd = self._config.scave_cmd(silent=True)
-        cmd.extend(["query",
-                    "--list-results",
-                    "--bare",
-                    "--grep-friendly",
-                    "--tabs",
-                    "--filter",
-                    scave_filter,
-                    result_file
-                    ])
+        cmd.extend(
+            [
+                "query",
+                "--list-results",
+                "--bare",
+                "--grep-friendly",
+                "--tabs",
+                "--filter",
+                scave_filter,
+                result_file,
+            ]
+        )
         out, err = self.read_stdout(cmd)
         if err != "":
             raise RuntimeError("container return error: \n{err}")
 
         out = [line.split("\t") for line in out.split("\n") if line != ""]
         return pd.DataFrame(out, columns=["run", "type", "module", "name", "value"])
-
 
     def read_stdout(self, cmd, encoding="utf-8"):
         scave_cmd = subprocess.Popen(

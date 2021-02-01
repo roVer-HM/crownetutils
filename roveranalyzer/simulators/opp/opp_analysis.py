@@ -657,8 +657,10 @@ class OppAccessor:
     def _validate(obj: pd.DataFrame):
         cols = ["run", "type", "module", "name", "attrname", "attrvalue"]
         if not all([c in obj.columns for c in cols]):
-            raise AttributeError(f"Not all columns found. expected: ['{' '.join(cols)}'] column. "
-                                 f"got: [{' '.join(obj.columns)}] ")
+            raise AttributeError(
+                f"Not all columns found. expected: ['{' '.join(cols)}'] column. "
+                f"got: [{' '.join(obj.columns)}] "
+            )
 
     def module_summary(self):
         ret = self._obj[

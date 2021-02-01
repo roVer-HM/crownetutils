@@ -1,7 +1,11 @@
 import logging
 import os
 
-from roveranalyzer.dockerrunner.dockerrunner import DockerRunner, DockerCleanup, DockerReuse
+from roveranalyzer.dockerrunner.dockerrunner import (
+    DockerCleanup,
+    DockerReuse,
+    DockerRunner,
+)
 
 
 class VadereRunner(DockerRunner):

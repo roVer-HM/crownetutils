@@ -1,7 +1,11 @@
 import os
 import subprocess
 
-from roveranalyzer.dockerrunner.dockerrunner import DockerRunner, DockerCleanup, DockerReuse
+from roveranalyzer.dockerrunner.dockerrunner import (
+    DockerCleanup,
+    DockerReuse,
+    DockerRunner,
+)
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 
 
@@ -56,9 +60,7 @@ class OppRunner(DockerRunner):
         cmd.extend(
             [
                 "-l",
-                CrowNetConfig.join_home(
-                    "veins/subprojects/veins_inet/src/veins_inet"
-                ),
+                CrowNetConfig.join_home("veins/subprojects/veins_inet/src/veins_inet"),
             ]
         )
         return cmd

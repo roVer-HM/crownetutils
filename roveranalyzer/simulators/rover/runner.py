@@ -125,24 +125,25 @@ def parse_args_as_dict(args=None):
         required=False,
     )
 
-    parser.add_argument("--cleanup-policy",
-                        dest="cleanup_policy",
-                        type=DockerCleanup,
-                        choices=list(DockerCleanup),
-                        default=DockerCleanup.REMOVE,
-                        required=False,
-                        help="select what to do with container that are done."
-                        )
+    parser.add_argument(
+        "--cleanup-policy",
+        dest="cleanup_policy",
+        type=DockerCleanup,
+        choices=list(DockerCleanup),
+        default=DockerCleanup.REMOVE,
+        required=False,
+        help="select what to do with container that are done.",
+    )
 
-    parser.add_argument("--reuse-policy",
-                        dest="reuse_policy",
-                        type=DockerCleanup,
-                        choices=list(DockerReuse),
-                        default=DockerReuse.REMOVE_RUNNING,
-                        required=False,
-                        help="select policy to reuse or remove existing running or stopped containers."
-                        )
-
+    parser.add_argument(
+        "--reuse-policy",
+        dest="reuse_policy",
+        type=DockerCleanup,
+        choices=list(DockerReuse),
+        default=DockerReuse.REMOVE_RUNNING,
+        required=False,
+        help="select policy to reuse or remove existing running or stopped containers.",
+    )
 
     parser.add_argument(
         "--create-log-file",
@@ -344,7 +345,7 @@ class BaseRunner:
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",
             tag=self.ns["omnet_tag"],
-            cleanup_policy= self.ns["cleanup_policy"],
+            cleanup_policy=self.ns["cleanup_policy"],
             reuse_policy=self.ns["reuse_policy"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
@@ -439,6 +440,7 @@ class BaseRunner:
             if sec >= timeout_sec:
                 raise TimeoutError(f"Timeout reached while waiting for {filepath}")
         return filepath
+
 
 if __name__ == "__main__":
 

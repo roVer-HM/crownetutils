@@ -27,6 +27,7 @@ def update_dict(_dic: dict, **defaults):
             _dic.setdefault(k, v)
         return _dic
 
+
 class PlotHelper:
     @classmethod
     def create(cls, ax: plt.Axes = None, **fig_kw):

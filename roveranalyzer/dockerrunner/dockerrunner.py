@@ -1,8 +1,8 @@
 import logging
 import os
 import pprint
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 
 import docker
 from docker.errors import NotFound
@@ -17,37 +17,38 @@ if len(logging.root.handlers) == 0:
 
 
 class DockerCleanup(Enum):
-    REMOVE = 'remove'
-    KEEP_FAILED = 'keep_failed'
-    KEEP = 'keep'
+    REMOVE = "remove"
+    KEEP_FAILED = "keep_failed"
+    KEEP = "keep"
 
     def __str__(self):
         return self.value
 
 
 class DockerReuse(Enum):
-    REUSE_STOPPED = 'reuse_stopped'
-    REUSE_RUNNING = 'reuse_stopped'
-    REMOVE_STOPPED = 'remove_stopped'
-    REMOVE_RUNNING = 'remove_running'
-    NEW_ONLY = 'new_only'
+    REUSE_STOPPED = "reuse_stopped"
+    REUSE_RUNNING = "reuse_stopped"
+    REMOVE_STOPPED = "remove_stopped"
+    REMOVE_RUNNING = "remove_running"
+    NEW_ONLY = "new_only"
 
     def __str__(self):
         return self.value
+
 
 class DockerRunner:
     NET = "rovernet"
 
     def __init__(
-            self,
-            image,
-            tag="latest",
-            docker_client=None,
-            name="",
-            cleanup_policy=DockerCleanup.KEEP_FAILED,
-            reuse_policy=DockerReuse.NEW_ONLY,
-            detach=False,
-            journal_tag="",
+        self,
+        image,
+        tag="latest",
+        docker_client=None,
+        name="",
+        cleanup_policy=DockerCleanup.KEEP_FAILED,
+        reuse_policy=DockerReuse.NEW_ONLY,
+        detach=False,
+        journal_tag="",
     ):
         if docker_client is None:
             self.client: docker.DockerClient = docker.from_env()
@@ -89,7 +90,7 @@ class DockerRunner:
 
     def apply_reuse_policy(self):
         try:
-            if self.name == '':
+            if self.name == "":
                 return
             _container = self.client.containers.get(self.name)
             reuse_policy = self.reuse_policy
@@ -97,20 +98,29 @@ class DockerRunner:
             if reuse_policy == DockerReuse.REMOVE_RUNNING:
                 _container.stop()
                 _container.remove()
-                logging.info(f"stop and remove existing container with name '{self.name}'")
+                logging.info(
+                    f"stop and remove existing container with name '{self.name}'"
+                )
             elif reuse_policy == DockerReuse.REMOVE_STOPPED:
                 if _container.status == "running":
-                    raise ValueError(f"container is still running but reuse policy is {reuse_policy}.")
+                    raise ValueError(
+                        f"container is still running but reuse policy is {reuse_policy}."
+                    )
                 _container.remove()
                 logging.info(f"remove existing container with name '{self.name}'")
-            elif reuse_policy == DockerReuse.REUSE_STOPPED or reuse_policy == DockerReuse.REUSE_RUNNING:
+            elif (
+                reuse_policy == DockerReuse.REUSE_STOPPED
+                or reuse_policy == DockerReuse.REUSE_RUNNING
+            ):
                 if _container.status == "running":
                     _container.stop()
                     logging.info(f"stop existing container with name '{self.name}'")
             elif reuse_policy == DockerReuse.NEW_ONLY:
                 # container exists. --> error here
-                raise ValueError(f"container exists with status: {_container.status}. Reuse policy {reuse_policy} "
-                                 f"requires that container does not exist.")
+                raise ValueError(
+                    f"container exists with status: {_container.status}. Reuse policy {reuse_policy} "
+                    f"requires that container does not exist."
+                )
             else:
                 raise ValueError(f"unknown reuse policy provided {reuse_policy}")
 
@@ -237,8 +247,8 @@ class DockerRunner:
                 if ret["StatusCode"] != 0:
                     logging.error(f"Command returned {ret['StatusCode']}")
                     if (
-                            "log_config" in self.run_args
-                            and self.run_args["log_config"].type == LogConfig.types.JOURNALD
+                        "log_config" in self.run_args
+                        and self.run_args["log_config"].type == LogConfig.types.JOURNALD
                     ):
                         logging.error(
                             f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
@@ -279,8 +289,9 @@ class DockerRunner:
 
         logging.debug(f"Stop container {self._container.name} ...")
         self._container.stop()
-        if self.cleanupPolicy == DockerCleanup.REMOVE \
-                or (self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state):
+        if self.cleanupPolicy == DockerCleanup.REMOVE or (
+            self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state
+        ):
             logging.debug(f"remove container {self._container.name} ...")
             self._container.remove()
             self._container = None  # container removed so do not keep reference

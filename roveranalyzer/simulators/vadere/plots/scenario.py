@@ -1,13 +1,12 @@
 import json as j
+from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patches
-from typing import Union
 
 
 class Scenario:
-
     def __init__(self, path):
         with open(path, "r", encoding="utf-8") as f:
             self._scenario_json = j.load(f)
