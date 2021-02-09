@@ -54,7 +54,7 @@ class OppRunner(DockerRunner):
             cmd = base_cmd
         cmd.extend(["-u", "Cmdenv"])
         cmd.extend(["-l", CrowNetConfig.join_home("inet4/src/INET")])
-        cmd.extend(["-l", CrowNetConfig.join_home("rover/src/ROVER")])
+        cmd.extend(["-l", CrowNetConfig.join_home("crownet/src/CROWNET")])
         cmd.extend(["-l", CrowNetConfig.join_home("simulte/src/lte")])
         cmd.extend(["-l", CrowNetConfig.join_home("veins/src/veins")])
         cmd.extend(
