@@ -1,4 +1,3 @@
-import re
 from functools import wraps
 from itertools import combinations
 from typing import List, Union
@@ -8,7 +7,6 @@ import matplotlib.table as tbl
 import numpy as np
 import pandas as pd
 from matplotlib.collections import QuadMesh
-from matplotlib.widgets import Slider
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, build_density_map
@@ -224,7 +222,7 @@ class DcdMap2D(DcdMap):
 
     @property
     def glb_map(self):
-        return self._map.loc[
+        return self.map.loc[
             self.tsc_global_id,
         ]
 
@@ -264,6 +262,7 @@ class DcdMap2D(DcdMap):
         time and for one node. The returned data frame as a shape of
          (N, M) where N,M is the number of cells in X respectively Y axis
         """
+        print(time_step, node_id)
         _i = pd.IndexSlice
         data = self._map.loc[_i[node_id, time_step], ["count"]]
         full_index = self.meta.grid_index_2d(real_coords=True)
@@ -283,68 +282,33 @@ class DcdMap2D(DcdMap):
     def clear_color_mesh(qmesh: QuadMesh, default_val=0):
         qmesh.set_array(qmesh.get_array() * default_val)
 
-    def create_meta_data_table(
-        self, ax, x, y, time_step, node_id, update_table: tbl.Table = None
-    ):
+    def info_dict(self, x, y, time_step, node_id):
         _i = pd.IndexSlice
+        _data_dict = {c: "---" for c in self.map.columns}
+        _data_dict["count"] = 0
+        _data_dict["source"] = -1
+        _data_dict.setdefault("_node_id", -1)
+        _data_dict.setdefault("_omnet_node_id", -1)
         try:
-            _data = self._map.loc[_i[node_id, time_step, x, y], :]
+            _data = self.map.loc[_i[node_id, time_step, x, y], :]
             _data_dict = _data.to_dict()
+            _data_dict["_node_id"] = int(node_id)
+            _data_dict["_omnet_node_id"] = self.id_to_node[node_id]
         except KeyError as e:
-            _data_dict = {c: "---" for c in self._map.columns}
-            _data_dict["count"] = 0
-            _data_dict["source"] = -1
+            pass
         finally:
-            _data_dict["count"] = int(_data_dict["count"])
-            _data_dict["source"] = int(_data_dict["source"])
+            _data_dict["count"] = (
+                int(_data_dict["count"]) if _data_dict["count"] != np.nan else "n/a"
+            )
+            try:
+                _data_dict["source"] = int(_data_dict["source"])
+            except ValueError:
+                _data_dict["source"] = "n/a"
             for k, v in _data_dict.items():
                 if type(v) == float:
                     _data_dict[k] = f"{v:.6f}"
-            _data_arr = np.array(list(_data_dict.items()))
-            _data_arr = np.insert(_data_arr, 0, ["Cell_coord", f"[{x}, {y}]"], axis=0)
-            _data_arr = np.insert(
-                _data_arr,
-                0,
-                [
-                    "Cell_id",
-                    f"[{int(np.floor(x / self.meta.cell_size))}, {int(np.floor(y / self.meta.cell_size))}]",
-                ],
-                axis=0,
-            )
-        if update_table is None:
-            return self.table(ax, _data_arr)
-        else:
-            col = 1
-            for row in range(_data_arr.shape[0]):
-                update_table.get_celld()[row, col].get_text().set_text(
-                    _data_arr[row, col]
-                )
-            return update_table
-
-    @staticmethod
-    def table(
-        ax: plt.Axes,
-        data: pd.array,
-        row_height=0.045,
-        col_height=(0.14, 0.16),
-        **kwargs,
-    ):
-        """
-        Cell_Id
-        Cell_coord
-        count
-        measured_t
-        received_t
-        source
-        """
-        table = tbl.table(
-            ax=ax,
-            cellText=data,
-            # colWidths=col_height,
-            loc="center",
-            # bbox=[1.15, 1.0 - tbl_height, tbl_width, tbl_height],
-        )
-        return table
+            _data_dict.setdefault("_celll_coord", f"[{x}, {y}]")
+        return _data_dict
 
     def own_cell(self):
         own_cell_mask = self._map["own_cell"] == 1
@@ -493,7 +457,6 @@ class DcdMap2D(DcdMap):
         node_id,
         *,
         ax=None,
-        make_interactive=False,
         cmap_dic: dict = None,
         pcolormesh_dic: dict = None,
         fig_dict: dict = None,
@@ -528,23 +491,7 @@ class DcdMap2D(DcdMap):
 
         ax.update(ax_prop if ax_prop is not None else {})
 
-        if make_interactive:
-            return (
-                (
-                    f,
-                    ax,
-                    InteractiveDensityPlot(
-                        dcd=self,
-                        data=pd.DataFrame(),
-                        ax=ax,
-                        time_step=time_step,
-                        node_id=node_id,
-                    ),
-                ),
-                ax,
-            )
-        else:
-            return f, ax
+        return f, ax
 
     @plot_decorator
     def plot_count(self, *, ax=None, **kwargs):
@@ -716,152 +663,28 @@ class DcdMap2DMulti(DcdMap2D):
         for meta, _df in node_data:
             _m = _df["selection"].notnull()
             _view = _df[_m].copy().drop(columns=["selection"])
+            if _view.index.is_unique == False:
+                raise ValueError(f"view index not unique for id {meta.node_id}")
             view_data.append([meta, _view])
         return view_data
 
-
-class InteractivePlotHandler:
-    def __init__(self, dcd: DcdMap2D, data: pd.DataFrame, ax: plt.Axes):
-        self.dcd = dcd
-        self.data = data
-        self.ax = ax
-        self.fig = ax.figure
-        self._connect_handler()
-
-    def _connect_handler(self):
-        self.hover_hdl = self.fig.canvas.mpl_connect(
-            "motion_notify_event", self.handle_hover
-        )
-        self.btn_down_hdl = self.fig.canvas.mpl_connect(
-            "button_press_event", self.handle_button_press_event
-        )
-        self.btn_rel_hdl = self.fig.canvas.mpl_connect(
-            "button_release_event", self.handle_button_release_event
-        )
-
-    @property
-    def figure(self):
-        return self.fig
-
-    def handle_hover(self, event):
-        pass
-
-    def handle_button_press_event(self, event):
-        pass
-
-    def handle_button_release_event(self, event):
-        pass
-
-
-class InteractiveDensityPlot(InteractivePlotHandler):
-    def __init__(
-        self, dcd: DcdMap2D, data: pd.DataFrame, ax: plt.Axes, time_step, node_id
-    ):
-        super().__init__(dcd, data, ax)
-        self.time_step = time_step
-        self.node_id = node_id
-
-        self.tbl = self.fig.add_axes([0.01, 0.70, 0.18, 0.20], facecolor="green")
-        self.tbl.set_position([0.01, 0.70, 0.18, 0.20])
-        self.tbl.axis("tight")
-        self.tbl.axis("off")
-        self.meta_tbl = self.dcd.create_meta_data_table(
-            self.tbl, 0.0, 0.0, time_step, node_id
-        )
-        self.ax_bound = list(self.ax.get_position().bounds)
-
-        self.time_vals = (
-            self.dcd._map.index.get_level_values("simtime").unique().to_numpy()
-        )
-        self.id_vals = self.dcd._map.index.get_level_values("ID").unique().to_numpy()
-
-        self.slider_ax1 = self.fig.add_axes(
-            [0.237, 0.05, 0.52, 0.03],
-            facecolor="lightgoldenrodyellow",
-        )
-        self.slider_ax1.set_facecolor("lightgoldenrodyellow")
-        self.slider_ax1.set_xticks([])
-        self.slider_ax1.set_yticks([])
-        self.slider1 = Slider(
-            self.slider_ax1,
-            "timestep",
-            self.time_vals.min(),
-            self.time_vals.max(),
-            valinit=self.time_step,
-            valstep=0.1,
-        )
-        self.slider1.on_changed(self._time_s)
-
-        self.slider_ax2 = self.fig.add_axes(
-            [
-                0.237,  # self.ax.get_position().bounds[0],
-                0.01,
-                0.52,  # self.ax.get_position().bounds[2],
-                0.03,
-            ],
-            facecolor="lightgoldenrodyellow",
-        )
-        self.slider_ax2.set_xticks([])
-        self.slider_ax2.set_yticks([])
-        self.slider2 = Slider(
-            self.slider_ax2,
-            "node_id",
-            self.id_vals.min(),
-            self.id_vals.max(),
-            valinit=self.node_id,
-            valstep=1,
-        )
-        self.slider2.on_changed(self._id_s)
-        print(self.slider_ax1.get_position())
-        print(self.slider_ax2.get_position())
-        self.ax.callbacks.connect("xlim_changed", self.dim_changed)
-        self.ax.callbacks.connect("ylim_changed", self.dim_changed)
-
-    def _time_s(self, val):
-        _t = np.abs(self.time_vals - val).argmin()
-        self.slider1.valtext.set_text(f"{self.time_vals[_t]}")
-        if self.time_step != self.time_vals[_t]:
-            self.time_step = self.time_vals[_t]
-            self.update()
-
-    def _id_s(self, val):
-        _t = np.abs(self.id_vals - val).argmin()
-        self.slider2.valtext.set_text(f"{self.id_vals[_t]}")
-        if self.node_id != self.id_vals[_t]:
-            self.node_id = self.id_vals[_t]
-            self.update()
-
-    def handle_hover(self, event):
-        if not (self.ax.contains(event))[0]:
-            return
-        x = np.floor(event.xdata / self.dcd.meta.cell_size) * self.dcd.meta.cell_size
-        y = np.floor(event.ydata / self.dcd.meta.cell_size) * self.dcd.meta.cell_size
-        self.meta_tbl = self.dcd.create_meta_data_table(
-            self.ax, x, y, self.time_step, self.node_id, update_table=self.meta_tbl
-        )
-        self.fig.canvas.draw_idle()
-
-    def dim_changed(self, ax):
-        print(">> ", self.fig)
-        self.ax.set_position(self.ax_bound)
-
-    def update(self):
-        print("update!")
+    def info_dict(self, x, y, time_step, node_id):
+        info_dict = super().info_dict(x, y, time_step, node_id)
         try:
-            self.ax.clear()
-            for _ax in self.fig.axes:
-                if _ax.get_label() == "colorbar":
-                    self.fig.delaxes(_ax)
-                    break
+            others = self.map_all_df.loc[
+                pd.IndexSlice[node_id, time_step, x, y, :],
+                ["count", "measured_t", "received_t"],
+            ]
+            _data = []
+            for index, row in others.iterrows():
+                row_dict: dict = row.to_dict()
+                row_dict.setdefault("_node_id", index[4])
+                _data.append(row_dict)
 
-            self.fig, self.ax = self.dcd.plot_density_map(
-                self.time_step, self.node_id, ax=self.ax, make_interactive=False
-            )
-            self.meta_tbl = self.dcd.create_meta_data_table(
-                self.tbl, 0.0, 0.0, self.time_step, self.node_id
-            )
+            info_dict.setdefault("y_other_values_#", len(_data))
+            info_dict.setdefault("y_other_mean_count", others.mean().loc["count"])
+            info_dict.setdefault("z_other_values", _data)
         except KeyError as e:
-            print("key err")
             pass
-        finally:
-            self.fig.canvas.draw_idle()
+
+        return info_dict
