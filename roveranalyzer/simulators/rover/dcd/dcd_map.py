@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib.table as tbl
 import numpy as np
 import pandas as pd
-from matplotlib.collections import QuadMesh
+from matplotlib.collections import PathCollection, QuadMesh
+from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, build_density_map
@@ -43,6 +44,7 @@ class DcdMap:
     def __init__(
         self, m_glb: DcdMetaData, id_map, glb_loc_df: pd.DataFrame, plotter=None
     ):
+        plt.Axes
         self.meta = m_glb
         self.node_to_id = id_map
         self.glb_loc_df = glb_loc_df
@@ -82,7 +84,7 @@ class DcdMap:
         ids = [n[0].node_id for n in node_data]
         ids.sort()
         ids = list(enumerate(ids, 1))
-        ids.insert(0, (0, "global"))
+        ids.insert(0, (0, "-1"))
         node_to_id = {n[1]: n[0] for n in ids}
 
         glb_loc_df["node_id"] = glb_loc_df["node_id"].apply(lambda x: node_to_id[x])
@@ -110,6 +112,7 @@ class DcdMap:
 
     @staticmethod
     def calculate_features(_df_ret):
+        index_names = _df_ret.index.names
         # calculate features (delay, AoI_NR (measured-to-now), AoI_MNr (received-to-now)
         now = _df_ret.index.get_level_values("simtime")
         _df_ret["delay"] = _df_ret["received_t"] - _df_ret["measured_t"]
@@ -117,6 +120,44 @@ class DcdMap:
         _df_ret["measurement_age"] = now - _df_ret["measured_t"]
         # AoI_NR == update_age (time since last update)
         _df_ret["update_age"] = now - _df_ret["received_t"]
+
+        # Distance to owner location.
+        # get owner positions for each time step {ID/simtime}[x_owner,y_owner]
+        owner_locations = (
+            _df_ret.loc[_df_ret["own_cell"] == 1, []]
+            .index.to_frame(index=False)
+            .drop(columns=["source"])
+            .drop_duplicates()
+            .set_index(["ID", "simtime"], drop=True, verify_integrity=True)
+            .rename(columns={"x": "x_owner", "y": "y_owner"})
+        )
+        # create dummy data for global view (index = 0) and set 'owner' location of ground truth at origin.
+        # create index {ID/simtime} for global id (:=0) and all time steps found
+        _index = pd.MultiIndex.from_product(
+            [[0], _df_ret.loc[0].index.get_level_values("simtime").unique()],
+            names=["ID", "simtime"],
+        )
+        # create df with dummy owner location for ground truth
+        glb_location = (
+            pd.DataFrame(columns=["x_owner", "y_owner"], index=_index)
+            .fillna(0.0)
+            .astype(float)
+        )
+        # append dummy location to owner_locations
+        owner_locations = glb_location.append(owner_locations, ignore_index=False)
+
+        # merge ower position
+        _df_ret = pd.merge(
+            _df_ret.reset_index(),
+            owner_locations,
+            on=["ID", "simtime"],
+        ).reset_index(drop=True)
+        _df_ret["owner_dist"] = np.sqrt(
+            (_df_ret["x"] - _df_ret["x_owner"]) ** 2
+            + (_df_ret["y"] - _df_ret["y_owner"]) ** 2
+        )
+        _df_ret = _df_ret.set_index(index_names, drop=True, verify_integrity=True)
+
         return _df_ret
 
 
@@ -197,7 +238,6 @@ class DcdMap2D(DcdMap):
         # merge node frames and set index
         input_dfs = [(glb_m, glb_df), *node_data]
         _df_ret = cls.merge_data_frames(input_dfs, node_to_id, cls.view_index)
-
         _df_ret = cls.calculate_features(_df_ret)
 
         return cls(glb_m, node_to_id, _df_ret, glb_loc_df)
@@ -450,6 +490,52 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    def update_delay_over_distance(
+        self, time_step, node_id, delay_kind, data: Line2D = None
+    ):
+        df = self.map.loc[pd.IndexSlice[node_id, time_step], ["owner_dist", delay_kind]]
+        df = df.sort_values(axis=0, by=["owner_dist"])
+        if data is not None:
+            data.set_ydata(df[delay_kind].to_numpy())
+            data.set_xdata(df["owner_dist"].to_numpy())
+        return df
+
+    @plot_decorator
+    def plot_delay_over_distance(
+        self,
+        time_step,
+        node_id,
+        delay_kind="measurement_age",
+        *,
+        ax=None,
+        fig_dict: dict = None,
+        ax_prop: dict = None,
+        **kwargs,
+    ):
+        """
+        Plot delay_kind* over the distance between measurements location (cell) and
+        the position of the map owner.
+
+        Default data view: per node / per time / all cells
+
+        *)delay_kind: change definition of delay using the delay_kind parameter.
+          one of: ["delay", "measurement_age", "update_age"]
+        """
+
+        f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
+        df = self.update_delay_over_distance(time_step, node_id, delay_kind)
+        ax.plot("owner_dist", delay_kind, data=df)
+
+        if ax_prop is None:
+            ax_prop = {}
+
+        ax_prop.setdefault("title", f"Delay({delay_kind}) over Distance")
+        ax_prop.setdefault("xlabel", "Cell distance (euklid) to owners location [m]")
+        ax_prop.setdefault("ylabel", "delay in [s]")
+        ax.update(ax_prop)
+
+        return f, ax
+
     @plot_decorator
     def plot_density_map(
         self,
@@ -463,6 +549,12 @@ class DcdMap2D(DcdMap):
         ax_prop: dict = None,
         **kwargs,
     ):
+        """
+        Birds eyes view of density in a 2D color mesh with X/Y spanning the
+        area under observation. Z axis (density) is shown with given color grading.
+
+        Default data view: per node / per time / all cells
+        """
         df = self.create_2d_map(time_step, node_id)
         f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
 
@@ -613,19 +705,14 @@ class DcdMap2DMulti(DcdMap2D):
     def from_frames(cls, global_data, node_data):
         glb_meta, glb_df = global_data
 
+        # add selection column to global data to ensure the ground truth is not dropped in map_view_df
+        glb_df["selection"] = "global"
+
         # create location df [x, y] -> nodeId (long string)
         location_df, glb_df = cls.extract_location_df(glb_df)
 
         # ID mapping
         location_df, node_id_map = cls.create_id_map(location_df, node_data)
-
-        # Extract view from all. (Selected view used in density map)
-        map_view_dfs = cls.extract_view(node_data)
-
-        # merge view frames and set index
-        input_dfs = [(glb_meta, glb_df), *map_view_dfs]
-        map_view_df = cls.merge_data_frames(input_dfs, node_id_map, cls.view_index)
-        map_view_df = cls.calculate_features(map_view_df)
 
         source_index = [
             cls.tsc_id_idx_name,
@@ -636,8 +723,18 @@ class DcdMap2DMulti(DcdMap2D):
         ]
 
         # merge rest of map data and set index
-        map_all_df = cls.merge_data_frames(node_data, node_id_map, source_index)
+        map_all_df = cls.merge_data_frames(
+            [(glb_meta, glb_df), *node_data], node_id_map, source_index
+        )
         map_all_df = cls.calculate_features(map_all_df)
+
+        map_view_df = (
+            map_all_df[map_all_df["selection"].notnull()]
+            .drop(columns=["selection"])
+            .reset_index(source_index[-1], drop=False)
+        )
+        if not map_view_df.index.is_unique:
+            raise ValueError("map_view_df must have unique index")
 
         return cls(glb_meta, node_id_map, map_view_df, location_df, map_all_df)
 

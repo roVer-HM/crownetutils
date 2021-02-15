@@ -1,7 +1,11 @@
 import json
 import tkinter as tk
+from tkinter import messagebox
+from tkinter.commondialog import Dialog
+from tkinter.filedialog import asksaveasfilename
 from tkinter.scrolledtext import ScrolledText
 
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backend_bases import key_press_handler
@@ -9,6 +13,46 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.collections import QuadMesh
 
 from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2D
+
+
+class MyDialog(Dialog):
+    def __init__(self, root, fields, **options):
+        super().__init__(**options)
+        self.root = root
+        self.top = tk.Toplevel(self.root)
+
+        self.main = tk.Frame(self.top, borderwidth=4, relief="ridge")
+        self.main.pack(fill=tk.BOTH, expand=True)
+
+        self.items_gui = {}
+        self.data = {}
+
+        for key, item in fields.items():
+            item_f = tk.Frame(self.main)
+            lbl = tk.Label(item_f, text=item[0])
+            entry = tk.Entry(item_f)
+            lbl.pack(side=tk.LEFT)
+            entry.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+            item_f.pack(side=tk.TOP, fill=tk.X, expand=True)
+            self.items_gui.setdefault(key, [item_f, lbl, entry])
+
+        self.btn_f = tk.Frame(self.main)
+        self.btn_ok = tk.Button(self.btn_f, text="OK", command=self.ok)
+        self.btn_cancel = tk.Button(self.btn_f, text="Cancel", command=self.cancel)
+        self.btn_ok.pack(side=tk.LEFT)
+        self.btn_cancel.pack(side=tk.RIGHT)
+        self.btn_f.pack(side=tk.BOTTOM, fill=tk.X, expand=True)
+        self.top.wait_window()
+
+    def ok(self):
+        for key, ui in self.items_gui.items():
+            entry = ui[2]
+            self.data[key] = entry.get().strip()
+        self.top.destroy()
+
+    def cancel(self):
+        self.data = None
+        self.top.destroy()
 
 
 class Interactive:
@@ -59,6 +103,34 @@ class Interactive:
         if job_name in self._jobs.keys() and self._jobs[job_name]:
             self.root.after_cancel(self._jobs[job_name])
         self._jobs[job_name] = self.root.after(ms, callback, *args)
+
+    def set_ax_attr(self):
+        def lim(ax, attr, val):
+            vals = [float(v.strip()) for v in val.strip().split(",")]
+            getattr(ax, f"set_{attr}", None)(vals[0], vals[1])
+
+        attr_cmd = lambda ax, attr, val: ax.update({attr: val})
+        items = {
+            "title": ["Title", attr_cmd],
+            "titlefont": [
+                "Title font size",
+                lambda ax, attr, val: ax.set_title(
+                    ax.get_title(), fontdict={"fontsize": val}
+                ),
+            ],
+            "xlabel": ["Label X", attr_cmd],
+            "ylabel": ["Label Y", attr_cmd],
+            "xlim": ["xlim", lim],
+            "ylim": ["ylim", lim],
+        }
+        dialog = MyDialog(self.root, items)
+        print(dialog.data)
+        if dialog.data is not None:
+            for key, val in dialog.data.items():
+                if val != "":
+                    cmd = items[key][1]
+                    cmd(self.ax, key, val)
+        self.canvas.draw_idle()
 
     def handle_hover(self, event):
         pass
@@ -115,6 +187,12 @@ class InteractiveTableTimeNodeSlider(Interactive):
         super()._build_tk()
         self.table_frame = tk.Frame(master=self.main_frame, width=50)
         self.info_btn = tk.Button(master=self.table_frame, command=self.info_btn_cmd)
+        self.cfg_btn = tk.Button(
+            master=self.table_frame, text="Config", command=self.set_ax_attr
+        )
+        self.animate_btn = tk.Button(
+            master=self.table_frame, text="Animate", command=self.animate_btn_cmd
+        )
         self.info_btn_cmd()
         self.table = ScrolledText(master=self.table_frame, width=50)
         self.update_table()
@@ -156,6 +234,8 @@ class InteractiveTableTimeNodeSlider(Interactive):
 
         self.table_frame.pack(side=tk.LEFT, fill=tk.Y)
         self.info_btn.pack(side=tk.TOP, fill=tk.X)
+        self.cfg_btn.pack(side=tk.TOP, fill=tk.X)
+        self.animate_btn.pack(side=tk.TOP, fill=tk.X)
         self.table.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self.node_id_lbl.pack(side=tk.LEFT)
@@ -171,6 +251,25 @@ class InteractiveTableTimeNodeSlider(Interactive):
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(side=tk.RIGHT, fill=tk.BOTH, expand=1)
         self.main_frame.pack()
+
+    def animate_btn_cmd(self):
+        # dialog = MyDialog(self.root, {
+        #     "node_id": self.node_id,
+        #     "time_from": self.time_vals[0],
+        #     "time_to": self.time_vals[-1]
+        # })
+        # if dialog.data is not None:
+        file = asksaveasfilename()
+        if file is None:
+            return
+
+        anim = animation.FuncAnimation(
+            fig=self.fig, func=self.animate, frames=self.time_vals, blit=False
+        )
+        anim.save(file)
+
+    def animate(self, frame):
+        raise NotImplementedError()
 
     def info_btn_cmd(self):
         self.tracking = not self.tracking
@@ -278,6 +377,47 @@ class Interactive2DDensityPlot(InteractiveTableTimeNodeSlider):
 
     def update_table(self):
         info = self.dcd.info_dict(self.x, self.y, self.time, self.node_id)
+        self.table.config(state=tk.NORMAL)
+        self.table.delete("1.0", tk.END)
+        self.table.insert(tk.INSERT, json.dumps(info, indent=2, sort_keys=True))
+
+
+class InteractiveDelayOverDistance(InteractiveTableTimeNodeSlider):
+
+    """
+    2D DensityMap plot of some scenario (x, y head map)
+    """
+
+    def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
+        super().__init__(dcd, ax)
+
+        self.line = ax.lines[0]
+        self.data = self.dcd.update_delay_over_distance(
+            self.time, self.node_id, "measurement_age"
+        )
+
+    def animate(self, frame):
+        print(frame)
+        self.dcd.update_delay_over_distance(
+            frame, self.node_id, "measurement_age", self.line
+        )
+
+    def update_plot(self):
+        try:
+            self.data = self.dcd.update_delay_over_distance(
+                self.time, self.node_id, "measurement_age", self.line
+            )
+            self.update_table()
+        except KeyError as e:
+            print("key err")
+            pass
+        finally:
+            self.canvas.draw_idle()
+
+    def update_table(self):
+        info = {}
+        info.setdefault("number_points", self.data.shape[0])
+        info.update(self.data.describe().to_dict())
         self.table.config(state=tk.NORMAL)
         self.table.delete("1.0", tk.END)
         self.table.insert(tk.INSERT, json.dumps(info, indent=2, sort_keys=True))
