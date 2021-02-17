@@ -391,6 +391,7 @@ class InteractiveDelayOverDistance(InteractiveTableTimeNodeSlider):
     def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
         super().__init__(dcd, ax)
 
+        self.node_id = self.id_vals[1]
         self.line = ax.lines[0]
         self.data = self.dcd.update_delay_over_distance(
             self.time, self.node_id, "measurement_age"
@@ -399,13 +400,13 @@ class InteractiveDelayOverDistance(InteractiveTableTimeNodeSlider):
     def animate(self, frame):
         print(frame)
         self.dcd.update_delay_over_distance(
-            frame, self.node_id, "measurement_age", self.line
+            frame, self.node_id, "measurement_age", data=self.line
         )
 
     def update_plot(self):
         try:
             self.data = self.dcd.update_delay_over_distance(
-                self.time, self.node_id, "measurement_age", self.line
+                self.time, self.node_id, "measurement_age", data=self.line
             )
             self.update_table()
         except KeyError as e:

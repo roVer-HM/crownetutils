@@ -7,6 +7,17 @@ import re
 from enum import Enum
 
 
+def get_or_create(pickle_path, generator_fn, override=False, *args, **kwargs):
+    if os.path.exists(pickle_path) and not override:
+        print(f"load pickle {pickle_path}")
+        ret = pickle.load(open(pickle_path, "rb"))
+    else:
+        print(f"create pickle {pickle_path}")
+        ret = generator_fn(*args, **kwargs)
+        pickle.dump(ret, open(pickle_path, "wb"))
+    return ret
+
+
 def from_pickle(_func=None, *, path="./analysis.p"):
     """
     Use as decorator for function which return expensive objects to create such as

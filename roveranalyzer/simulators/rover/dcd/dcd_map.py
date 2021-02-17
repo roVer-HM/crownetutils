@@ -1,3 +1,4 @@
+import multiprocessing
 from functools import wraps
 from itertools import combinations
 from typing import List, Union
@@ -9,8 +10,13 @@ import pandas as pd
 from matplotlib.collections import PathCollection, QuadMesh
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from pandas import IndexSlice as I
 
-from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, build_density_map
+from roveranalyzer.simulators.rover.dcd.util import (
+    DcdMetaData,
+    build_density_map,
+    run_pool,
+)
 from roveranalyzer.simulators.vadere.plots.plots import t_cmap
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils.misc import intersect
@@ -51,6 +57,13 @@ class DcdMap:
         self.id_to_node = {v: k for k, v in id_map.items()}
         self.scenario_plotter = plotter
         self.plot_wrapper = None
+        self.font_dict = {
+            "title": {"fontsize": 26},
+            "xlabel": {"fontsize": 20},
+            "ylabel": {"fontsize": 20},
+            "legend": {"size": 20},
+            "tick_size": 16,
+        }
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
@@ -199,7 +212,7 @@ class DcdMap2D(DcdMap):
                 "node_id": np.str,
             },
             real_coords=real_coords,
-            full_map=False,
+            add_missing_cells=False,
         )
         _df_data = [
             build_density_map(
@@ -213,7 +226,7 @@ class DcdMap2D(DcdMap):
                     "own_cell": int,
                 },
                 real_coords=real_coords,
-                full_map=False,
+                add_missing_cells=False,
             )
             for p in node_data
         ]
@@ -302,7 +315,7 @@ class DcdMap2D(DcdMap):
         time and for one node. The returned data frame as a shape of
          (N, M) where N,M is the number of cells in X respectively Y axis
         """
-        print(time_step, node_id)
+        # print(time_step, node_id)
         _i = pd.IndexSlice
         data = self._map.loc[_i[node_id, time_step], ["count"]]
         full_index = self.meta.grid_index_2d(real_coords=True)
@@ -491,9 +504,28 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     def update_delay_over_distance(
-        self, time_step, node_id, delay_kind, data: Line2D = None
+        self,
+        time_step,
+        node_id,
+        delay_kind,
+        remove_null=True,
+        data: Line2D = None,
+        bins_width=2.5,
     ):
-        df = self.map.loc[pd.IndexSlice[node_id, time_step], ["owner_dist", delay_kind]]
+        df = self.map
+        # remove cells with count 0
+        if remove_null:
+            df = self.map.loc[self.map["count"] != 0]
+
+        # average over distance (ignore node_id)
+        if bins_width > 0:
+            df = df.loc[I[1:, time_step], ["owner_dist", delay_kind]]
+            bins = int(np.floor(df["owner_dist"].max() / bins_width))
+            df = df.groupby(pd.cut(df["owner_dist"], bins)).mean().dropna()
+            df.index = df.index.rename("dist_bin")
+        else:
+            df = df.loc[I[node_id, time_step], ["owner_dist", delay_kind]]
+
         df = df.sort_values(axis=0, by=["owner_dist"])
         if data is not None:
             data.set_ydata(df[delay_kind].to_numpy())
@@ -506,6 +538,8 @@ class DcdMap2D(DcdMap):
         time_step,
         node_id,
         delay_kind="measurement_age",
+        remove_null=True,
+        label=None,
         *,
         ax=None,
         fig_dict: dict = None,
@@ -523,16 +557,24 @@ class DcdMap2D(DcdMap):
         """
 
         f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
-        df = self.update_delay_over_distance(time_step, node_id, delay_kind)
-        ax.plot("owner_dist", delay_kind, data=df)
+        df = self.update_delay_over_distance(
+            time_step, node_id, delay_kind, remove_null=remove_null, data=None
+        )
+        if label is None:
+            label = delay_kind
+        ax.plot("owner_dist", delay_kind, data=df, label=label)
 
         if ax_prop is None:
             ax_prop = {}
 
-        ax_prop.setdefault("title", f"Delay({delay_kind}) over Distance")
+        ax_prop.setdefault(
+            "title",
+            f"Delay({delay_kind}) over Distance",
+        )
         ax_prop.setdefault("xlabel", "Cell distance (euklid) to owners location [m]")
-        ax_prop.setdefault("ylabel", "delay in [s]")
-        ax.update(ax_prop)
+        ax_prop.setdefault("ylabel", "Delay in [s]")
+        for k, v in ax_prop.items():
+            getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
 
         return f, ax
 
@@ -560,12 +602,16 @@ class DcdMap2D(DcdMap):
 
         cell = self.get_location(time_step, node_id, cell_id=False)
         if "title" in kwargs:
-            ax.set_title(kwargs["title"])
+            ax.set_title(kwargs["title"], **self.font_dict["title"])
         else:
             ax.set_title(
-                f"Density map for node {node_id}_{self.id_to_node[node_id]} at time {time_step} cell [{cell[0]}, {cell[1]}]"
+                f"Density map for node {node_id}_{self.id_to_node[node_id]} at time "
+                f"{time_step} cell [{cell[0]}, {cell[1]}]",
+                **self.font_dict["title"],
             )
         ax.set_aspect("equal")
+        ax.tick_params(axis="x", labelsize=self.font_dict["tick_size"])
+        ax.tick_params(axis="y", labelsize=self.font_dict["tick_size"])
 
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
@@ -579,6 +625,7 @@ class DcdMap2D(DcdMap):
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         cax.set_label("colorbar")
+        cax.tick_params(axis="y", labelsize=self.font_dict["tick_size"])
         f.colorbar(pcm, cax=cax)
 
         ax.update(ax_prop if ax_prop is not None else {})
@@ -588,9 +635,9 @@ class DcdMap2D(DcdMap):
     @plot_decorator
     def plot_count(self, *, ax=None, **kwargs):
         f, ax = check_ax(ax, **kwargs)
-        ax.set_title("Total node count over time")
-        ax.set_xlabel("time [s]")
-        ax.set_ylabel("total node count")
+        ax.set_title("Total node count over time", **self.font_dict["title"])
+        ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
+        ax.set_ylabel("total node count", **self.font_dict["ylabel"])
 
         for id, df in self.iter_nodes_d2d(first=1):
             df_time = df.groupby(level=self.tsc_time_idx_name).sum()
@@ -610,9 +657,9 @@ class DcdMap2D(DcdMap):
     @plot_decorator
     def plot_count_diff(self, *, ax=None, **kwargs):
         f, ax = check_ax(ax, **kwargs)
-        ax.set_title("Node Count over Time")
-        ax.set_xlabel("Time [s]")
-        ax.set_ylabel("Pedestrian Count")
+        ax.set_title("Node Count over Time", **self.font_dict["title"])
+        ax.set_xlabel("Time [s]", **self.font_dict["xlabel"])
+        ax.set_ylabel("Pedestrian Count", **self.font_dict["ylabel"])
         _i = pd.IndexSlice
         nodes = (
             self._map.loc[_i[1:], _i["count"]]
@@ -629,18 +676,22 @@ class DcdMap2D(DcdMap):
             .std()
         )
         glb = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()["count"]
-        ax.plot(nodes.index, nodes, label="count mean")
+        ax.plot(nodes.index, nodes, label="Mean count")
         ax.fill_between(
             nodes.index,
             nodes + nodes_std,
             nodes - nodes_std,
             alpha=0.35,
             interpolate=True,
-            label="count +/- 1 std",
+            label="Count +/- 1 std",
         )
-        ax.plot(glb.index, glb, label="actual count")
+        ax.plot(glb.index, glb, label="Actual count")
         f.legend()
         return f, ax
+
+
+def filter_selected_cells(df: pd.DataFrame):
+    return df.loc[df["selection"].notna()].copy(deep=True)
 
 
 class DcdMap2DMulti(DcdMap2D):
@@ -653,8 +704,21 @@ class DcdMap2DMulti(DcdMap2D):
         global_data: str,
         node_data: List,
         real_coords=True,
+        load_all=True,
         scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
     ):
+        """
+         Parameters
+        ----------
+        global_data: Path to global map csv, First line must container meta data
+                     information starting with a '#'
+        node_data:   List of path for local density map
+        real_coords: Translate gird ids to coordinates by multiplying with cell size found in meta data. default=True
+        load_all:    Load all cell counts even the ones not chosen by the fusion algorithm. Default=True
+        scenario_plotter:  Path to scenario file or VaderScenarioPlotHelper object. This is used to add scenario
+                           elements to plots.
+        """
+
         # load global map global.csv -> [metaObject, DataFrame]
         _df_global = build_density_map(
             csv_path=global_data,
@@ -668,15 +732,17 @@ class DcdMap2DMulti(DcdMap2D):
                 "node_id": np.str,
             },
             real_coords=real_coords,
-            full_map=False,
+            add_missing_cells=False,
         )
 
         # load map for each node *.csv -> list of DataFrames
-        _df_data = [
-            build_density_map(
-                csv_path=p,
-                index=cls.view_index[1:],  # ID will be set later
-                column_types={
+        njobs = int(multiprocessing.cpu_count() * 0.60)
+        pool = multiprocessing.Pool(processes=njobs)
+        job_args = [
+            {
+                "csv_path": p,
+                "index": cls.view_index[1:],
+                "column_types": {
                     "count": np.int,
                     "measured_t": np.float,
                     "received_t": np.float,
@@ -684,14 +750,17 @@ class DcdMap2DMulti(DcdMap2D):
                     "own_cell": np.int,
                     "selection": np.str,  # needed to filter out view form other data
                 },
-                real_coords=real_coords,
-                full_map=False,
-            )
+                "real_coords": real_coords,
+                "add_missing_cells": False,
+                "df_filter": filter_selected_cells,
+            }
             for p in node_data
         ]
+        _df_data = run_pool(pool, build_density_map, job_args)
+        # pool.starmap(build_density, jobs)
 
         # create DcdMap2D from frames
-        _obj = cls.from_frames(_df_global, _df_data)
+        _obj = cls.from_frames(_df_global, _df_data, load_all)
 
         # add VaderScenarioPlotHelper if not provided
         if scenario_plotter is not None:
@@ -702,7 +771,7 @@ class DcdMap2DMulti(DcdMap2D):
         return _obj
 
     @classmethod
-    def from_frames(cls, global_data, node_data):
+    def from_frames(cls, global_data, node_data, load_all=True):
         glb_meta, glb_df = global_data
 
         # add selection column to global data to ensure the ground truth is not dropped in map_view_df
@@ -726,6 +795,11 @@ class DcdMap2DMulti(DcdMap2D):
         map_all_df = cls.merge_data_frames(
             [(glb_meta, glb_df), *node_data], node_id_map, source_index
         )
+
+        if not load_all:
+            # remove not selected values to save space and speed up other operations if they are
+            map_all_df = map_all_df[map_all_df["selection"].notnull()].copy()
+
         map_all_df = cls.calculate_features(map_all_df)
 
         map_view_df = (
@@ -745,10 +819,17 @@ class DcdMap2DMulti(DcdMap2D):
         map_view_df: pd.DataFrame,
         location_df: pd.DataFrame,
         map_all_df: pd.DataFrame,
+        load_all=True,
     ):
-        """"""
+        """
+        Parameters
+        ----------
+        glb_meta: Meta data instance for current map. cell size, map size
+        node_id_map: Mapping between node
+        """
         super().__init__(glb_meta, node_id_map, map_view_df, location_df)
         self.map_all_df = map_all_df
+        self.all_data = load_all
 
     @staticmethod
     def extract_view(node_data):
