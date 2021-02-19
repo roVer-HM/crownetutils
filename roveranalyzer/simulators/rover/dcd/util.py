@@ -1,3 +1,5 @@
+from itertools import repeat
+
 import numpy as np
 import pandas as pd
 
@@ -143,6 +145,7 @@ def _apply_real_coords(_df, _meta: DcdMetaData):
     return _df.set_index(_idxNew)
 
 
+# deprecated
 def _full_map(df, _m: DcdMetaData, index, col_types, real_coords=False):
     """
     create full index: time * numXCells * numYCells
@@ -160,7 +163,23 @@ def _full_map(df, _m: DcdMetaData, index, col_types, real_coords=False):
     return ret
 
 
-def build_density_map(csv_path, index, column_types, real_coords=False, full_map=False):
+def run_pool(pool, fn, kwargs_iter):
+    starmap_args = zip(repeat(fn), kwargs_iter)
+    return pool.starmap(apply_pool_kwargs, starmap_args)
+
+
+def apply_pool_kwargs(fn, kwargs):
+    return fn(**kwargs)
+
+
+def build_density_map(
+    csv_path,
+    index,
+    column_types,
+    real_coords=False,
+    add_missing_cells=False,
+    df_filter=None,
+):
     """
     build density maps from spare csv output.
     expects a csv file with as header simtime;x;y;count;measured_t;received_t.
@@ -168,13 +187,18 @@ def build_density_map(csv_path, index, column_types, real_coords=False, full_map
     containing CELLSIZE and absolute size of the grid metadata.
     #CELLSIZE=3.000000,DATACOL=-1,IDXCOL=3,SEP=;,XSIZE=581.135000,YSIZE=233.492000
     """
+    print(f"load {csv_path}")
     ret, meta = _density_get_raw(csv_path, index, column_types)
+
+    if df_filter is not None:
+        # apply early filter to remove not needed data to increase performance
+        ret = df_filter(ret)
 
     if real_coords:
         ret = _apply_real_coords(ret, meta)
 
     # create full index with missing cells. Values will be set to '0' (type dependent)
-    if full_map:
+    if add_missing_cells:
         ret = _full_map(ret, meta, index, column_types, real_coords)
 
     return meta, ret
