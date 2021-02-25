@@ -8,7 +8,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
 class ControllerRunner(DockerRunner):
 	def __init__(
 			self,
-			image=None,  # TODO add image
+			image="sam-dev.cs.hm.edu:5023/rover/crownet/flowcontrol",
 			tag="latest",
 			docker_client=None,
 			name="",
