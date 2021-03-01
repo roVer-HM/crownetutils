@@ -830,7 +830,7 @@ class ScaveTool:
         )
         out, err = self.read_stdout(cmd)
         if err != "":
-            raise RuntimeError("container return error: \n{err}")
+            raise RuntimeError(f"container return error: \n{err}")
 
         out = [line.split("\t") for line in out.split("\n") if line != ""]
         return pd.DataFrame(out, columns=["run", "type", "module", "name", "value"])
