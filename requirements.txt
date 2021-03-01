@@ -1,4 +1,4 @@
-ipywidgets>=7.5.1
+ipywidgets>=7.5.1tkin
 docker
 matplotlib==3.3.2
 trimesh
