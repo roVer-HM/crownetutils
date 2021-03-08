@@ -64,7 +64,7 @@ def read_app_data():
     inputs = f"{ROOT}/{RUN}/vars_rep_0.vec"
     scave = ScaveTool()
 
-    """
+
     scave_f = scave.filter_builder() \
         .gOpen().module("*World.node[1].lteNic.macd.densityMapApp").OR().module("*.node[*].aid.beaconApp").gClose() \
         .AND().name("rcvdPkLifetime:vector")
@@ -72,6 +72,7 @@ def read_app_data():
     scave_f = scave.filter_builder() \
         .gOpen().module("*World.node[*].lteNic.mac").OR().module("*.node[*].lteNic.mac").gClose() \
         .AND().name("sentPacketToUpperLayer:vector*")
+    """
 
     _df = scave.load_df_from_scave(input_paths=inputs, scave_filter=scave_f)
     return _df
@@ -107,9 +108,9 @@ def analyse_interactive():
     # fig, ax = dcd.plot_delay_over_distance(8, 3, "measurement_age")
 
     # dcd.update_delay_over_distance(12, 3, "measurement_age", ax.collections[0])
-    i = Interactive2DDensityPlot(dcd, ax)
+    # i = Interactive2DDensityPlot(dcd, ax)
     # i = InteractiveDelayOverDistance(dcd, ax)
-    i.show()
+    # i.show()
 
 def make_density_plot(dcd):
     # make density_map_plots
@@ -136,7 +137,6 @@ def make_count_plot(dcd, para):
 
 def make_count_plot(delay):
     df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
-
     f2, ax2 = check_ax()
 
     # plots = [["beacon", df_beacon], ["map", df_dMap], ["all", df_all]]:
@@ -152,18 +152,73 @@ def make_count_plot(delay):
     ax2.set_xlabel("time [s]")
     ax2.set_ylabel(f"mean delay (window size: {time_per_bin}s )[s]")
     ax2.legend()
-    f2.savefig(p.join("out/delay1.png"))
+    f2.savefig(p.join("out/delay_rcvdPackage_median.png"))
 
+def generate_plots_rcvdPackage_delay_median(delay, mode):
+    df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
+    f2, ax2 = check_ax()
+
+    # plots = [["beacon", df_beacon], ["map", df_dMap], ["all", df_all]]:
+    plots = [["packet delay", df_all]]
+    time_per_bin = 1.0  # seconds
+    for n, df in plots:
+        bins = int(np.floor(df["time"].max() / time_per_bin))
+        if mode == 'mean':
+            df = df.groupby(pd.cut(df["time"], bins)).mean()
+        else:
+            df = df.groupby(pd.cut(df["time"], bins)).median()
+        df = df.dropna()
+        ax2.plot("time", "value", data=df, label=n)
+
+    ax2.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)")
+    ax2.set_xlabel("time [s]")
+    if mode == 'mean':
+        ax2.set_ylabel(f"mean delay (window size: {time_per_bin}s )[s]")
+    else:
+        ax2.set_ylabel(f"median delay (window size: {time_per_bin}s )[s]")
+
+    ax2.legend()
+    if mode == 'mean':
+        f2.savefig(p.join("out/delay_rcvdPackage_mean.png"))
+    else:
+        f2.savefig(p.join("out/delay_rcvdPackage_median.png"))
+
+def generate_plots_sendPacketToUpper_delay_median(delay, mode):
+    df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
+    f2, ax2 = check_ax()
+
+    # plots = [["beacon", df_beacon], ["map", df_dMap], ["all", df_all]]:
+    plots = [["sentPacketUpper amount", df_all]]
+    time_per_bin = 1.0  # seconds
+    for n, df in plots:
+        bins = int(np.floor(df["time"].max() / time_per_bin))
+        if mode == 'mean':
+            df = df.groupby(pd.cut(df["time"], bins)).mean()
+        else:
+            df = df.groupby(pd.cut(df["time"], bins)).median()
+        df = df.dropna()
+        ax2.plot("time", "value", data=df, label=n)
+
+    ax2.set_title("sendPacketToUpper of all packets (beacon + map)")
+    ax2.set_xlabel("time [s]")
+    if mode == 'mean':
+        ax2.set_ylabel(f"mean sentPacketUpper (window size: {time_per_bin}s )[s]")
+    else:
+        ax2.set_ylabel(f"median sentPacketUpper (window size: {time_per_bin}s )[s]")
+
+    ax2.legend()
+    if mode == 'mean':
+        f2.savefig(p.join("out/delay_sentPacketUpper_mean.png"))
+    else:
+        f2.savefig(p.join("out/delay_sentPacketUpper_median.png"))
 
 def make_delay_plot(dcd, para, delay):
 
     # make count plot
-    """
     f1, ax = dcd.plot_count_diff()
     maxAge = para.loc[para["name"] == "maxAge", ["value"]].iloc[0].value
     title = f"{ax.title.get_text()} with neighborhood table maxAge {maxAge}"
     ax.set_title(title)
-    """
 
     # delay plot
     #
@@ -188,7 +243,6 @@ def make_delay_plot(dcd, para, delay):
     ax2.legend()
     f2.savefig(p.join("out/delay.png"))
 
-    """
     ax_twin = ax.twinx()
     ax_twin.plot("time", "value", data=df, color='r', label="packet delays")
     ax_twin.set_ylim(0, 120)
@@ -202,7 +256,6 @@ def make_delay_plot(dcd, para, delay):
     f1.legends.clear()
     f1.legend(handles, labels)
     f1.savefig(p.join("out/count_delay.png"))
-        """
 
     # plt.close(f1)
     plt.close(f2)
@@ -276,7 +329,13 @@ if __name__ == "__main__":
 
     # delay = read_app_data()
     # animate_map_plot(dcd)
-    analyse_interactive()
+    make_density_plot(dcd)
+    # analyse_interactive()
     # make_count_plot(dcd, para)
     # make_delay_plot(dcd, para, delay)
-    make_count_plot(delay)
+
+    # generate_plots_rcvdPackage_delay_median(delay, 'mean')
+    # generate_plots_rcvdPackage_delay_median(delay, 'median')
+
+    # generate_plots_sendPacketToUpper_delay_median(delay, 'mean')
+    # generate_plots_sendPacketToUpper_delay_median(delay, 'median')
