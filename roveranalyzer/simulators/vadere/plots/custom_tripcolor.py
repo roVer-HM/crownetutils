@@ -24,8 +24,7 @@ class CustomPolyCollection(PolyCollection):
         self.override_cmap_alpha = override_cmap_alpha
 
     def update_data(
-        self,
-        data,
+        self, data,
     ):
         self.set_array(data)
 
@@ -93,8 +92,7 @@ class CustomTriMesh(TriMesh):
         self.override_cmap_alpha = override_cmap_alpha
 
     def update_data(
-        self,
-        data,
+        self, data,
     ):
         self.set_array(data)
 

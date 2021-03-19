@@ -3,20 +3,22 @@ import logging
 import os
 import signal
 import time
+import shutil
+
 from datetime import datetime
 
 import docker
 from requests.exceptions import ReadTimeout
 
 from roveranalyzer.dockerrunner.dockerrunner import DockerCleanup, DockerReuse
+from roveranalyzer.simulators.controller.controllerrunner import ControlRunner
 from roveranalyzer.simulators.opp.runner import OppRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 
 if len(logging.root.handlers) == 0:
     # set logger for dev (will be overwritten if needed)
     logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+        level=logging.DEBUG, format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
     )
 
 # todo: split in default and simulator specific arguments
@@ -43,6 +45,16 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Ini-file for simulation. Default: omnetpp.ini",
     )
+
+    parser.add_argument(
+        "-sf",
+        "--scenario-file",
+        dest="scenario_file",
+        default="",
+        required=False,
+        help="Scenario-file *.scenario for Vadere simulation.",
+    )
+
     parser.add_argument(
         "-c",
         "--config",
@@ -215,6 +227,14 @@ def parse_args_as_dict(args=None):
     )
 
     parser.add_argument(
+        "--control-tag",
+        dest="control_tag",
+        default="latest",
+        required=False,
+        help="Choose Control container. (Default: latest)",
+    )
+
+    parser.add_argument(
         "--v.loglevel",
         dest="v_loglevel",
         default="INFO",
@@ -229,6 +249,33 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Set log file name of Vadere. If not set '', log file will not be created. "
         "This setting has no effect on --log-journald. (Default: '') ",
+    )
+
+    parser.add_argument(
+        "-wc",
+        "--with-control",
+        dest="control",
+        default=None,
+        required=False,
+        help="Choose file that contains control strategy. (Default: '')",
+    )
+
+    parser.add_argument(
+        "--control-vadere-only",
+        dest="control_vadere_only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set the control action is applied without omnetpp. Direct information dissemination without delay.",
+    )
+
+    parser.add_argument(
+        "--vadere-only",
+        dest="vadere_only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set run Vadere in container without omnetpp or control.",
     )
 
     if args is None:
@@ -281,11 +328,13 @@ class process_as:
 
 class BaseRunner:
     def __init__(self, working_dir, args=None):
+
         self.ns = parse_args_as_dict(args)
         self.docker_client = docker.from_env()
         self.working_dir = working_dir
         self.vadere_runner = None
         self.opp_runner = None
+        self.control_runner = None
 
         # prepare post and pre map
         self.f_map: dict = {}
@@ -354,7 +403,15 @@ class BaseRunner:
         self.opp_runner.apply_reuse_policy()
         self.opp_runner.set_working_dir(self.working_dir)
 
-    def build_and_start_vadere_runner(self):
+    def build_and_start_control_runner(self, port=9997):
+        self.build_control_runner(detach=True)
+        self.exec_control_runner(mode="server")
+
+    def build_and_start_vadere_runner(self, port=None, output_dir=None):
+
+        if port is None:
+            port = self.ns["v_traci_port"]
+
         run_name = self.ns["run_name"]
         self.vadere_runner = VadereRunner(
             docker_client=self.docker_client,
@@ -374,12 +431,212 @@ class BaseRunner:
 
         # start vadere container detached in the background. Will be stoped in the finally block
         self.vadere_runner.exec_single_server(
-            traci_port=self.ns["v_traci_port"],
+            traci_port=port,
             loglevel=self.ns["v_loglevel"],
             logfile=logfile,
+            output_dir=output_dir,
         )
 
+    def build_control_runner(self, detach=False):
+
+        run_name = self.ns["run_name"]
+        self.control_runner = ControlRunner(
+            docker_client=self.docker_client,
+            name=f"control_{run_name}",
+            tag=self.ns["control_tag"],
+            cleanup_policy=self.ns["cleanup_policy"],
+            reuse_policy=self.ns["reuse_policy"],
+            detach=detach,  # do not detach --> wait on control container
+            journal_tag=f"control_{run_name}",
+        )
+        self.control_runner.apply_reuse_policy()
+
+    def exec_control_runner(self, mode):
+
+        if mode == "client":
+
+            host_name = f"vadere_{self.ns['run_name']}"
+
+            _wait_for_vadere = True
+            while _wait_for_vadere:
+                for container in docker.from_env().containers.list():
+                    if container.name == host_name:
+                        time.sleep(1)
+                        _wait_for_vadere = False
+
+            return self.control_runner.start_controller(
+                control_file=self.ns["control"],
+                host_name=host_name,
+                connection_mode="client",
+                traci_port=9999,
+            )
+        else:
+
+            client_name = f"control_{self.ns['run_name']}"
+
+            return self.control_runner.start_controller(
+                control_file=self.ns["control"],
+                host_name=client_name,
+                connection_mode="server",
+                traci_port=9997,
+            )
+
+    def is_controlled(self):
+        if self.ns["control"] is None:
+            return False
+        else:
+            return True
+
+    def is_control_vadere_directly(self):
+
+        if self.is_controlled():
+            return self.ns["control_vadere_only"]
+        else:
+            raise ValueError("Control file not set.")
+
     def run_simulation(self):
+
+        if self.is_controlled():
+            return self.run_simulation_controlled()
+        else:
+            return self.run_simulation_uncontrolled()
+
+    def run_simulation_controlled(self):
+
+        if self.is_control_vadere_directly():
+            ret = self.run_simulation_vadere_ctl_only()
+        else:
+            ret = self.run_simulation_vadere_omnet_ctl()
+
+        return ret
+
+    def run_simulation_vadere_ctl_only(self):
+
+        ret = 255
+        logging.info(
+            "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
+        )
+
+        output_dir = os.path.join(
+            os.getcwd(),
+            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
+        )
+        os.makedirs(output_dir, exist_ok=True)
+
+        self.build_control_runner()
+
+        try:
+            if self.ns["create_vadere_container"]:
+
+                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
+                logging.info(f"start simulation {self.ns['run_name']} ...")
+
+            ret_control, control_container = self.exec_control_runner(mode="client")
+
+            ret = 0  # all good if we reached this.
+            if self.vadere_runner is not None:
+                try:
+                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
+
+                except ReadTimeout:
+                    logging.error(
+                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
+                    )
+                    ret = 255
+
+        except RuntimeError as cErr:
+            logging.error(cErr)
+            ret = 255
+
+        except KeyboardInterrupt as K:
+            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logging.debug(f"cleanup with ret={ret}")
+
+            if self.vadere_runner is not None:
+                self.vadere_runner.container_cleanup(has_error_state=err_state)
+
+            self.control_runner.container_cleanup(has_error_state=err_state)
+
+        return ret
+
+    def run_simulation_uncontrolled(self):
+
+        if self.ns["vadere_only"]:
+            return self.run_vadere()
+        else:
+            return self.run_simulation_uncontrolled_crownet()
+
+    def build_and_start_vadere_only(self, port=None):
+
+        if port is None:
+            port = self.ns["v_traci_port"]
+
+        run_name = self.ns["run_name"]
+        self.vadere_runner = VadereRunner(
+            docker_client=self.docker_client,
+            name=f"vadere_{run_name}",
+            tag=self.ns["vadere_tag"],
+            cleanup_policy=self.ns["cleanup_policy"],
+            reuse_policy=self.ns["reuse_policy"],
+            detach=False,  # detach at first and wait vadere container after opp container is done
+            journal_tag=f"vadere_{run_name}",
+        )
+        self.vadere_runner.apply_reuse_policy()
+        self.vadere_runner.set_working_dir(self.working_dir)
+
+        logfile = os.devnull
+        if self.ns["v_logfile"] != "":
+            logfile = self.ns["v_logfile"]
+
+        result_path = os.path.join(
+            os.getcwd(), f"results/vadere_only_{self.ns['experiment_label']}/vadere.d"
+        )
+
+        os.makedirs(result_path, exist_ok=True)
+
+        # start vadere container detached in the background. Will be stoped in the finally block
+        self.vadere_runner.exec_vadere_only(
+            scenario_file=self.ns["scenario_file"], output_path=result_path
+        )
+
+    def run_vadere(self):
+
+        ret = 255
+        logging.info("Run vadere in container")
+
+        try:
+            self.build_and_start_vadere_only()
+            ret = 0  # all good if we reached this.
+
+        except RuntimeError as cErr:
+            logging.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret
+            logging.debug(f"cleanup with ret={ret}")
+
+            # TODO: does not work
+
+            # if self.vadere_runner is not None:
+            #     self.vadere_runner.container_cleanup(has_error_state=err_state)
+            # self.opp_runner.container_cleanup(has_error_state=err_state)
+
+        return ret
+
+    def run_simulation_uncontrolled_crownet(self):
+
         ret = 255
         self.build_opp_runer()
 
@@ -440,6 +697,53 @@ class BaseRunner:
             if sec >= timeout_sec:
                 raise TimeoutError(f"Timeout reached while waiting for {filepath}")
         return filepath
+
+    def run_simulation_vadere_omnet_ctl(self):
+
+        logging.info(
+            "Control vadere with omnetpp. Client 1: omnet, server 1: vadere, port: 9998, Client 2: omnet, server 2: controller, port: 9997"
+        )
+
+        ret = 255
+        self.build_opp_runer()
+
+        try:
+            if self.ns["create_vadere_container"]:
+                self.build_and_start_vadere_runner()
+
+            self.build_and_start_control_runner()
+
+            # start OMNeT++ container and attach to it.
+            logging.info(f"start simulation {self.ns['run_name']} ...")
+            ret_opp, opp_container = self.opp_runner.exec_opp_run(
+                **self.ns, run_args_override={}
+            )
+
+            ret = 0  # all good if we reached this.
+            if self.vadere_runner is not None:
+                try:
+                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
+                except ReadTimeout:
+                    logging.error(
+                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
+                    )
+                    ret = 255
+
+        except RuntimeError as cErr:
+            logging.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logging.debug(f"cleanup with ret={ret}")
+            if self.vadere_runner is not None:
+                self.vadere_runner.container_cleanup(has_error_state=err_state)
+            self.opp_runner.container_cleanup(has_error_state=err_state)
+        return ret
 
 
 if __name__ == "__main__":

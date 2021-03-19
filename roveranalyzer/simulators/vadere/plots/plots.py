@@ -10,7 +10,7 @@ import matplotlib.tri as tri
 import numpy as np
 import pandas as pd
 import trimesh
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, Normalize, TwoSlopeNorm
 
 from roveranalyzer.simulators.vadere.plots.custom_tripcolor import tripcolor_costum
 from roveranalyzer.utils import PlotHelper, Timer
@@ -28,11 +28,23 @@ class PlotOptions(Enum):
     DENSITY_SMOOTH = (3, "density_smooth")
 
 
+def pcolormesh_dict(vmin, vmax, center=None, cmap=None, norm=None):
+    ret = {"vmin": vmin, "vmax": vmax}
+    if center is not None and norm is None:
+        assert vmin < center < vmax
+        ret.setdefault("norm", TwoSlopeNorm(center, vmin, vmax))
+
+        if cmap is None:
+            ret.setdefault("cmap", "crownet_bwr")
+
+    ret.setdefault("norm", Normalize(vmin, vmax))
+    ret.setdefault("cmap", t_cmap("Reds", replace_index=(0, 1, 0.0)))
+
+    return ret
+
+
 def t_cmap(
-    cmap_name,
-    replace_index=(0, 1, 1.0),
-    use_colors=(0, 256),
-    zero_color=None,
+    cmap_name, replace_index=(0, 1, 1.0), use_colors=(0, 256), zero_color=None,
 ):
     cmap = plt.get_cmap(name=cmap_name)
     start, stop, alpha = replace_index
@@ -82,8 +94,7 @@ class DensityPlots:
         mesh_str = vadere_output.files[mesh_out_file].as_string(remove_meta=True)
         _mesh = SimpleMesh.from_string(mesh_str)
         _df = vadere_output.files[density_out_file].df(
-            set_index=True,
-            column_names=data_cols_rename,
+            set_index=True, column_names=data_cols_rename,
         )
         return cls(_mesh, _df, cmap_dict)
 
@@ -134,30 +145,19 @@ class DensityPlots:
     ):
         if option == PlotOptions.COUNT:
             ax, tpc = tripcolor_costum(
-                ax,
-                triang,
-                facecolors=density_or_counts,
-                **kwargs,
+                ax, triang, facecolors=density_or_counts, **kwargs,
             )
             title_option = "Counts per triangle"
             label_option = "Counts [-]"
         elif option == PlotOptions.DENSITY:
             ax, tpc = tripcolor_costum(
-                ax,
-                triang,
-                density_or_counts,
-                shading="gouraud",
-                **kwargs,
+                ax, triang, density_or_counts, shading="gouraud", **kwargs,
             )  # shading = 'gouraud' or 'fla'
             title_option = "Mapped density"
             label_option = "Density [#/m^2]"
         elif option == PlotOptions.DENSITY_SMOOTH:
             ax, tpc = tripcolor_costum(
-                ax,
-                triang,
-                density_or_counts,
-                shading="gouraud",
-                **kwargs,
+                ax, triang, density_or_counts, shading="gouraud", **kwargs,
             )  # shading = 'gouraud' or 'fla'
             title_option = "Smoothed density"
             label_option = "Density [#/m^2]"

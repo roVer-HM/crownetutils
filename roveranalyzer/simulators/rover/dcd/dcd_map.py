@@ -1,24 +1,17 @@
-import multiprocessing
+import os
+import pickle
 from functools import wraps
 from itertools import combinations
-from typing import List, Union
 
 import matplotlib.pyplot as plt
-import matplotlib.table as tbl
 import numpy as np
 import pandas as pd
-from matplotlib.collections import PathCollection, QuadMesh
+from matplotlib.collections import QuadMesh
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from pandas import IndexSlice as I
+from pandas import IndexSlice as Idx
 
-from roveranalyzer.simulators.rover.dcd.util import (
-    DcdMetaData,
-    build_density_map,
-    run_pool,
-)
-from roveranalyzer.simulators.vadere.plots.plots import t_cmap
-from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
+from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, create_error_df
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
 
@@ -35,143 +28,76 @@ def plot_decorator(method):
 
 
 class DcdMap:
-    cell_features = [
-        "count",
-        "measured_t",
-        "received_t",
-        "delay",
-        "m_aoi",
-        "r_aoi",
-        "source",
-        "own_cell",
-    ]
     tsc_global_id = 0
 
     def __init__(
-        self, m_glb: DcdMetaData, id_map, glb_loc_df: pd.DataFrame, plotter=None
+        self,
+        m_glb: DcdMetaData,
+        id_map,
+        location_df: pd.DataFrame,
+        plotter=None,
+        pickle_base_path=None,
     ):
-        plt.Axes
         self.meta = m_glb
-        self.node_to_id = id_map
-        self.glb_loc_df = glb_loc_df
-        self.id_to_node = {v: k for k, v in id_map.items()}
+        self.node_to_id = (
+            id_map  # mapping of omnetpp identifier to data frame id's [1,..., max]
+        )
+        self.id_to_node = {
+            v: k for k, v in id_map.items()
+        }  # data frame id to omnetpp node identifier
+        self.location_df = location_df
         self.scenario_plotter = plotter
         self.plot_wrapper = None
         self.font_dict = {
-            "title": {"fontsize": 26},
+            "title": {"fontsize": 24},
             "xlabel": {"fontsize": 20},
             "ylabel": {"fontsize": 20},
             "legend": {"size": 20},
             "tick_size": 16,
         }
+        self.pickle_base_path = pickle_base_path
+
+    @property
+    def lazy_load_from_pickle(self):
+        return self.pickle_base_path is not None
+
+    def _load_or_create(self, pickle_name, create_f, *create_args):
+        """
+        Load data from pickle or create data based on :create_f:
+        """
+
+        # just load data with provided create function
+        if not self.lazy_load_from_pickle:
+            print("create from scratch (no pickle)")
+            return create_f(*create_args)
+
+        # load from pickle if exist and create if missing
+        pickle_path = os.path.join(self.pickle_base_path, pickle_name)
+        if os.path.exists(pickle_path):
+            print(f"load from pickle {pickle_path}")
+            return pickle.load(open(pickle_path, "rb"))
+        else:
+            print("create from scratch ...", end=" ")
+            data = create_f(*create_args)
+            print(f"write to pickle {pickle_path}")
+            pickle.dump(data, open(pickle_path, "wb"))
+            return data
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
-            ret = self.glb_loc_df.loc[simtime, node_id]
+            ret = self.location_df.loc[simtime, node_id]
             if ret.shape == (2,):
                 ret = ret.to_numpy()
                 if cell_id:
                     ret = np.floor(ret / self.meta.cell_size)
             else:
                 raise TypeError()
-        except (TypeError, KeyError) as e:
+        except (TypeError, KeyError):
             ret = np.array([-1, -1])
         return ret
 
     def set_scenario_plotter(self, plotter):
         self.scenario_plotter = plotter
-
-    @staticmethod
-    def extract_location_df(glb_df):
-        # global position map for all node_ids
-        glb_loc_df = glb_df["node_id"].copy().reset_index()
-        glb_loc_df = glb_loc_df.assign(
-            node_id=glb_loc_df["node_id"].str.split(r",\s*")
-        ).explode("node_id")
-        # remove node_id column from global
-        glb_df = glb_df.drop(labels=["node_id"], axis="columns")
-        return glb_loc_df, glb_df
-
-    @staticmethod
-    def create_id_map(glb_loc_df, node_data):
-        ids = [n[0].node_id for n in node_data]
-        ids.sort()
-        ids = list(enumerate(ids, 1))
-        ids.insert(0, (0, "-1"))
-        node_to_id = {n[1]: n[0] for n in ids}
-
-        glb_loc_df["node_id"] = glb_loc_df["node_id"].apply(lambda x: node_to_id[x])
-        glb_loc_df = glb_loc_df.set_index(["simtime", "node_id"])
-        return glb_loc_df, node_to_id
-
-    @staticmethod
-    def merge_data_frames(input_df, node_to_id, index):
-        node_dfs = []
-        for meta, _df in input_df:
-            if meta.node_id not in node_to_id:
-                raise ValueError(f"{meta.node_id} not found in id_map")
-            # add ID as column
-            _df["ID"] = node_to_id[meta.node_id]
-            # replace source string id with int based ID
-            _df["source"] = _df["source"].map(node_to_id)
-            # remove index an collect in list for later pd.concat
-            _df = _df.reset_index()
-            node_dfs.append(_df)
-
-        _df_ret = pd.concat(node_dfs, levels=index, axis=0)
-        _df_ret = _df_ret.set_index(index)
-        _df_ret = _df_ret.sort_index()
-        return _df_ret
-
-    @staticmethod
-    def calculate_features(_df_ret):
-        index_names = _df_ret.index.names
-        # calculate features (delay, AoI_NR (measured-to-now), AoI_MNr (received-to-now)
-        now = _df_ret.index.get_level_values("simtime")
-        _df_ret["delay"] = _df_ret["received_t"] - _df_ret["measured_t"]
-        # AoI_NM == measurement_age (time since last measurement)
-        _df_ret["measurement_age"] = now - _df_ret["measured_t"]
-        # AoI_NR == update_age (time since last update)
-        _df_ret["update_age"] = now - _df_ret["received_t"]
-
-        # Distance to owner location.
-        # get owner positions for each time step {ID/simtime}[x_owner,y_owner]
-        owner_locations = (
-            _df_ret.loc[_df_ret["own_cell"] == 1, []]
-            .index.to_frame(index=False)
-            .drop(columns=["source"])
-            .drop_duplicates()
-            .set_index(["ID", "simtime"], drop=True, verify_integrity=True)
-            .rename(columns={"x": "x_owner", "y": "y_owner"})
-        )
-        # create dummy data for global view (index = 0) and set 'owner' location of ground truth at origin.
-        # create index {ID/simtime} for global id (:=0) and all time steps found
-        _index = pd.MultiIndex.from_product(
-            [[0], _df_ret.loc[0].index.get_level_values("simtime").unique()],
-            names=["ID", "simtime"],
-        )
-        # create df with dummy owner location for ground truth
-        glb_location = (
-            pd.DataFrame(columns=["x_owner", "y_owner"], index=_index)
-            .fillna(0.0)
-            .astype(float)
-        )
-        # append dummy location to owner_locations
-        owner_locations = glb_location.append(owner_locations, ignore_index=False)
-
-        # merge ower position
-        _df_ret = pd.merge(
-            _df_ret.reset_index(),
-            owner_locations,
-            on=["ID", "simtime"],
-        ).reset_index(drop=True)
-        _df_ret["owner_dist"] = np.sqrt(
-            (_df_ret["x"] - _df_ret["x_owner"]) ** 2
-            + (_df_ret["y"] - _df_ret["y_owner"]) ** 2
-        )
-        _df_ret = _df_ret.set_index(index_names, drop=True, verify_integrity=True)
-
-        return _df_ret
 
 
 class DcdMap2D(DcdMap):
@@ -184,89 +110,22 @@ class DcdMap2D(DcdMap):
     tsc_x_idx_name = "x"
     tsc_y_idx_name = "y"
 
-    # single map in data frame
-    view_index = [
-        tsc_id_idx_name,
-        tsc_time_idx_name,
-        tsc_x_idx_name,
-        tsc_y_idx_name,
-    ]
-
-    @classmethod
-    def from_paths(
-        cls,
-        global_data: str,
-        node_data: List,
-        real_coords=True,
-        scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
-    ):
-        _df_global = build_density_map(
-            csv_path=global_data,
-            index=cls.view_index[1:],  # ID will be set later
-            column_types={
-                "count": int,
-                "measured_t": float,
-                "received_t": float,
-                "source": np.str,
-                "own_cell": int,
-                "node_id": np.str,
-            },
-            real_coords=real_coords,
-            add_missing_cells=False,
-        )
-        _df_data = [
-            build_density_map(
-                csv_path=p,
-                index=cls.view_index[1:],  # ID will be set later
-                column_types={
-                    "count": int,
-                    "measured_t": float,
-                    "received_t": float,
-                    "source": np.str,
-                    "own_cell": int,
-                },
-                real_coords=real_coords,
-                add_missing_cells=False,
-            )
-            for p in node_data
-        ]
-        _obj = cls.from_frames(_df_global, _df_data)
-        if scenario_plotter is not None:
-            if type(scenario_plotter) == str:
-                _obj.set_scenario_plotter(VaderScenarioPlotHelper(scenario_plotter))
-            else:
-                _obj.set_scenario_plotter(scenario_plotter)
-        return _obj
-
-    @classmethod
-    def from_frames(cls, global_data, node_data):
-        glb_m, glb_df = global_data
-
-        # create location df [x, y] -> nodeId (long string)
-        glb_loc_df, glb_df = cls.extract_location_df(glb_df)
-
-        # ID mapping
-        glb_loc_df, node_to_id = cls.create_id_map(glb_loc_df, node_data)
-
-        # merge node frames and set index
-        input_dfs = [(glb_m, glb_df), *node_data]
-        _df_ret = cls.merge_data_frames(input_dfs, node_to_id, cls.view_index)
-        _df_ret = cls.calculate_features(_df_ret)
-
-        return cls(glb_m, node_to_id, _df_ret, glb_loc_df)
-
     def __init__(
         self,
         glb_meta: DcdMetaData,
         node_id_map: dict,
-        map_view_df: pd.DataFrame,
+        global_df: pd.DataFrame,
+        map_df: pd.DataFrame,
         location_df: pd.DataFrame,
         plotter=None,
+        **kwargs,
     ):
-        super().__init__(glb_meta, node_id_map, location_df, plotter)
-        self._map = map_view_df
+        super().__init__(glb_meta, node_id_map, location_df, plotter, **kwargs)
+        self._map = map_df
+        self._global_df = global_df
+        self._count_err = None
 
-    def iter_nodes_d2d(self, first=0, last=-1):
+    def iter_nodes_d2d(self, first=0):
         _i = pd.IndexSlice
 
         data = self._map.loc[_i[first:], :].groupby(level=self.tsc_id_idx_name)
@@ -275,13 +134,40 @@ class DcdMap2D(DcdMap):
 
     @property
     def glb_map(self):
-        return self.map.loc[
-            self.tsc_global_id,
-        ]
+        return self._global_df
 
     @property
     def map(self):
         return self._map
+
+    @property
+    def count_map(self):
+        # lazy load data if needed
+        if self._count_err is None:
+            print("lazy load count_err DataFrame ...", end="")
+            self._count_err = self._load_or_create(
+                "count_err.p", create_error_df, self.map, self.glb_map
+            )
+        return self._count_err
+
+    def all_ids(self, with_ground_truth=True):
+        ids = np.array(list(self.id_to_node.keys()))
+        if not with_ground_truth:
+            ids = ids[ids != 0]
+        return ids
+
+    def valid_times(self, _from=-1, _to=-1):
+        time_values = self.map.index.get_level_values("simtime").unique().to_numpy()
+        np.append(
+            time_values,
+            self.glb_map.index.get_level_values("simtime").unique().to_numpy(),
+        )
+        time_values = np.sort(np.unique(time_values))
+        if _from >= 0:
+            time_values = time_values[time_values >= _from]
+        if _to >= 0:
+            time_values = time_values[time_values < _to]
+        return time_values
 
     def unique_level_values(self, level_name, df_slice=None):
         if df_slice is None:
@@ -294,39 +180,36 @@ class DcdMap2D(DcdMap):
         _mask = self._map[age_column] <= threshold
         return _mask
 
-    def with_age(self, age_column, threshold):
-        df2d = self._map[self.age_mask(age_column, threshold)].copy()
-        return DcdMap2D(self.meta, self.node_to_id, df2d, self.scenario_plotter)
-
     def count_diff(self, diff_metric="diff"):
         metric = {
             "diff": lambda loc, glb: glb - loc,
             "abs_diff": lambda loc, glb: (glb - loc).abs(),
             "sqr_diff": lambda loc, glb: (glb - loc) ** 2,
         }
-        _df = pd.DataFrame(self._map.groupby(["ID", "simtime"]).sum()["count"])
-        _df = _df.combine(_df.loc[0], metric[diff_metric])
+        _df = pd.DataFrame(self.map.groupby(["ID", "simtime"]).sum()["count"])
+        _df = _df.combine(self.glb_map, metric[diff_metric])
         _df = _df.rename(columns={"count": "count_diff"})
         return _df
 
-    def create_2d_map(self, time_step, node_id):
+    def create_2d_map(self, time_step, node_id, value_name):
         """
         create 2d matrix of density map for one instance in
         time and for one node. The returned data frame as a shape of
          (N, M) where N,M is the number of cells in X respectively Y axis
         """
-        # print(time_step, node_id)
-        _i = pd.IndexSlice
-        data = self._map.loc[_i[node_id, time_step], ["count"]]
+        data = pd.DataFrame(
+            self.count_map.loc[Idx[time_step], Idx[node_id, value_name]]
+        )
+        data.columns = data.columns.droplevel(0)
         full_index = self.meta.grid_index_2d(real_coords=True)
-        df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=["count"])
+        df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
         df = df.set_index(full_index)
         df.update(data)
         df = df.unstack().T
         return df
 
-    def update_color_mesh(self, qmesh: QuadMesh, time_step, node_id):
-        df = self.create_2d_map(time_step, node_id)
+    def update_color_mesh(self, qmesh: QuadMesh, time_step, node_id, value_name):
+        df = self.create_2d_map(time_step, node_id, value_name)
         data = np.array(df)
         qmesh.set_array(data.ravel())
         return qmesh
@@ -347,7 +230,7 @@ class DcdMap2D(DcdMap):
             _data_dict = _data.to_dict()
             _data_dict["_node_id"] = int(node_id)
             _data_dict["_omnet_node_id"] = self.id_to_node[node_id]
-        except KeyError as e:
+        except KeyError:
             pass
         finally:
             _data_dict["count"] = (
@@ -429,7 +312,7 @@ class DcdMap2D(DcdMap):
             data = self.glb_map  # only global data
             data_str = "Global"
         else:
-            data = self._map.loc[_i[1:], :]  # all *but* global
+            data = self._map
             data_str = "Local"
 
         desc = data.describe().T
@@ -447,12 +330,14 @@ class DcdMap2D(DcdMap):
         print(desc.loc[["update_age"], ["mean", "std", "min", "max"]])
         print("=" * 79)
 
-    def plot_summary(self, simtime, id, title="", **kwargs):
+    def plot_summary(self, simtime, node_id, title="", **kwargs):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
         ax = ax.flatten()
-        f.suptitle(f"Node {id}_{self.id_to_node[id]} for time {simtime} {title}")
-        self.plot_density_map(simtime, id, ax=ax[0])
+        f.suptitle(
+            f"Node {node_id}_{self.id_to_node[node_id]} for time {simtime} {title}"
+        )
+        self.area_plot(simtime, node_id, ax=ax[0])
         self.plot_location_map(simtime, ax=ax[1])
         self.plot_count(ax=ax[2])
         ax[3].clear()
@@ -473,17 +358,17 @@ class DcdMap2D(DcdMap):
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
 
-        for id, df in places.groupby(level=self.tsc_id_idx_name):
+        for _id, df in places.groupby(level=self.tsc_id_idx_name):
             # move coordinate for node :id: to center of cell.
             df = df + 0.5 * self.meta.cell_size
-            ax.scatter(df["x"], df["y"], label=f"{id}_{self.id_to_node[id]}")
+            ax.scatter(df["x"], df["y"], label=f"{_id}_{self.id_to_node[_id]}")
 
         if add_legend:
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         return f, ax
 
     @plot_decorator
-    def plot_location_map_annotated(self, time_step, *, ax=None, annotate=None):
+    def plot_location_map_annotated(self, time_step, *, ax=None):
         places = self.own_cell()
         _i = pd.IndexSlice
         places = places.loc[_i[:, time_step], :]  # select only the needed timestep
@@ -491,12 +376,12 @@ class DcdMap2D(DcdMap):
 
         # places = places.droplevel("simtime")
         places = self.create_label_positions(places)
-        for id, df in places.groupby(level=self.tsc_id_idx_name):
+        for _id, df in places.groupby(level=self.tsc_id_idx_name):
             # move coordinate for node :id: to center of cell.
             ax.annotate(
-                text=id,
-                xy=df.loc[(id, time_step), ["x_center", "y_center"]].to_numpy(),
-                xytext=df.loc[(id, time_step), ["x_text", "y_text"]].to_numpy(),
+                text=_id,
+                xy=df.loc[(_id, time_step), ["x_center", "y_center"]].to_numpy(),
+                xytext=df.loc[(_id, time_step), ["x_text", "y_text"]].to_numpy(),
                 xycoords="data",
                 arrowprops=dict(arrowstyle="->"),
             )
@@ -509,7 +394,7 @@ class DcdMap2D(DcdMap):
         node_id,
         delay_kind,
         remove_null=True,
-        data: Line2D = None,
+        line: Line2D = None,
         bins_width=2.5,
     ):
         df = self.map
@@ -519,29 +404,93 @@ class DcdMap2D(DcdMap):
 
         # average over distance (ignore node_id)
         if bins_width > 0:
-            df = df.loc[I[1:, time_step], ["owner_dist", delay_kind]]
+            df = df.loc[Idx[:, time_step], ["owner_dist", delay_kind]]
             bins = int(np.floor(df["owner_dist"].max() / bins_width))
             df = df.groupby(pd.cut(df["owner_dist"], bins)).mean().dropna()
             df.index = df.index.rename("dist_bin")
         else:
-            df = df.loc[I[node_id, time_step], ["owner_dist", delay_kind]]
+            df = df.loc[Idx[node_id, time_step], ["owner_dist", delay_kind]]
 
         df = df.sort_values(axis=0, by=["owner_dist"])
-        if data is not None:
-            data.set_ydata(df[delay_kind].to_numpy())
-            data.set_xdata(df["owner_dist"].to_numpy())
+        if line is not None:
+            line.set_ydata(df[delay_kind].to_numpy())
+            line.set_xdata(df["owner_dist"].to_numpy())
         return df
+
+    def apply_ax_props(self, ax: plt.Axes, ax_prop: dict):
+        for k, v in ax_prop.items():
+            getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
+
+    def update_error_over_distance(
+        self, time_step, node_id, value, line: Line2D = None, bins_width=2.5,
+    ):
+
+        # fixme: merge all node_id's (remove pivot)
+        # ignore id
+        df = self.count_map.loc[Idx[time_step], Idx[:, ("owner_dist", value)]].stack(
+            level=0
+        )
+        df = df.reset_index(drop=True)
+
+        # average over distance (ignore node_id)
+        if bins_width > 0:
+            bins = int(np.floor(df["owner_dist"].max() / bins_width))
+            df = df.groupby(pd.cut(df["owner_dist"], bins)).mean().dropna()
+            df.index = df.index.rename("dist_bin")
+
+        df = df.sort_values(axis=0, by=["owner_dist"])
+        if line is not None:
+            line.set_ydata(df[value].to_numpy())
+            line.set_xdata(df["owner_dist"].to_numpy())
+        return df
+
+    @plot_decorator
+    def plot_error_over_distance(
+        self,
+        time_step,
+        node_id,
+        value,
+        label=None,
+        *,
+        ax=None,
+        fig_dict: dict = None,
+        ax_prop: dict = None,
+        **kwargs,
+    ):
+
+        f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
+        df = self.update_error_over_distance(
+            time_step, node_id, value, line=None, **kwargs
+        )
+
+        if label is None:
+            label = value
+        ax.plot("owner_dist", value, data=df, label=label)
+
+        ax_prop = {} if ax_prop is None else ax_prop
+        ax_prop.setdefault(
+            "title", f"Error({value}) over Distance",
+        )
+        ax_prop.setdefault("xlabel", "Cell distance (euklid) to owners location [m]")
+        ax_prop.setdefault("ylabel", f"{value}")
+
+        ax.lines[0].set_linestyle("None")
+        ax.lines[0].set_marker("o")
+
+        self.apply_ax_props(ax, ax_prop)
+
+        return f, ax
 
     @plot_decorator
     def plot_delay_over_distance(
         self,
         time_step,
         node_id,
-        delay_kind="measurement_age",
+        value,
         remove_null=True,
         label=None,
         *,
-        ax=None,
+        ax: plt.Axes = None,
         fig_dict: dict = None,
         ax_prop: dict = None,
         **kwargs,
@@ -558,35 +507,36 @@ class DcdMap2D(DcdMap):
 
         f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
         df = self.update_delay_over_distance(
-            time_step, node_id, delay_kind, remove_null=remove_null, data=None
+            time_step, node_id, value, remove_null=remove_null, line=None, **kwargs
         )
+
         if label is None:
-            label = delay_kind
-        ax.plot("owner_dist", delay_kind, data=df, label=label)
+            label = value
+        ax.plot("owner_dist", value, data=df, label=label)
 
-        if ax_prop is None:
-            ax_prop = {}
-
+        ax_prop = {} if ax_prop is None else ax_prop
         ax_prop.setdefault(
-            "title",
-            f"Delay({delay_kind}) over Distance",
+            "title", f"Delay({value}) over Distance",
         )
         ax_prop.setdefault("xlabel", "Cell distance (euklid) to owners location [m]")
         ax_prop.setdefault("ylabel", "Delay in [s]")
-        for k, v in ax_prop.items():
-            getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
+
+        ax.lines[0].set_linestyle("None")
+        ax.lines[0].set_marker("o")
+
+        self.apply_ax_props(ax, ax_prop)
 
         return f, ax
 
     @plot_decorator
-    def plot_density_map(
+    def area_plot(
         self,
         time_step,
         node_id,
+        value,
         *,
         ax=None,
-        cmap_dic: dict = None,
-        pcolormesh_dic: dict = None,
+        pcolormesh_dict: dict = None,
         fig_dict: dict = None,
         ax_prop: dict = None,
         **kwargs,
@@ -597,7 +547,7 @@ class DcdMap2D(DcdMap):
 
         Default data view: per node / per time / all cells
         """
-        df = self.create_2d_map(time_step, node_id)
+        df = self.create_2d_map(time_step, node_id, value)
         f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
 
         cell = self.get_location(time_step, node_id, cell_id=False)
@@ -605,7 +555,7 @@ class DcdMap2D(DcdMap):
             ax.set_title(kwargs["title"], **self.font_dict["title"])
         else:
             ax.set_title(
-                f"Density map for node {node_id}_{self.id_to_node[node_id]} at time "
+                f"Area plot of '{value}'. node: {node_id}/{self.id_to_node[node_id]} time: "
                 f"{time_step} cell [{cell[0]}, {cell[1]}]",
                 **self.font_dict["title"],
             )
@@ -616,9 +566,7 @@ class DcdMap2D(DcdMap):
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
 
-        _d = update_dict(cmap_dic, cmap_name="Reds", replace_index=(0, 1, 0.0))
-        cmap = t_cmap(**_d)
-        _d = update_dict(pcolormesh_dic, cmap=cmap, shading="flat")
+        _d = update_dict(pcolormesh_dict, shading="flat")
 
         pcm = ax.pcolormesh(self.meta.X_flat, self.meta.Y_flat, df, **_d)
 
@@ -639,10 +587,10 @@ class DcdMap2D(DcdMap):
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
         ax.set_ylabel("total node count", **self.font_dict["ylabel"])
 
-        for id, df in self.iter_nodes_d2d(first=1):
+        for _id, df in self.iter_nodes_d2d(first=1):
             df_time = df.groupby(level=self.tsc_time_idx_name).sum()
             ax.plot(
-                df_time.index, df_time["count"], label=f"{id}_{self.id_to_node[id]}"
+                df_time.index, df_time["count"], label=f"{_id}_{self.id_to_node[_id]}"
             )
 
         g = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()
@@ -662,14 +610,14 @@ class DcdMap2D(DcdMap):
         ax.set_ylabel("Pedestrian Count", **self.font_dict["ylabel"])
         _i = pd.IndexSlice
         nodes = (
-            self._map.loc[_i[1:], _i["count"]]
+            self._map.loc[_i[:], _i["count"]]
             .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
             .sum()
             .groupby(level="simtime")
             .mean()
         )
         nodes_std = (
-            self._map.loc[_i[1:], _i["count"]]
+            self._map.loc[_i[:], _i["count"]]
             .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
             .sum()
             .groupby(level="simtime")
@@ -690,136 +638,18 @@ class DcdMap2D(DcdMap):
         return f, ax
 
 
-def filter_selected_cells(df: pd.DataFrame):
-    return df.loc[df["selection"].notna()].copy(deep=True)
-
-
 class DcdMap2DMulti(DcdMap2D):
     tsc_source_idx_name = "source"
-
-    # single map in data frame
-    @classmethod
-    def from_paths(
-        cls,
-        global_data: str,
-        node_data: List,
-        real_coords=True,
-        load_all=True,
-        scenario_plotter: Union[str, VaderScenarioPlotHelper] = None,
-    ):
-        """
-         Parameters
-        ----------
-        global_data: Path to global map csv, First line must container meta data
-                     information starting with a '#'
-        node_data:   List of path for local density map
-        real_coords: Translate gird ids to coordinates by multiplying with cell size found in meta data. default=True
-        load_all:    Load all cell counts even the ones not chosen by the fusion algorithm. Default=True
-        scenario_plotter:  Path to scenario file or VaderScenarioPlotHelper object. This is used to add scenario
-                           elements to plots.
-        """
-
-        # load global map global.csv -> [metaObject, DataFrame]
-        _df_global = build_density_map(
-            csv_path=global_data,
-            index=cls.view_index[1:],  # ID will be set later
-            column_types={
-                "count": np.int,
-                "measured_t": np.float,
-                "received_t": np.float,
-                "source": np.str,
-                "own_cell": np.int,
-                "node_id": np.str,
-            },
-            real_coords=real_coords,
-            add_missing_cells=False,
-        )
-
-        # load map for each node *.csv -> list of DataFrames
-        njobs = int(multiprocessing.cpu_count() * 0.60)
-        pool = multiprocessing.Pool(processes=njobs)
-        job_args = [
-            {
-                "csv_path": p,
-                "index": cls.view_index[1:],
-                "column_types": {
-                    "count": np.int,
-                    "measured_t": np.float,
-                    "received_t": np.float,
-                    "source": np.str,
-                    "own_cell": np.int,
-                    "selection": np.str,  # needed to filter out view form other data
-                },
-                "real_coords": real_coords,
-                "add_missing_cells": False,
-                "df_filter": filter_selected_cells,
-            }
-            for p in node_data
-        ]
-        _df_data = run_pool(pool, build_density_map, job_args)
-        # pool.starmap(build_density, jobs)
-
-        # create DcdMap2D from frames
-        _obj = cls.from_frames(_df_global, _df_data, load_all)
-
-        # add VaderScenarioPlotHelper if not provided
-        if scenario_plotter is not None:
-            if type(scenario_plotter) == str:
-                _obj.set_scenario_plotter(VaderScenarioPlotHelper(scenario_plotter))
-            else:
-                _obj.set_scenario_plotter(scenario_plotter)
-        return _obj
-
-    @classmethod
-    def from_frames(cls, global_data, node_data, load_all=True):
-        glb_meta, glb_df = global_data
-
-        # add selection column to global data to ensure the ground truth is not dropped in map_view_df
-        glb_df["selection"] = "global"
-
-        # create location df [x, y] -> nodeId (long string)
-        location_df, glb_df = cls.extract_location_df(glb_df)
-
-        # ID mapping
-        location_df, node_id_map = cls.create_id_map(location_df, node_data)
-
-        source_index = [
-            cls.tsc_id_idx_name,
-            cls.tsc_time_idx_name,
-            cls.tsc_x_idx_name,
-            cls.tsc_y_idx_name,
-            cls.tsc_source_idx_name,
-        ]
-
-        # merge rest of map data and set index
-        map_all_df = cls.merge_data_frames(
-            [(glb_meta, glb_df), *node_data], node_id_map, source_index
-        )
-
-        if not load_all:
-            # remove not selected values to save space and speed up other operations if they are
-            map_all_df = map_all_df[map_all_df["selection"].notnull()].copy()
-
-        map_all_df = cls.calculate_features(map_all_df)
-
-        map_view_df = (
-            map_all_df[map_all_df["selection"].notnull()]
-            .drop(columns=["selection"])
-            .reset_index(source_index[-1], drop=False)
-        )
-        if not map_view_df.index.is_unique:
-            raise ValueError("map_view_df must have unique index")
-
-        return cls(glb_meta, node_id_map, map_view_df, location_df, map_all_df)
 
     def __init__(
         self,
         glb_meta: DcdMetaData,
         node_id_map: dict,
-        map_view_df: pd.DataFrame,
+        global_df: pd.DataFrame,
+        map_df: pd.DataFrame,
         location_df: pd.DataFrame,
         map_all_df: pd.DataFrame,
-        load_all=True,
+        **kwargs,
     ):
         """
         Parameters
@@ -827,24 +657,10 @@ class DcdMap2DMulti(DcdMap2D):
         glb_meta: Meta data instance for current map. cell size, map size
         node_id_map: Mapping between node
         """
-        super().__init__(glb_meta, node_id_map, map_view_df, location_df)
+        super().__init__(
+            glb_meta, node_id_map, global_df, map_df, location_df, **kwargs
+        )
         self.map_all_df = map_all_df
-        self.all_data = load_all
-
-    @staticmethod
-    def extract_view(node_data):
-        """
-        select subset of node_data which is the density map used by the simulation.
-        return: two list of (metadata, df) tuples for further processing
-        """
-        view_data = []
-        for meta, _df in node_data:
-            _m = _df["selection"].notnull()
-            _view = _df[_m].copy().drop(columns=["selection"])
-            if _view.index.is_unique == False:
-                raise ValueError(f"view index not unique for id {meta.node_id}")
-            view_data.append([meta, _view])
-        return view_data
 
     def info_dict(self, x, y, time_step, node_id):
         info_dict = super().info_dict(x, y, time_step, node_id)
@@ -862,7 +678,7 @@ class DcdMap2DMulti(DcdMap2D):
             info_dict.setdefault("y_other_values_#", len(_data))
             info_dict.setdefault("y_other_mean_count", others.mean().loc["count"])
             info_dict.setdefault("z_other_values", _data)
-        except KeyError as e:
+        except KeyError:
             pass
 
         return info_dict
