@@ -143,11 +143,9 @@ class VadereProject:
 
         for dir in out_dirs:
             try:
-                output = (
-                    scenario_output.ScenarioOutput.create_output_from_project_output(
-                        os.path.join(self.output_path, dir),
-                        expect_all_outputs=expect_all_outputs,
-                    )
+                output = scenario_output.ScenarioOutput.create_output_from_project_output(
+                    os.path.join(self.output_path, dir),
+                    expect_all_outputs=expect_all_outputs,
                 )
                 self.output_dirs[dir] = output
                 setattr(self.named_output, clean_dir_name(dir), output)

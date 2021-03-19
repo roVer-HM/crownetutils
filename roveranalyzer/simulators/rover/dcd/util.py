@@ -1,13 +1,14 @@
+import multiprocessing
 from itertools import repeat
 
 import numpy as np
 import pandas as pd
+from pandas import IndexSlice as Idx
 
-from roveranalyzer.utils import LazyDataFrame
+from roveranalyzer.utils import LazyDataFrame, Timer
 
 
 class DcdMetaData:
-
     expected_keys = ["XSIZE", "YSIZE", "CELLSIZE", "NODE_ID"]
 
     @classmethod
@@ -119,6 +120,132 @@ class DcdMetaData:
         return self.cell_count[1]
 
 
+def create_error_df(map_df, glb_df):
+    """
+    Extract count errors for each count measure based on cell(x, y), time and owner(Id).
+    RowIndex('simtime', 'x', 'y')
+    ColumnIndex('ID', 'values')
+      ID (nodeIds with 0:= ground truth)
+      values ('err' and 'serr')
+    """
+    t = Timer.create_and_start("create_error_df", label="create_error_df")
+    # copy count information of maps and ground truth into one data frame
+    d = pd.DataFrame(map_df.loc[:, ["count", "x_owner", "y_owner"]].copy())
+    g: pd.DataFrame = glb_df.copy()
+    g["ID"] = 0
+    g["x_owner"] = glb_df.index.get_level_values("x")
+    g["y_owner"] = glb_df.index.get_level_values("y")
+    g = g.reset_index().set_index(["ID", "simtime", "x", "y"], drop=True)
+    all = pd.concat([g, d])
+
+    # explode missing count values of node data based on global data. Due to the fact that the ground truth (ID=0) is
+    # present in the data frame, the pivot_table will add missing 'count' values of nodes. Missing values are filled
+    # with '0' as nothing was counted. Wrong counts of nodes will lead to '0' filled values in the ground truth
+    # column (ID=0)
+    all_pivot = all.pivot_table(
+        values=["count", "x_owner", "y_owner"],
+        index=["simtime", "x", "y"],
+        columns=["ID"],
+        aggfunc=sum,
+        fill_value=0,  # add NaN later for values where node has left the simulation
+    )
+    # rename count index to values as new columns will be added for 'err' and 'sqerr' to this index
+    all_pivot.columns = all_pivot.columns.rename("values", level=0)
+    # swap index levels for convinces
+    all_pivot.columns = all_pivot.columns.swaplevel()
+
+    # calculate count error 'err' (negative: underestimated / positive: overestimated) and 'sqerr' (squared err)
+    all_times = all_pivot.index.get_level_values("simtime").unique().to_numpy()
+    all_ids = all_pivot.columns.get_level_values("ID").unique().to_numpy()
+    _truth = all_pivot.loc[:, Idx[0, "count"]].copy()
+    _x_idx = all_pivot.index.get_level_values("x")
+    _y_idx = all_pivot.index.get_level_values("y")
+    for _id in all_ids:
+        all_pivot[_id, "err"] = all_pivot.loc[Idx[:], Idx[_id, "count"]] - _truth
+        all_pivot[_id, "sqerr"] = all_pivot[_id, "err"] ** 2
+        all_pivot[_id, "owner_dist"] = np.sqrt(
+            (all_pivot[_id, "x_owner"] - _x_idx) ** 2
+            + (all_pivot[_id, "y_owner"] - _y_idx) ** 2
+        )
+        # clear values for times where node _id is not present
+        if _id > 0:
+            present_at_times = (
+                map_df.loc[_id].index.get_level_values("simtime").unique().to_numpy()
+            )
+            not_present_at_times = np.setdiff1d(all_times, present_at_times)
+            all_pivot.loc[Idx[not_present_at_times, :], Idx[_id]] = np.nan
+
+    # set owner_dist for ground truth to 0
+    all_pivot[0, "owner_dist"] = 0
+
+    # remove x_owner / y_owner columns
+    r_idx = np.array(
+        [
+            all_ids,
+            np.full(all_ids.shape, "x_owner"),
+            all_ids,
+            np.full(all_ids.shape, "y_owner"),
+        ]
+    ).T
+    r_idx = np.concatenate((r_idx[:, :2], r_idx[:, 2:]))
+    r_idx = [tuple([int(i[0]), i[1]]) for i in r_idx]
+    all_pivot = all_pivot.drop(r_idx, axis=1)
+
+    # sort columns for convinces
+    all_pivot = all_pivot.sort_index(axis="columns")
+    t.stop()
+    return all_pivot
+
+
+def delay_feature(_df_ret, **kwargs):
+    # calculate features (delay, AoI_NR (measured-to-now), AoI_MNr (received-to-now)
+    now = _df_ret.index.get_level_values("simtime")
+    _df_ret["delay"] = _df_ret["received_t"] - _df_ret["measured_t"]
+    # AoI_NM == measurement_age (time since last measurement)
+    _df_ret["measurement_age"] = now - _df_ret["measured_t"]
+    # AoI_NR == update_age (time since last update)
+    _df_ret["update_age"] = now - _df_ret["received_t"]
+    return _df_ret
+
+
+def owner_dist_feature(_df_ret, **kwargs):
+    index_names = _df_ret.index.names
+
+    # Distance to owner location.
+    # get owner positions for each time step {ID/simtime}[x_owner,y_owner]
+    # fixme knowledge about "source" in index does not belong here
+    if "source" in index_names:
+        owner_locations = (
+            _df_ret.loc[_df_ret["own_cell"] == 1, []]
+            .index.to_frame(index=False)
+            .drop(columns=["source"])
+            .drop_duplicates()
+            .set_index(["ID", "simtime"], drop=True, verify_integrity=True)
+            .rename(columns={"x": "x_owner", "y": "y_owner"})
+        )
+    else:
+        owner_locations = (
+            _df_ret.loc[_df_ret["own_cell"] == 1, []]
+            .index.to_frame(index=False)
+            .drop_duplicates()
+            .set_index(["ID", "simtime"], drop=True, verify_integrity=True)
+            .rename(columns={"x": "x_owner", "y": "y_owner"})
+        )
+
+    # merge owner position
+    _df_ret = pd.merge(
+        _df_ret.reset_index(), owner_locations, on=["ID", "simtime"],
+    ).reset_index(drop=True)
+
+    _df_ret["owner_dist"] = np.sqrt(
+        (_df_ret["x"] - _df_ret["x_owner"]) ** 2
+        + (_df_ret["y"] - _df_ret["y_owner"]) ** 2
+    )
+    _df_ret = _df_ret.set_index(index_names, drop=True, verify_integrity=True)
+
+    return _df_ret
+
+
 def _density_get_raw(csv_path, index, col_types):
     """
     read csv and set index
@@ -163,6 +290,13 @@ def _full_map(df, _m: DcdMetaData, index, col_types, real_coords=False):
     return ret
 
 
+def remove_not_selected_cells(df: pd.DataFrame):
+    """
+    remove all rows not selected in the density map.
+    """
+    return df.loc[df["selection"].notna()].copy(deep=True)
+
+
 def run_pool(pool, fn, kwargs_iter):
     starmap_args = zip(repeat(fn), kwargs_iter)
     return pool.starmap(apply_pool_kwargs, starmap_args)
@@ -173,12 +307,7 @@ def apply_pool_kwargs(fn, kwargs):
 
 
 def build_density_map(
-    csv_path,
-    index,
-    column_types,
-    real_coords=False,
-    add_missing_cells=False,
-    df_filter=None,
+    csv_path, index, column_types, real_coords=False, df_filter=None,
 ):
     """
     build density maps from spare csv output.
@@ -191,14 +320,14 @@ def build_density_map(
     ret, meta = _density_get_raw(csv_path, index, column_types)
 
     if df_filter is not None:
-        # apply early filter to remove not needed data to increase performance
-        ret = df_filter(ret)
+        if type(df_filter) == list:
+            for _f in df_filter:
+                ret = _f(ret)
+        else:
+            # apply early filter to remove not needed data to increase performance
+            ret = df_filter(ret)
 
     if real_coords:
         ret = _apply_real_coords(ret, meta)
-
-    # create full index with missing cells. Values will be set to '0' (type dependent)
-    if add_missing_cells:
-        ret = _full_map(ret, meta, index, column_types, real_coords)
 
     return meta, ret

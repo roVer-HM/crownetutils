@@ -60,6 +60,7 @@ class VadereRunner(DockerRunner):
         logfile=os.devnull,
         show_gui=False,
         run_args_override=None,
+        output_dir=None,
     ):
         """
         start Vadere server waiting for exactly ONE connection on given traci_port. After
@@ -83,7 +84,29 @@ class VadereRunner(DockerRunner):
         if show_gui:
             cmd.append("--gui-mode")
 
+        if output_dir != None:
+            cmd.extend(["--output-dir", output_dir])
+
         logging.debug(f"exec_single_server cmd: {cmd}")
+        if run_args_override is None:
+            run_args_override = {}
+
+        return self.run(cmd, **run_args_override)
+
+    def exec_vadere_only(self, scenario_file, output_path, run_args_override=None):
+
+        cmd = [
+            "java",
+            "-jar",
+            "/opt/vadere/vadere/VadereSimulator/target/vadere-console.jar",
+            "suq",
+            "-f",
+            scenario_file,
+            "-o",
+            output_path,
+        ]
+
+        logging.debug(f"run cmd: {cmd}")
         if run_args_override is None:
             run_args_override = {}
 

@@ -67,6 +67,8 @@ class Interactive:
         self._register_callbacks()
         self._pack()
 
+        self.update_all()
+
         tk.mainloop()
 
     def on_closing(self):
@@ -154,6 +156,9 @@ class Interactive:
         print("you pressed {}".format(event.key))
         key_press_handler(event, self.canvas, self.toolbar)
 
+    def update_all(self):
+        raise NotImplementedError()
+
 
 class InteractiveTableTimeNodeSlider(Interactive):
     """
@@ -176,10 +181,8 @@ class InteractiveTableTimeNodeSlider(Interactive):
         self.tracking = False
         self.info_btn_txt = tk.StringVar()
 
-        self.time_vals = (
-            self.dcd._map.index.get_level_values("simtime").unique().to_numpy()
-        )
-        self.id_vals = self.dcd._map.index.get_level_values("ID").unique().to_numpy()
+        self.time_vals = self.dcd.valid_times()
+        self.id_vals = self.dcd.all_ids(with_ground_truth=True)
         self.node_id = int(self.id_vals.min())
         self.time = int(self.time_vals.min())
 
@@ -342,6 +345,10 @@ class InteractiveTableTimeNodeSlider(Interactive):
             )
             self.update_table()
 
+    def update_all(self):
+        self.update_plot()
+        self.update_table()
+
     def update_plot(self):
         raise NotImplementedError()
 
@@ -349,16 +356,17 @@ class InteractiveTableTimeNodeSlider(Interactive):
         raise NotImplementedError()
 
 
-class Interactive2DDensityPlot(InteractiveTableTimeNodeSlider):
+class InteractiveAreaPlot(InteractiveTableTimeNodeSlider):
 
     """
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
+    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value):
         super().__init__(dcd, ax)
 
         self.quadMesh = None
+        self.value = value
         for collection in ax.collections:
             if type(collection) == QuadMesh:
                 self.quadMesh = collection
@@ -367,7 +375,9 @@ class Interactive2DDensityPlot(InteractiveTableTimeNodeSlider):
 
     def update_plot(self):
         try:
-            self.dcd.update_color_mesh(self.quadMesh, self.time, self.node_id)
+            self.dcd.update_color_mesh(
+                self.quadMesh, self.time, self.node_id, self.value
+            )
             self.update_table()
         except KeyError as e:
             print("key err")
@@ -382,32 +392,48 @@ class Interactive2DDensityPlot(InteractiveTableTimeNodeSlider):
         self.table.insert(tk.INSERT, json.dumps(info, indent=2, sort_keys=True))
 
 
-class InteractiveDelayOverDistance(InteractiveTableTimeNodeSlider):
+class InteractiveValueOverDistance(InteractiveTableTimeNodeSlider):
 
     """
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
+    def __init__(
+        self, dcd: DcdMap2D, ax: plt.Axes, value, update_f, update_f_args=None
+    ):
         super().__init__(dcd, ax)
 
         self.node_id = self.id_vals[1]
         self.line = ax.lines[0]
-        self.data = self.dcd.update_delay_over_distance(
-            self.time, self.node_id, "measurement_age"
+        self.value = value
+        self.update_f = update_f
+        self.update_f_args = {} if update_f_args is None else update_f_args
+        self.data = self.update_f(
+            self.time, self.node_id, self.value, line=self.line, **self.update_f_args
         )
 
     def animate(self, frame):
         print(frame)
-        self.dcd.update_delay_over_distance(
-            frame, self.node_id, "measurement_age", data=self.line
+        self.update_f(
+            frame, self.node_id, self.value, line=self.line, **self.update_f_args
         )
+        # self.dcd.update_delay_over_distance(
+        #     frame, self.node_id, "measurement_age", line=self.line
+        # )
 
     def update_plot(self):
         try:
-            self.data = self.dcd.update_delay_over_distance(
-                self.time, self.node_id, "measurement_age", data=self.line
+            self.data = self.update_f(
+                self.time,
+                self.node_id,
+                self.value,
+                line=self.line,
+                **self.update_f_args,
             )
+
+            # self.data = self.dcd.update_delay_over_distance(
+            #     self.time, self.node_id, "measurement_age", line=self.line
+            # )
             self.update_table()
         except KeyError as e:
             print("key err")

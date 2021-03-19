@@ -21,7 +21,7 @@ class Timer:
     ACTIVE = True
 
     @classmethod
-    def create_and_start(cls, name, label=0):
+    def create_and_start(cls, name="timer", label=0):
         return cls(name, label)
 
     def __init__(self, name, label):
