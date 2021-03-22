@@ -41,11 +41,19 @@ def stacked_bar(
     for row in range(data.shape[0]):
         if horizontal:
             ax.barh(
-                index, data.iloc[row, :], bar_width, left=offset, color=c[row],
+                index,
+                data.iloc[row, :],
+                bar_width,
+                left=offset,
+                color=c[row],
             )
         else:
             ax.bar(
-                index, data.iloc[row, :], bar_width, bottom=offset, color=c[row],
+                index,
+                data.iloc[row, :],
+                bar_width,
+                bottom=offset,
+                color=c[row],
             )
         offset = offset + data.iloc[row, :]  # data.loc[:, "value"]
         if with_table:
@@ -194,7 +202,14 @@ def mac_drop_ration_bar_chart(_df: pd.DataFrame, run, use_stat="mac_pkt_drop"):
     data_global = data_global.pivot(index="name", columns="module", values="value")
 
     fig = plt.figure(figsize=(15, 10))
-    ax = fig.add_axes([0.19, 0.2, 0.80, 0.79,])
+    ax = fig.add_axes(
+        [
+            0.19,
+            0.2,
+            0.80,
+            0.79,
+        ]
+    )
     ax = stacked_bar(ax, data, data_global, horizontal=True, with_table=True)
     ax.set_facecolor((0.5, 0.5, 0.5))
     fig.set_facecolor((0.4, 0.4, 0.4))

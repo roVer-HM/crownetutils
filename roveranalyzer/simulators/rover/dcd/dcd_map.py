@@ -422,7 +422,12 @@ class DcdMap2D(DcdMap):
             getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
 
     def update_error_over_distance(
-        self, time_step, node_id, value, line: Line2D = None, bins_width=2.5,
+        self,
+        time_step,
+        node_id,
+        value,
+        line: Line2D = None,
+        bins_width=2.5,
     ):
 
         # fixme: merge all node_id's (remove pivot)
@@ -469,7 +474,8 @@ class DcdMap2D(DcdMap):
 
         ax_prop = {} if ax_prop is None else ax_prop
         ax_prop.setdefault(
-            "title", f"Error({value}) over Distance",
+            "title",
+            f"Error({value}) over Distance",
         )
         ax_prop.setdefault("xlabel", "Cell distance (euklid) to owners location [m]")
         ax_prop.setdefault("ylabel", f"{value}")
@@ -516,7 +522,8 @@ class DcdMap2D(DcdMap):
 
         ax_prop = {} if ax_prop is None else ax_prop
         ax_prop.setdefault(
-            "title", f"Delay({value}) over Distance",
+            "title",
+            f"Delay({value}) over Distance",
         )
         ax_prop.setdefault("xlabel", "Cell distance (euklid) to owners location [m]")
         ax_prop.setdefault("ylabel", "Delay in [s]")

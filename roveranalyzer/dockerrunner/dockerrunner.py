@@ -10,7 +10,8 @@ from docker.types import LogConfig
 
 if len(logging.root.handlers) == 0:
     logging.basicConfig(
-        level=logging.DEBUG, format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
     )
 
 

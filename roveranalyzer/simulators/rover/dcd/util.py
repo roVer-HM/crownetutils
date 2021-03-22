@@ -234,7 +234,9 @@ def owner_dist_feature(_df_ret, **kwargs):
 
     # merge owner position
     _df_ret = pd.merge(
-        _df_ret.reset_index(), owner_locations, on=["ID", "simtime"],
+        _df_ret.reset_index(),
+        owner_locations,
+        on=["ID", "simtime"],
     ).reset_index(drop=True)
 
     _df_ret["owner_dist"] = np.sqrt(
@@ -307,7 +309,11 @@ def apply_pool_kwargs(fn, kwargs):
 
 
 def build_density_map(
-    csv_path, index, column_types, real_coords=False, df_filter=None,
+    csv_path,
+    index,
+    column_types,
+    real_coords=False,
+    df_filter=None,
 ):
     """
     build density maps from spare csv output.

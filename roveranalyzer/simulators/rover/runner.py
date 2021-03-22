@@ -1,10 +1,9 @@
 import argparse
 import logging
 import os
+import shutil
 import signal
 import time
-import shutil
-
 from datetime import datetime
 
 import docker
@@ -18,7 +17,8 @@ from roveranalyzer.simulators.vadere.runner import VadereRunner
 if len(logging.root.handlers) == 0:
     # set logger for dev (will be overwritten if needed)
     logging.basicConfig(
-        level=logging.DEBUG, format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+        level=logging.DEBUG,
+        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
     )
 
 # todo: split in default and simulator specific arguments
