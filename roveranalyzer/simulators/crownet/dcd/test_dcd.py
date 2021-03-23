@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 
-from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2D, DcdMetaData
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMetaData
 from roveranalyzer.tests.utils import TestDataHandler
 from roveranalyzer.utils import PathHelper, intersect
 

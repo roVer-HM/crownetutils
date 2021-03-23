@@ -2,8 +2,8 @@ import json
 import os
 import pickle
 
-from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
-from roveranalyzer.simulators.rover.dcd.util import *
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
+from roveranalyzer.simulators.crownet.dcd.util import *
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
 

@@ -9,6 +9,13 @@ import pandas as pd
 
 from roveranalyzer.tempaltes import read_tmpl_str
 
+# fixme: are they different? (sca, vec)
+_scave_cols = ["run", "type", "module", "name", "attrname", "attrvalue"]
+
+
+def is_scave_df(obj: pd.DataFrame):
+    return all([c in obj.columns for c in _scave_cols])
+
 
 class Opp:
     """
@@ -655,10 +662,9 @@ class OppAccessor:
 
     @staticmethod
     def _validate(obj: pd.DataFrame):
-        cols = ["run", "type", "module", "name", "attrname", "attrvalue"]
-        if not all([c in obj.columns for c in cols]):
+        if not is_scave_df(obj):
             raise AttributeError(
-                f"Not all columns found. expected: ['{' '.join(cols)}'] column. "
+                f"Not all columns found. expected: ['{' '.join(_scave_cols)}'] column. "
                 f"got: [{' '.join(obj.columns)}] "
             )
 

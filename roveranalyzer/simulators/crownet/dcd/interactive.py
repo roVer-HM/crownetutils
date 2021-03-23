@@ -12,7 +12,7 @@ from matplotlib.backend_bases import key_press_handler
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.collections import QuadMesh
 
-from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2D
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 
 
 class MyDialog(Dialog):

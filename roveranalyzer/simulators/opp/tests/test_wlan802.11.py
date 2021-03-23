@@ -4,9 +4,9 @@ import pandas as pd
 
 import roveranalyzer.simulators.opp.wlan80211 as w80211
 from roveranalyzer.simulators.opp.configuration import Config
+from roveranalyzer.simulators.opp.scave import ScaveTool
 from roveranalyzer.simulators.opp.utils import (
     OppDataProvider,
-    ScaveTool,
     cumulative_messages,
     parse_cmdEnv_outout,
 )

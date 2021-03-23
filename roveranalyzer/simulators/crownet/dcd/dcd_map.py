@@ -11,7 +11,7 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
-from roveranalyzer.simulators.rover.dcd.util import DcdMetaData, create_error_df
+from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
 

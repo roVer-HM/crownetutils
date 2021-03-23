@@ -4,12 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from roveranalyzer.simulators.opp.opp_analysis import Opp
-from roveranalyzer.simulators.opp.utils import (
-    OppDataProvider,
-    build_time_series,
-    parse_cmdEnv_outout,
-)
+from roveranalyzer.simulators.opp.accessor import Opp
+from roveranalyzer.simulators.opp.scave import ScaveData
+from roveranalyzer.simulators.opp.utils import parse_cmdEnv_outout  # OppDataProvider,
 from roveranalyzer.utils import Timer
 
 
@@ -236,7 +233,7 @@ def build_df_mac_pkt_drop_ts(builder: OppDataProvider, hdf_key="", get_raw_df=Fa
     _df["mod"] = _df["module"].apply(lambda r: Opp.module_path(r, 1))
 
     timer.stop_start("normalize data frame")
-    d_ret = build_time_series(
+    d_ret = ScaveData.build_time_series(
         opp_df=_df,
         opp_vector_names=[
             "packetReceivedFromLower:vector(packetBytes)",
