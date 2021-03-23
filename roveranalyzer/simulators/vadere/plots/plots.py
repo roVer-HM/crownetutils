@@ -29,7 +29,7 @@ class PlotOptions(Enum):
 
 
 def pcolormesh_dict(vmin, vmax, center=None, cmap=None, norm=None):
-    ret = {"vmin": vmin, "vmax": vmax}
+    ret = {}
     if center is not None and norm is None:
         assert vmin < center < vmax
         ret.setdefault("norm", TwoSlopeNorm(center, vmin, vmax))
