@@ -87,4 +87,5 @@ class Config:
             val = val.replace(r" ", r"\ ")
             val = val.replace(r"(", r"\(")
             val = val.replace(r")", r"\)")
+        print(f"escaped: {val}")
         return val

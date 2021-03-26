@@ -146,6 +146,17 @@ class ScaveFilter:
             )
         return self
 
+    @staticmethod
+    def _breaket_workaround(val):
+        val_old = val
+        val = val = val.replace(r"(", r"?")
+        val = val = val.replace(r")", r"?")
+        if val_old != val:
+            print(
+                "warning: using breaket workaround due to parse issue in omnetpp see #2"
+            )
+        return val
+
     def AND(self):
         self._filter.append("AND")
         return self
@@ -187,7 +198,7 @@ class ScaveFilter:
         return self
 
     def name(self, val):
-        self._filter.extend(["name", "=~", val])
+        self._filter.extend(["name", "=~", self._breaket_workaround(val)])
         return self
 
     def module(self, val):
@@ -219,6 +230,9 @@ class ScaveFilter:
             return self._config.escape(" ".join(self._filter))
         else:
             return " ".join(self._filter)
+
+    def str(self):
+        return " ".join(self._filter)
 
 
 class ScaveTool:
@@ -341,6 +355,7 @@ class ScaveTool:
             recursive=recursive,
             options=["-F", "CSV-R"],
         )
+        print(" ".join(cmd))
         stdout, stderr = self.read_stdout(cmd, encoding="")
         if stdout == b"":
             logging.error("error executing scavetool")
@@ -440,6 +455,7 @@ class ScaveTool:
                 result_file,
             ]
         )
+        print(" ".join(cmd))
         out, err = self.read_stdout(cmd)
         if err != "":
             raise RuntimeError(f"container return error: \n{err}")

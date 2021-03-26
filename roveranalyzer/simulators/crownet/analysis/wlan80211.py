@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from roveranalyzer.simulators.crownet.analysis.opp_log import parse_cmdEnv_outout
 from roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.scave import ScaveData
-from roveranalyzer.simulators.opp.utils import parse_cmdEnv_outout  # OppDataProvider,
+from roveranalyzer.simulators.opp.utils import OppDataProvider
 from roveranalyzer.utils import Timer
 
 
@@ -233,6 +234,7 @@ def build_df_mac_pkt_drop_ts(builder: OppDataProvider, hdf_key="", get_raw_df=Fa
     _df["mod"] = _df["module"].apply(lambda r: Opp.module_path(r, 1))
 
     timer.stop_start("normalize data frame")
+    # FIXME build_time_series extract based on names (axis=1 but with names)
     d_ret = ScaveData.build_time_series(
         opp_df=_df,
         opp_vector_names=[
@@ -243,7 +245,6 @@ def build_df_mac_pkt_drop_ts(builder: OppDataProvider, hdf_key="", get_raw_df=Fa
         opp_index=("run", "mod", "module", "name"),
         index=["run", "time_step", "time", "mod"],
         time_bin_size=0.4,
-        fill_na=0.0,
     )
     if hdf_key != "":
         timer.stop_start(f"save dataframe to HDF5: {builder.hdf_path}:{hdf_key}")
