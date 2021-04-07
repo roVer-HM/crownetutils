@@ -373,6 +373,10 @@ class InteractiveAreaPlot(InteractiveTableTimeNodeSlider):
         if self.quadMesh is None:
             raise ValueError("expected a QuadMesh collection in passed axis.")
 
+    def animate(self, frame):
+        print(frame)
+        self.dcd.update_color_mesh(self.quadMesh, frame, self.node_id, self.value)
+
     def update_plot(self):
         try:
             self.dcd.update_color_mesh(

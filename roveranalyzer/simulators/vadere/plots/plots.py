@@ -28,8 +28,9 @@ class PlotOptions(Enum):
     DENSITY_SMOOTH = (3, "density_smooth")
 
 
-def pcolormesh_dict(vmin, vmax, center=None, cmap=None, norm=None):
+def pcolormesh_dict(vmin, vmax, center=None, cmap=None, norm=None, **kwargs):
     ret = {}
+    ret.update(kwargs)
     if center is not None and norm is None:
         assert vmin < center < vmax
         ret.setdefault("norm", TwoSlopeNorm(center, vmin, vmax))
