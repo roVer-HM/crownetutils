@@ -11,3 +11,5 @@ pandas>=1.1.5
 numpy>=1.19.4
 scikit-learn>=0.23.2
 scipy
+git+https://gitlab.lrz.de/vadere/suq-controller.git@master
+
