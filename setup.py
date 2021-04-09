@@ -1,4 +1,5 @@
-from setuptools import find_packages, setuptkinter
+# from setuptools import find_packages, setuptkinter
+from setuptools import find_packages
 
 
 def readme():
