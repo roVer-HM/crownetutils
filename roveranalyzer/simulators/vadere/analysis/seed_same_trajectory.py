@@ -1,4 +1,4 @@
-from simulators.vadere.vadere_project import VadereProject
+from roveranalyzer.simulators.vadere.vadere_project import VadereProject
 
 
 class SameSeedTrajectory:

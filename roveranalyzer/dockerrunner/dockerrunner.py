@@ -4,6 +4,7 @@ import pprint
 from enum import Enum
 from pathlib import Path
 
+import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
