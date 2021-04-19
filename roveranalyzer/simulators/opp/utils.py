@@ -31,7 +31,7 @@ class HdfProvider:
         self._hdf_path = hdf_path
         self._hdf_args = {"complevel": 9, "complib": "zlib"}
 
-    @contextlib.contextmanager
+    @contextlib.contextmanager  # to ensure store closes after access
     def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
         _args = dict(self._hdf_args)
         _args.update(kwargs)

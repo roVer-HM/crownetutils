@@ -61,7 +61,9 @@ class DcdMap:
     def lazy_load_from_pickle(self):
         return self.pickle_base_path is not None
 
-    def _load_or_create(self, pickle_name, create_f, *create_args):
+    def _load_or_create(
+        self, pickle_name, create_f, *create_args
+    ):  # todo umbauen -> hdf statt pickle
         """
         Load data from pickle or create data based on :create_f:
         """
@@ -120,13 +122,15 @@ class DcdMap2D(DcdMap):
         plotter=None,
         **kwargs,
     ):
-        super().__init__(glb_meta, node_id_map, location_df, plotter, **kwargs)
+        super().__init__(
+            glb_meta, node_id_map, location_df, plotter, **kwargs
+        )  # erzeugt aus csv-file oder aus pickle geladen
         self._map = map_df
         self._global_df = global_df
-        self._count_err = None
+        self._count_map = None
 
     def iter_nodes_d2d(self, first=0):
-        _i = pd.IndexSlice
+        _i = pd.IndexSlicef
 
         data = self._map.loc[_i[first:], :].groupby(level=self.tsc_id_idx_name)
         for i, ts_2d in data:
@@ -143,12 +147,12 @@ class DcdMap2D(DcdMap):
     @property
     def count_map(self):
         # lazy load data if needed
-        if self._count_err is None:
+        if self._count_map is None:
             print("lazy load count_err DataFrame ...", end="")
-            self._count_err = self._load_or_create(
+            self._count_map = self._load_or_create(
                 "count_err.p", create_error_df, self.map, self.glb_map
             )
-        return self._count_err
+        return self._count_map
 
     def all_ids(self, with_ground_truth=True):
         ids = np.array(list(self.id_to_node.keys()))

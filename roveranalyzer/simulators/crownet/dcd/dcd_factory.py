@@ -157,7 +157,7 @@ class DcdBuilder:
             self._scenario_plotter = plotter
         return self
 
-    def build(self):
+    def build(self):  # buildet csv oder pickle
         if self._pickle_state == PickleState.DEACTIVATED or not os.path.exists(
             self._root_pickle
         ):
@@ -168,6 +168,7 @@ class DcdBuilder:
         # usable for the current DcdBuilder configuration
         _pickle = self.read_pickle()
         _builder = self.from_json(_pickle["builder_json"])
+        # todo schauen ob man mit h5 einfach so spalten hinzufügen kann irgendwo hier
         _state = _builder._pickle_state
         _data = _pickle["data"]
         if not self._compare_builder(_builder):
@@ -175,7 +176,9 @@ class DcdBuilder:
 
         # Apply missing build steps based on pickle state (if any)
         print(f"found pickle state {_state} build object ...")
-        if _state == PickleState.CSV_ONLY:
+        if (
+            _state == PickleState.CSV_ONLY
+        ):  # no location table, features only csv, (delay gets calulated afterwards)
             # location_df, no id mapping, no merging, no features
             _data = self.do_merge(**_data)
             _data = self.do_feature(**_data)
