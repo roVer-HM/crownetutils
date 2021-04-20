@@ -1,14 +1,13 @@
-import contextlib
 import glob
 import os
 import warnings
 
 import matplotlib.pyplot as plt
-import pandas as pd
 
 from roveranalyzer.simulators.opp.configuration import Config
 from roveranalyzer.simulators.opp.scave import ScaveRunConverter, ScaveTool
 from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapHdfProvider
 from roveranalyzer.utils import PathHelper
 
 
@@ -20,52 +19,6 @@ class Suffix:
     DIR = ".d"
 
 
-class HdfProvider:
-    """
-    Wrap access to a given HDF store (hdf_path) in a context manager. Wrapper is lazy and checks if store exist
-    are *Not* done. Caller must ensure file exists
-    """
-
-    def __init__(self, hdf_path):
-        warnings.warn("hdf rework", DeprecationWarning)
-        self._hdf_path = hdf_path
-        self._hdf_args = {"complevel": 9, "complib": "zlib"}
-
-    @contextlib.contextmanager  # to ensure store closes after access
-    def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
-        _args = dict(self._hdf_args)
-        _args.update(kwargs)
-        store = pd.HDFStore(self._hdf_path, mode=mode, **_args)
-        try:
-            yield store
-        finally:
-            store.close()
-
-    def set_args(self, append=False, **kwargs):
-        if append:
-            self._hdf_args.update(kwargs)
-        else:
-            self._hdf_args = kwargs
-
-    def get_data(self, key):
-        with self.ctx(mode="r") as store:
-            df = store.get(key=key)
-        return df
-
-    def exists(self):
-        """ check for HDF store """
-        return os.path.exists(self._hdf_path)
-
-    def has_key(self, key):
-        """
-        check if key exists in HDF Store. True if yes, False if key OR store does not exist
-        """
-        if self.exists():
-            with self.ctx(mode="r") as store:
-                return key in store
-        return False
-
-
 class OppDataProvider:
     """
     provide dataframe from OMneT++ output. The source of the data my be:
@@ -75,14 +28,14 @@ class OppDataProvider:
     """
 
     def __init__(
-        self,
-        path: PathHelper,
-        analysis_name,
-        analysis_dir=None,
-        hdf_store_name=None,
-        cfg: Config = None,
+            self,
+            path: PathHelper,
+            analysis_name,
+            analysis_dir=None,
+            hdf_store_name=None,
+            cfg: Config = None,
     ):
-        warnings.warn("hdf rework", DeprecationWarning)
+        warnings.warn("provider rework", DeprecationWarning)
         self._root = path
         # output
         self._analysis_name = analysis_name
@@ -100,7 +53,7 @@ class OppDataProvider:
         _hdf_store_name = hdf_store_name
         if _hdf_store_name is None:
             _hdf_store_name = f"{analysis_name}{Suffix.HDF}"
-        self._hdf_store = HdfProvider(
+        self._hdf_store = CountMapHdfProvider(
             self._root.join(self._analysis_dir, _hdf_store_name)
         )
 

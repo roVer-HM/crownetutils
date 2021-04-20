@@ -280,7 +280,7 @@ def create_mac_pkt_drop_figures(
     timer = Timer.create_and_start("build graphic")
 
     if use_hdf and builder.hdf_store.has_key(hdf_key):
-        df = builder.hdf_store.get_data(key=hdf_key)
+        df = builder.hdf_store.get_dataframe(key=hdf_key)
     else:
         df = build_df_mac_pkt_drop_ts(builder=builder, hdf_key=hdf_key)
 

@@ -5,7 +5,7 @@ import pandas as pd
 
 file_dir = os.path.dirname(os.path.realpath(__file__))
 
-# -----basic hdf with both index and columns-----
+# -----basic provider with both index and columns-----
 # basic_index_file = os.path.join(file_dir, 'DataFrameBasicIndex')
 # df = pd.DataFrame(np.random.rand(5,5),index=list('ABCDE'), columns=list('abcde'))
 # df.to_hdf(basic_index_file, 'df_key', format='t', data_columns=True)
@@ -13,8 +13,8 @@ file_dir = os.path.dirname(os.path.realpath(__file__))
 # df = pd.read_hdf(basic_index_file, 'df_key', where='a > 0.2')
 # df = pd.read_hdf(basic_index_file, 'df_key', where='a > 0.2 & index==A')
 
-# -----basic hdf with multi-index index and columns-----
-# multi_index_file = os.path.join(file_dir, 'DataFrameMultIndex')
+# -----basic provider with multi-index index and columns-----
+multi_index_file = os.path.join(file_dir, 'DataFrameMultIndex')
 # # index=pd.MultiIndex.from_product([list('abc'),date_range('20140721',periods=3)],names=['symbol','date'])
 # mult_idx = pd.MultiIndex.from_arrays([
 #     ['Mario', 'Thomas', 'Markus', 'Manuel', 'Alexander'],
@@ -26,7 +26,7 @@ file_dir = os.path.dirname(os.path.realpath(__file__))
 # df = pd.read_hdf(multi_index_file, 'df_key', where='a > 0.2')
 # df = pd.read_hdf(multi_index_file, 'df_key', where='a > 0.2 & Vorname=Mario')
 
-# -----basic hdf with multi-index index and multi-index columns-----
+# -----basic provider with multi-index index and multi-index columns-----
 dataframe_dir = os.path.join(file_dir, "DataFrame_Crownet_SQERR.h5")
 # index=pd.MultiIndex.from_product([list('abc'),date_range('20140721',periods=3)],names=['symbol','date'])
 index_count = 60
@@ -48,7 +48,8 @@ df = pd.DataFrame(
     index=mult_idx,
     columns=["count", "err", "owner_dist", "sqerr"],
 )
-# df.to_hdf(dataframe_dir, 'sqerr', format='t', data_columns=True)
+df.to_hdf(dataframe_dir, 'sqerr', format='t', data_columns=True)
+
 df_readed = pd.read_hdf(dataframe_dir, "sqerr")  # read whole dataframe form h5-file
 df_id_eq_42 = pd.read_hdf(
     dataframe_dir, "sqerr", where="id=42"
@@ -120,36 +121,6 @@ huge_df_350k_to_500k_simtime = pd.read_hdf(
 )
 end = time.time()
 print("350k-500k: %s" % (end - start))
-
-# class SimTimeEvent():
-#  simtime:
-#  ...
-#
-# wrapper = Wrapper(path,table_name)
-# wrapper.append(simtime_event: SimTimeEvent);
-
-##############################################################################
-################## TODOS ##################
-##############################################################################
-
-# 0. Schritt
-# Tool zum anschauen
-# - https://www.giss.nasa.gov/tools/panoply/download/
-# - HDFView
-# - sudo apt-get install hdfview
-# evlt .png einlesen abspeichern etc.
-# https://portal.hdfgroup.org/display/support/HDFView+3.1.2#files
-# https://support.hdfgroup.org/ftp/HDF5/releases/HDF-JAVA/hdfview-3.1.2/bin/
-
-# 1. Schritt
-# HDFStoreWrapper
-# wrapper.selectById list []  single or multiple
-# wrapper.selectBySimtime
-# selectBySimtime -> selectByKey mit 'simtime'
-
-# 2. Schritt
-# pickle -> hdf-files
-# schauen ob man mit h5 einfach so spalten hinzufügen kann
 
 ##############################################################################
 ################## Crap code i dont know if i use it anymore##################

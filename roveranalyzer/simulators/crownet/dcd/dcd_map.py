@@ -63,7 +63,7 @@ class DcdMap:
 
     def _load_or_create(
         self, pickle_name, create_f, *create_args
-    ):  # todo umbauen -> hdf statt pickle
+    ):  # todo umbauen -> provider statt pickle
         """
         Load data from pickle or create data based on :create_f:
         """

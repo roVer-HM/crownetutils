@@ -1,25 +1,95 @@
+import os
+
 import numpy as np
 import pandas as pd
 
-df = pd.DataFrame(np.random.randn(100000, 3), columns=list("ABC"))
-df["one"] = "foo"
-df["two"] = "bar"
-df.loc[50000:, "two"] = "bah"
-mi = df.set_index(["one", "two"])
-print(mi)
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapHdfProvider
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
+from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 
-store = pd.HDFStore("test.h5", mode="w")
-store.append("df", mi)
+import h5py
+import cv2
 
-print(store.get_storer("df").levels)
-print(store)
+# dits
+file_dir = os.path.dirname(os.path.realpath(__file__))
+hdf_dir = os.path.join(file_dir, "data_provider_test.h5")
 
-print(store.select("df", columns=["one"]))
-print(store.select("df", columns=["A"]))
-print(store.select_column("df", "one"))
+# create test dataframe
+index_count = 60
+idxs = [i for i in range(index_count)]
+xs = [i for i in range(index_count)]
+ys = [i for i in range(index_count)]
+ids = [i for i in range(index_count)]
+mult_idx = pd.MultiIndex.from_arrays(
+    [idxs, xs, ys, ids], names=["simtime", "x", "y", "ID"]
+)
+df = pd.DataFrame(
+    np.random.rand(index_count, 4),
+    index=mult_idx,
+    columns=["count", "err", "owner_dist", "sqerr"],
+)
+
+# load provider-provider
+hdf = CountMapHdfProvider(hdf_path=hdf_dir)
+hdf.write_dataframe(df)
+# hdf.addColumn()
+
+# todo
+lenna_img = cv2.imread('D:\\Sources\\roveranalyzer\\roveranalyzer\\simulators\\lenna.png')
+# img_data = [lenna_img, lenna_img]
+
+hdf_file = h5py.File(os.path.join(file_dir, "img_file.h5"), 'w')
+hdf_file.create_dataset("Photos/Image 1", data=lenna_img, dtype='uint8')
+hdf_file.close()
+# data = self.get_dataframe()
+# data["LennaImg"] = img_data
+# print("")
+# with self.ctx(mode='w') as store:
+#     store.put(key=self.group, value=data, format='t', data_columns=True)
 
 
-def f():
-    level_1 = store.select_column("df", "one")
-    level_2 = store.select_column("df", "two")
-    return pd.MultiIndex.from_arrays([level_1, level_2])
+# i5 = hdf.select_id_exact(value=5)
+# i5_gr = hdf.select_id_exact(value=5, operation=Operation.GREATER_EQ)
+# i5_10 = hdf.select_id_exact(value=[5, 6, 7, 8, 9, 10])
+# i_range = hdf.select_id_range(_min=5, _max=12)
+# s_5 = hdf.select_simtime_exact(value=5)
+# s_5_8_20 = hdf.select_simtime_exact(value=[5, 8, 20])
+# s_range = hdf.select_id_range(_min=5, _max=12)
+# sqerr_range = hdf.select_sqerr_range(0.1, 0.5)
+print("asd")
+
+# class SimTimeEvent():
+#  simtime:
+#  ...
+#
+# wrapper = Wrapper(path,table_name)
+# wrapper.append(simtime_event: SimTimeEvent);
+
+##############################################################################
+################## TODOS ##################
+##############################################################################
+
+# 0. Schritt
+# Tool zum anschauen
+# - https://www.giss.nasa.gov/tools/panoply/download/
+# - HDFView
+# - sudo apt-get install hdfview
+# evlt .png einlesen abspeichern etc.
+# https://portal.hdfgroup.org/display/support/HDFView+3.1.2#files
+# https://support.hdfgroup.org/ftp/HDF5/releases/HDF-JAVA/hdfview-3.1.2/bin/ (Works on WIndows)
+# This link -> https://www.hdfgroup.org/downloads/hdfview/
+# register with tmp email and download
+# also needs the hdfview.bat for windows
+# (https://support.hdfgroup.org/ftp/HDF5/releases/HDF-JAVA/hdfview-3.1.2/hdfview_scripts/hdfview.bat)
+
+# 1. Schritt
+# HDFStoreWrapper
+# wrapper.selectById list []  single or multiple
+# wrapper.selectBySimtime
+# selectBySimtime -> selectByKey mit 'simtime'
+# CountMapProvider-Klasse und IHdfProvider
+# in roveranalyzer/simulators/opp/privider/hdf
+
+# 2. Schritt
+# pickle -> provider-files
+# schauen ob man mit h5 einfach so spalten hinzufügen kann
