@@ -14,7 +14,7 @@ file_dir = os.path.dirname(os.path.realpath(__file__))
 # df = pd.read_hdf(basic_index_file, 'df_key', where='a > 0.2 & index==A')
 
 # -----basic provider with multi-index index and columns-----
-multi_index_file = os.path.join(file_dir, 'DataFrameMultIndex')
+multi_index_file = os.path.join(file_dir, "DataFrameMultIndex")
 # # index=pd.MultiIndex.from_product([list('abc'),date_range('20140721',periods=3)],names=['symbol','date'])
 # mult_idx = pd.MultiIndex.from_arrays([
 #     ['Mario', 'Thomas', 'Markus', 'Manuel', 'Alexander'],
@@ -48,7 +48,7 @@ df = pd.DataFrame(
     index=mult_idx,
     columns=["count", "err", "owner_dist", "sqerr"],
 )
-df.to_hdf(dataframe_dir, 'sqerr', format='t', data_columns=True)
+# df.to_hdf(dataframe_dir, 'sqerr', format='t', data_columns=True)
 
 df_readed = pd.read_hdf(dataframe_dir, "sqerr")  # read whole dataframe form h5-file
 df_id_eq_42 = pd.read_hdf(
