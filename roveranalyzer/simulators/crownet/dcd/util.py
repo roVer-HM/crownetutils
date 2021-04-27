@@ -194,7 +194,27 @@ def create_error_df(map_df, glb_df):
     # sort columns for convinces
     all_pivot = all_pivot.sort_index(axis="columns")
     t.stop()
-    return all_pivot
+    # todo important
+    # errors = []
+    # sqerrors = []
+    # owsner_dists = []
+    # all_ids = all.index.get_level_values("ID").unique().to_numpy()
+    # unique_timestamps = all.index.droplevel(0).unique()
+    # all_pivot.stack(0) # Alternative
+    # todo calc truth
+    # todo calc sqerr
+    # todo calc err
+    # todo calc owner_dist
+    # todo nothing because stack(0) does the job ?!?
+    #     print("asd")
+    # later on, if someone acceses the count_map with the index
+    # change the access to the 4th value of the row index istead of the multiindex from the column
+    # new format
+    #                       count, err, sqerr, owner_dist
+    # simtime , x , y ,id      x    x     x         x
+    # simtime , x , y ,id      x    x     x         x
+    # simtime , x , y ,id      x    x     x         x
+    return all_pivot.stack(0)
 
 
 def delay_feature(_df_ret, **kwargs):

@@ -98,8 +98,8 @@ def main():
     analyse_interactive(
         dcd, "err"
     )  # selects owner_dist and squerr at timestamp 2 for node #1
-    # analyse_interactive(dcd, "map")
-    # analyse_interactive(dcd, "age")
+    analyse_interactive(dcd, "map")
+    analyse_interactive(dcd, "age")
 
     path = "/home/mweidner/data/vadere00_60_20210214-21:51:11/vars_rep_1.vec"
     scave = ScaveTool()

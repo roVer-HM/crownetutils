@@ -1,3 +1,4 @@
+import os.path
 import time
 
 import matplotlib
@@ -19,6 +20,9 @@ from roveranalyzer.simulators.crownet.dcd.interactive import (
 from roveranalyzer.simulators.crownet.dcd.util import (
     create_error_df,
     remove_not_selected_cells,
+)
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
+    CountMapHdfProvider,
 )
 from roveranalyzer.simulators.opp.scave import ScaveData, ScaveTool
 from roveranalyzer.simulators.vadere.plots.plots import pcolormesh_dict
@@ -93,7 +97,13 @@ def analyse_interactive(dcd, what):
 
 
 def main():
+    hdf_path = os.path.join(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "files"),
+        "panoply_test_2.h5",
+    )
     path = PathHelper("/home/mweidner/data/vadere00_60_20210214-21:51:11")
+    hdf_provider = CountMapHdfProvider(hdf_path)
+    df = hdf_provider.get_dataframe()
     dcd = read_data(path)
     analyse_interactive(
         dcd, "err"
