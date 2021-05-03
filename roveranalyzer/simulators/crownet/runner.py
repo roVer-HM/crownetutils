@@ -99,7 +99,7 @@ def parse_args_as_dict(args=None):
     parser.add_argument(
         "--experiment-label",
         dest="experiment_label",
-        default="",
+        default="timestamp",
         action=SubstituteAction,
         do_on=["timestamp"],
         sub_action=lambda x: datetime.now()

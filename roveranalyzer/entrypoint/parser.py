@@ -114,6 +114,8 @@ class SubstituteAction(argparse.Action):
         self.do_on = kwargs.pop("do_on")
         _default = kwargs.pop("default")
         _help = f"{kwargs.pop('help')} (Default: '{_default}')"
+        if _default in self.do_on:
+            _default = self.sub_f(_default)
         super().__init__(option_strings, dest, default=_default, help=_help, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -150,7 +152,6 @@ class SimulationArgAction(argparse.Action):
         ns_dest = getattr(namespace, self.dest)
         ns_dest.add_override(sanitized_opt, values)
         setattr(namespace, self.dest, ns_dest)
-        print(f"{option_string}:{values}")
 
 
 def container_parser():
