@@ -264,12 +264,18 @@ def parse_args_as_dict(args=None):
     else:
         ns = vars(parser.parse_args(args))
 
+    # set default executable based on $CRWNET_HOME variable
     if ns["opp_exec"] == "":
         ns["opp_exec"] = CrowNetConfig.join_home(f"crownet/src/run_crownet")
 
     # remove existing handlers and overwrite with user settings
     for h in logging.root.handlers:
         logging.root.removeHandler(h)
+
+    # set result dir callback based on execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
+    ns["result_dir_callback"] = (
+        result_dir_vadere_only if ns["vadere_only"] else result_dir_with_opp
+    )
 
     levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
     if ns["silent"]:
@@ -288,6 +294,31 @@ def parse_args_as_dict(args=None):
             format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
         )
     return ns
+
+
+def result_dir_with_opp(ns, working_dir):
+    """
+    set result dir based on OMNeT++
+    """
+    config = ns["opp_args"].get_value("-c")
+    if os.path.abspath(ns["result_dir"]):
+        return os.path.join(
+            ns["result_dir"],
+            f"{config}_{ns['experiment_label']}",
+        )
+    else:
+        return os.path.join(
+            working_dir,
+            ns["result_dir"],
+            f"{config}_{ns['experiment_label']}",
+        )
+
+
+def result_dir_vadere_only(ns, working_dir):
+    if os.path.abspath(ns["result_dir"]):
+        return ns["result_dir"]
+    else:
+        return os.path.join(working_dir, ns["result_dir"])
 
 
 class process_as:
@@ -331,16 +362,9 @@ class BaseRunner:
 
     def result_base_dir(self):
         """
-        returns base path for output. Structure is based on OMNeT++ default.
-        ${resultdir}/${configname}_${experiment}/.....
-        TODO: make this configurable output-[scalar|vector|output]-file
+        get correct result dir independently of execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
         """
-        config = self.ns["opp_args"].get_value("-c")
-        return os.path.join(
-            self.working_dir,
-            self.ns["result_dir"],
-            f"{config}_{self.ns['experiment_label']}",
-        )
+        return self.ns["result_dir_callback"](self.ns, self.working_dir)
 
     def run(self):
         logging.debug("execute pre hooks")
@@ -396,7 +420,7 @@ class BaseRunner:
         self.opp_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.opp_runner.set_log_callback(
-                ContainerLogWriter(f"{self.ns['result_dir']}/container_opp.out")
+                ContainerLogWriter(f"{self.result_base_dir()}/container_opp.out")
             )
 
     def build_and_start_control_runner(self, port=9997):
@@ -422,7 +446,7 @@ class BaseRunner:
         self.vadere_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.vadere_runner.set_log_callback(
-                ContainerLogWriter(f"{self.ns['result_dir']}/container_vadere.out")
+                ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
             )
 
         logfile = os.devnull
@@ -452,7 +476,7 @@ class BaseRunner:
         self.control_runner.apply_reuse_policy()
         if self.ns["write_container_log"]:
             self.control_runner.set_log_callback(
-                ContainerLogWriter(f"{self.ns['result_dir']}/container_control.out")
+                ContainerLogWriter(f"{self.result_base_dir()}/container_control.out")
             )
 
     def exec_control_runner(self, mode):
@@ -592,18 +616,19 @@ class BaseRunner:
         self.vadere_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.vadere_runner.set_log_callback(
-                ContainerLogWriter(f"{self.ns['result_dir']}/container_vadere.out")
+                ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
             )
 
+        # TODO (duplicates write_container_log)
         logfile = os.devnull
         if self.ns["v_logfile"] != "":
             logfile = self.ns["v_logfile"]
 
-        os.makedirs(self.ns["result_dir"], exist_ok=True)
+        os.makedirs(self.result_base_dir(), exist_ok=True)
 
         # start vadere container detached in the background. Will be stoped in the finally block
         self.vadere_runner.exec_vadere_only(
-            scenario_file=self.ns["scenario_file"], output_path=self.ns["result_dir"]
+            scenario_file=self.ns["scenario_file"], output_path=self.result_base_dir()
         )
 
     def run_vadere(self):
