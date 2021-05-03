@@ -44,8 +44,10 @@ def csv_to_diffdict(path, delimiter=";"):
     with open(path, "r") as fd:
         _csv = csv.reader(fd, delimiter=delimiter)
         next(_csv)  # skip header
-        ret = {k: v for k, v in _csv}
-
+        ret = {}
+        for line in _csv:
+            if len(line) == 2:
+                ret[line[0]] = line[1]
     return ret
 
 
