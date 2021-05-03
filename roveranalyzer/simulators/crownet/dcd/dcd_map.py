@@ -12,6 +12,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
+    CountMapHdfProvider,
+)
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
 
@@ -56,6 +59,9 @@ class DcdMap:
             "tick_size": 16,
         }
         self.pickle_base_path = pickle_base_path
+        self.count_map_provider = CountMapHdfProvider(
+            os.path.join(self.pickle_base_path, "count_err.hdf")
+        )
 
     @property
     def lazy_load_from_pickle(self):
@@ -70,19 +76,21 @@ class DcdMap:
 
         # just load data with provided create function
         if not self.lazy_load_from_pickle:
-            print("create from scratch (no pickle)")
+            print("create from scratch (no hdf)")
             return create_f(*create_args)
 
         # load from pickle if exist and create if missing
         pickle_path = os.path.join(self.pickle_base_path, pickle_name)
         if os.path.exists(pickle_path):
-            print(f"load from pickle {pickle_path}")
-            return pickle.load(open(pickle_path, "rb"))
+            print(f"load from hdf {pickle_path}")
+            # return pickle.load(open(pickle_path, "rb"))
+            return self.count_map_provider.get_dataframe()
         else:
             print("create from scratch ...", end=" ")
             data = create_f(*create_args)
-            print(f"write to pickle {pickle_path}")
-            pickle.dump(data, open(pickle_path, "wb"))
+            print(f"write to hdf {pickle_path}")
+            # pickle.dump(data, open(pickle_path, "wb"))
+            self.count_map_provider.write_dataframe(data)
             return data
 
     def get_location(self, simtime, node_id, cell_id=False):
@@ -150,7 +158,7 @@ class DcdMap2D(DcdMap):
         if self._count_map is None:
             print("lazy load count_err DataFrame ...", end="")
             self._count_map = self._load_or_create(
-                "count_err.p", create_error_df, self.map, self.glb_map
+                "count_err.hdf", create_error_df, self.map, self.glb_map
             )
         return self._count_map
 
@@ -202,9 +210,15 @@ class DcdMap2D(DcdMap):
          (N, M) where N,M is the number of cells in X respectively Y axis
         """
         data = pd.DataFrame(
-            self.count_map.loc[Idx[time_step], Idx[node_id, value_name]]
+            self.count_map_provider.select_simtime_and_node_id_exact(
+                time_step, node_id
+            )[value_name]
         )
-        data.columns = data.columns.droplevel(0)
+        data = data.set_index(data.index.droplevel([0, 3]))
+        # data = pd.DataFrame(
+        #     self.count_map.loc[Idx[time_step], Idx[node_id, value_name]]
+        # )
+        # data.columns = data.columns.droplevel(0)
         full_index = self.meta.grid_index_2d(real_coords=True)
         df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
         df = df.set_index(full_index)
@@ -436,9 +450,17 @@ class DcdMap2D(DcdMap):
 
         # fixme: merge all node_id's (remove pivot)
         # ignore id
-        df = self.count_map.loc[Idx[time_step], Idx[:, ("owner_dist", value)]].stack(
-            level=0
+        # todo Look how to implement with new layout
+        count_map_provider = CountMapHdfProvider(
+            "/home/mweidner/data/vadere00_60_20210214-21:51:11/count_err.hdf"
         )
+        # df = count_map_provider.select_simtime_exact(time_step)[["owner_dist", value]]
+        df = count_map_provider.select_simtime_and_node_id_exact(time_step, node_id)[
+            ["owner_dist", value]
+        ]
+        # df = self.count_map.loc[Idx[time_step], Idx[:, ("owner_dist", value)]].stack(
+        #     level=0
+        # )
         df = df.reset_index(drop=True)
 
         # average over distance (ignore node_id)

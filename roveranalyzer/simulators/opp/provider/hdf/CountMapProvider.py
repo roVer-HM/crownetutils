@@ -89,68 +89,91 @@ class CountMapHdfProvider(IHdfProvider):
         )
         return self._select_where(condition=condition)
 
-    ###################
-    # Range Functions #
-    ###################
-    def select_id_range(self, _min: int, _max: int) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.ID, _min=str(_min), _max=str(_max)
-        )
+    def select_simtime_and_node_id_exact(
+        self, simtime: int, node_id: int, operation: str = Operation.EQ
+    ) -> pd.DataFrame:
+        condition: List[str] = [
+            self._build_exact_condition(
+                key=CountMapKey.SIMTIME, value=simtime, operation=operation
+            ),
+            self._build_exact_condition(
+                key=CountMapKey.ID, value=node_id, operation=operation
+            ),
+        ]
         return self._select_where(condition=condition)
 
-    def select_simtime_range(self, _min: int, _max: int) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.SIMTIME, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
 
-    def select_x_range(self, _min: int, _max: int) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.X, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
+###################
+# Range Functions #
+###################
+def select_id_range(self, _min: int, _max: int) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.ID, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
 
-    def select_y_range(self, _min: int, _max: int) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.Y, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
 
-    def select_count_range(self, _min: float, _max: float) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.COUNT, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
+def select_simtime_range(self, _min: int, _max: int) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.SIMTIME, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
 
-    def select_err_range(self, _min: float, _max: float) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.ERR, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
 
-    def select_owner_dist_range(self, _min: float, _max: float) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.OWNER_DIST, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
+def select_x_range(self, _min: int, _max: int) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.X, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
 
-    def select_sqerr_range(self, _min: float, _max: float) -> pd.DataFrame:
-        condition: List[str] = self._build_range_condition(
-            key=CountMapKey.SQERR, _min=str(_min), _max=str(_max)
-        )
-        return self._select_where(condition=condition)
 
-    def add_data(self, data: any, name: str, dtype: str = "uint8"):
-        import h5py
+def select_y_range(self, _min: int, _max: int) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.Y, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
 
-        file = h5py.File(self._hdf_path, "a")
-        file.create_dataset(f"data/{name}", data=data, dtype=dtype)
-        file.close()
 
-    def get_data(self, name: str):
-        import h5py
+def select_count_range(self, _min: float, _max: float) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.COUNT, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
 
-        file = h5py.File(self._hdf_path, "r")
-        ret = file["data"][name][:]
-        file.close()
-        return ret
+
+def select_err_range(self, _min: float, _max: float) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.ERR, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
+
+
+def select_owner_dist_range(self, _min: float, _max: float) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.OWNER_DIST, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
+
+
+def select_sqerr_range(self, _min: float, _max: float) -> pd.DataFrame:
+    condition: List[str] = self._build_range_condition(
+        key=CountMapKey.SQERR, _min=str(_min), _max=str(_max)
+    )
+    return self._select_where(condition=condition)
+
+
+def add_data(self, data: any, name: str, dtype: str = "uint8"):
+    import h5py
+
+    file = h5py.File(self._hdf_path, "a")
+    file.create_dataset(f"data/{name}", data=data, dtype=dtype)
+    file.close()
+
+
+def get_data(self, name: str):
+    import h5py
+
+    file = h5py.File(self._hdf_path, "r")
+    ret = file["data"][name][:]
+    file.close()
+    return ret
