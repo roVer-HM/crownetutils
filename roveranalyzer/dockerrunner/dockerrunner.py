@@ -3,6 +3,7 @@ import os
 import pprint
 from enum import Enum
 from pathlib import Path
+from typing import Union
 
 import docker
 from docker.errors import NotFound
@@ -14,6 +15,16 @@ if len(logging.root.handlers) == 0:
         level=logging.DEBUG,
         format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
     )
+
+
+class ContainerLogWriter:
+    def __init__(self, path):
+        self.path = path
+
+    def write(self, container_name, output: bytes, *args, **kwargs):
+        print(f"write output of {container_name}  to {self.path}")
+        with open(self.path, "w", encoding="utf-8") as log:
+            log.write(output.decode("utf-8"))
 
 
 class DockerCleanup(Enum):
@@ -68,6 +79,9 @@ class DockerRunner:
         self.reuse_policy = reuse_policy
         self.run_args = {}
         self._container = None
+        self._log_clb: Union[
+            ContainerLogWriter, None
+        ] = None  # callback to handle logoutput of container
 
         # last call in init.
         self._apply_default_volumes()
@@ -157,6 +171,9 @@ class DockerRunner:
     def set_working_dir(self, wdir):
         self.run_args["working_dir"] = wdir
 
+    def set_log_callback(self, clb: ContainerLogWriter):
+        self._log_clb = clb
+
     def _apply_default_environment(self):
         self.environment: dict = {}
         if "DISPLAY" in os.environ:
@@ -214,6 +231,15 @@ class DockerRunner:
             )
             self.client.images.pull(repository=self.rep, tag=self.tag)
 
+    def parse_log(self):
+        if self._log_clb is not None:
+            if self._container is None:
+                logging.warning(
+                    f"no container found for dockerrunner. Did youy call parse_log at the wrong time?"
+                )
+            else:
+                self._log_clb.write(self.name, self._container.logs())
+
     def create_container(self, cmd="/init.sh", **run_args) -> Container:
         """
         run container. If no command is given execute the default entry point '/init.sh'
@@ -244,6 +270,7 @@ class DockerRunner:
             self._container.start()
             if not self.detach:
                 ret = self._container.wait()
+                self.parse_log()
                 if ret["StatusCode"] != 0:
                     logging.error(f"Command returned {ret['StatusCode']}")
                     if (
