@@ -329,6 +329,19 @@ class BaseRunner:
                 except AttributeError:
                     continue
 
+    def result_base_dir(self):
+        """
+        returns base path for output. Structure is based on OMNeT++ default.
+        ${resultdir}/${configname}_${experiment}/.....
+        TODO: make this configurable output-[scalar|vector|output]-file
+        """
+        config = self.ns["opp_args"].get_value("-c")
+        return os.path.join(
+            self.working_dir,
+            self.ns["result_dir"],
+            f"{config}_{self.ns['experiment_label']}",
+        )
+
     def run(self):
         logging.debug("execute pre hooks")
         self.pre()
@@ -577,20 +590,20 @@ class BaseRunner:
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
+        if self.ns["write_container_log"]:
+            self.vadere_runner.set_log_callback(
+                ContainerLogWriter(f"{self.ns['result_dir']}/container_vadere.out")
+            )
 
         logfile = os.devnull
         if self.ns["v_logfile"] != "":
             logfile = self.ns["v_logfile"]
 
-        result_path = os.path.join(
-            os.getcwd(), f"results/vadere_only_{self.ns['experiment_label']}/vadere.d"
-        )
-
-        os.makedirs(result_path, exist_ok=True)
+        os.makedirs(self.ns["result_dir"], exist_ok=True)
 
         # start vadere container detached in the background. Will be stoped in the finally block
         self.vadere_runner.exec_vadere_only(
-            scenario_file=self.ns["scenario_file"], output_path=result_path
+            scenario_file=self.ns["scenario_file"], output_path=self.ns["result_dir"]
         )
 
     def run_vadere(self):
@@ -629,13 +642,15 @@ class BaseRunner:
         self.build_opp_runer()
 
         try:
-
             if self.ns["create_vadere_container"]:
                 self.build_and_start_vadere_runner()
 
+            if self.ns["override-host-config"]:
+                self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
+
             # start OMNeT++ container and attach to it.
             logging.info(f"start simulation {self.ns['run_name']} ...")
-            ret_opp, opp_container = self.opp_runner.exec_opp_run(
+            self.opp_runner.exec_opp_run(
                 arg_list=self.ns["opp_args"],
                 result_dir=self.ns["result_dir"],
                 experiment_label=self.ns["experiment_label"],
@@ -646,6 +661,7 @@ class BaseRunner:
             if self.vadere_runner is not None:
                 try:
                     self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
+                    self.vadere_runner.parse_log()
                 except ReadTimeout:
                     logging.error(
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
@@ -667,18 +683,6 @@ class BaseRunner:
                 self.vadere_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
-
-    def result_base_dir(self):
-        """
-        returns base path for output. Structure is based on OMNeT++ default.
-        ${resultdir}/${configname}_${experiment}/.....
-        """
-        config = self.ns["opp_args"].get_value("-c")
-        return os.path.join(
-            self.working_dir,
-            self.ns["result_dir"],
-            f"{config}_{self.ns['experiment_label']}",
-        )
 
     @staticmethod
     def wait_for_file(filepath, timeout_sec=120):

@@ -23,6 +23,7 @@ class ContainerLogWriter:
 
     def write(self, container_name, output: bytes, *args, **kwargs):
         print(f"write output of {container_name}  to {self.path}")
+        os.makedirs(os.path.split(self.path)[0], exist_ok=True)
         with open(self.path, "w", encoding="utf-8") as log:
             log.write(output.decode("utf-8"))
 
