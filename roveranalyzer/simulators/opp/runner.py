@@ -1,5 +1,4 @@
 import os
-import subprocess
 
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
@@ -41,12 +40,6 @@ class OppRunner(DockerRunner):
 
     def _apply_default_environment(self):
         super()._apply_default_environment()
-        # nedpath = (
-        #     subprocess.check_output(f"{os.environ['CROWNET_HOME']}/scripts/nedpath")
-        #     .decode("utf-8")
-        #     .strip()
-        # )
-        # self.environment["NEDPATH"] = nedpath
 
     def set_run_args(self, run_args=None):
         super().set_run_args()
@@ -80,46 +73,6 @@ class OppRunner(DockerRunner):
         _arg.add(f"--result-dir={result_dir}")
         _arg.add(f"--experiment-label={experiment_label}")
         return _arg
-
-    # def exec_opp_run_details(
-    #     self,
-    #     opp_ini="omnetpp.ini",
-    #     config="final",
-    #     result_dir="results",
-    #     experiment_label="out",
-    #     run_args_override=None,
-    #     **kwargs,
-    # ):
-    #     cmd = self.__build_base_opp_run(self.run_cmd)
-    #     cmd.extend(["-c", config])
-    #     if experiment_label is not None:
-    #         cmd.extend([f"--experiment-label={experiment_label}"])
-    #     cmd.extend([f"--result-dir={result_dir}"])
-    #     cmd.extend(["-q", "rundetails"])
-    #     cmd.append(opp_ini)
-    #
-    #     return self.run(cmd, **run_args_override)
-
-    # def exec_opp_run_all(
-    #     self,
-    #     opp_ini="omnetpp.ini",
-    #     config="final",
-    #     result_dir="results",
-    #     experiment_label="out",
-    #     jobs=-1,
-    #     run_args_override=None,
-    # ):
-    #     cmd = ["opp_run_all"]
-    #     if jobs > 0:
-    #         cmd.extend(["-j", jobs])
-    #     cmd = self.__build_base_opp_run(cmd)
-    #     cmd.extend(["-c", config])
-    #     if experiment_label is not None:
-    #         cmd.extend([f"--experiment-label={experiment_label}"])
-    #     cmd.extend([f"--result-dir={result_dir}"])
-    #     cmd.append(opp_ini)
-    #
-    #     return self.run(cmd, **run_args_override)
 
     def exec_opp_run(
         self,
