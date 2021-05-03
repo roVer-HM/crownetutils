@@ -1,5 +1,4 @@
 import os
-import pickle
 from functools import wraps
 from itertools import combinations
 
@@ -64,32 +63,28 @@ class DcdMap:
         )
 
     @property
-    def lazy_load_from_pickle(self):
+    def lazy_load_from_hdf(self):
         return self.pickle_base_path is not None
 
-    def _load_or_create(
-        self, pickle_name, create_f, *create_args
-    ):  # todo umbauen -> provider statt pickle
+    def _load_or_create(self, pickle_name, create_f, *create_args):
         """
-        Load data from pickle or create data based on :create_f:
+        Load data from hdf or create data based on :create_f:
         """
 
         # just load data with provided create function
-        if not self.lazy_load_from_pickle:
+        if not self.lazy_load_from_hdf:
             print("create from scratch (no hdf)")
             return create_f(*create_args)
 
-        # load from pickle if exist and create if missing
-        pickle_path = os.path.join(self.pickle_base_path, pickle_name)
-        if os.path.exists(pickle_path):
-            print(f"load from hdf {pickle_path}")
-            # return pickle.load(open(pickle_path, "rb"))
+        # load from hdf if exist and create if missing
+        hdf_path = os.path.join(self.pickle_base_path, pickle_name)
+        if os.path.exists(hdf_path):
+            print(f"load from hdf {hdf_path}")
             return self.count_map_provider.get_dataframe()
         else:
             print("create from scratch ...", end=" ")
             data = create_f(*create_args)
-            print(f"write to hdf {pickle_path}")
-            # pickle.dump(data, open(pickle_path, "wb"))
+            print(f"write to hdf {hdf_path}")
             self.count_map_provider.write_dataframe(data)
             return data
 
@@ -215,10 +210,6 @@ class DcdMap2D(DcdMap):
             )[value_name]
         )
         data = data.set_index(data.index.droplevel([0, 3]))
-        # data = pd.DataFrame(
-        #     self.count_map.loc[Idx[time_step], Idx[node_id, value_name]]
-        # )
-        # data.columns = data.columns.droplevel(0)
         full_index = self.meta.grid_index_2d(real_coords=True)
         df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
         df = df.set_index(full_index)
@@ -450,17 +441,9 @@ class DcdMap2D(DcdMap):
 
         # fixme: merge all node_id's (remove pivot)
         # ignore id
-        # todo Look how to implement with new layout
-        count_map_provider = CountMapHdfProvider(
-            "/home/mweidner/data/vadere00_60_20210214-21:51:11/count_err.hdf"
-        )
-        # df = count_map_provider.select_simtime_exact(time_step)[["owner_dist", value]]
-        df = count_map_provider.select_simtime_and_node_id_exact(time_step, node_id)[
-            ["owner_dist", value]
-        ]
-        # df = self.count_map.loc[Idx[time_step], Idx[:, ("owner_dist", value)]].stack(
-        #     level=0
-        # )
+        df = self.count_map_provider.select_simtime_and_node_id_exact(
+            time_step, node_id
+        )[["owner_dist", value]]
         df = df.reset_index(drop=True)
 
         # average over distance (ignore node_id)

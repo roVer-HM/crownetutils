@@ -47,7 +47,7 @@ print("check new array breakpoint")
 # todo new provider for h5py and viewability with panoply
 # load provider-provider
 
-panoply_test_dir = os.path.join(file_dir, "panoply_test_2.h5")
+panoply_test_dir = os.path.join(file_dir, "hdf_data_and_image.h5")
 lenna_img = cv2.imread(os.path.join(file_dir, "lenna.png"))
 
 # df = pd.read_hdf(panoply_test_dir, "dataset/something.png")
@@ -63,7 +63,9 @@ lenna_img = cv2.imread(os.path.join(file_dir, "lenna.png"))
 
 hdf_provider = CountMapHdfProvider(panoply_test_dir)
 hdf_provider.write_dataframe(df)
-hdf_provider.add_data(lenna_img, "lenna")
+hdf_provider.add_data(lenna_img, "lenna_1")
+hdf_provider.add_data(lenna_img, "lenna_2")
+hdf_provider.add_data(lenna_img, "lenna_3")
 
 # h = h5py.File(panoply_test_dir, 'a')
 # # h.create_group("Lenna_Image")
