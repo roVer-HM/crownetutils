@@ -49,16 +49,6 @@ def parse_args_as_dict(args=None):
         help="specify preprocessing methods",
         type=str,
     )
-
-    # parser.add_argument(
-    #     "-i",
-    #     "--ini-file",
-    #     dest="opp_ini",
-    #     default="omnetpp.ini",
-    #     required=False,
-    #     help="Ini-file for simulation. Default: omnetpp.ini",
-    # )
-
     parser.add_argument(
         "-sf",
         "--scenario-file",
@@ -67,14 +57,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Scenario-file *.scenario for Vadere simulation.",
     )
-    # parser.add_argument(
-    #     "-c",
-    #     "--config",
-    #     dest="config",
-    #     default="final",
-    #     required=False,
-    #     help="Config to simulation. Default: final",
-    # )
     parser.add_argument(
         "--resultdir",
         dest="result_dir",
@@ -152,43 +134,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Delete existing (stopped) containers with the same name.",
     )
-
-    # parser.add_argument(
-    #     "--debug",
-    #     dest="debug",
-    #     default=False,
-    #     required=False,
-    #     action="store_true",
-    #     help="Use opp_run_debug Default: False",
-    # )
-
-    # # ToDo: not possible any more.
-    # parser.add_argument(
-    #     "--run-all",
-    #     dest="run_all",
-    #     default=False,
-    #     required=False,
-    #     action="store_true",
-    #     help="Use OMNeT++ internal parameter variation. Not compatible with --debug. Default: False",
-    # )
-
-    # parser.add_argument(
-    #     "-j",
-    #     "--jobs",
-    #     dest="jobs",
-    #     default=-1,
-    #     required=False,
-    #     help="In conjunction with --run-all. Set number of parallel executions. Default: Number of Cores.",
-    # )
-
-    # parser.add_argument(
-    #     "--log-journald",
-    #     dest="log_journald",
-    #     action="store_true",
-    #     default=True,
-    #     required=False,
-    # )
-
     parser.add_argument(
         "--cleanup-policy",
         dest="cleanup_policy",
@@ -198,7 +143,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="select what to do with container that are done.",
     )
-
     parser.add_argument(
         "--reuse-policy",
         dest="reuse_policy",
@@ -208,7 +152,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="select policy to reuse or remove existing running or stopped containers.",
     )
-
     parser.add_argument(
         "--create-log-file",
         dest="create_log_file",
@@ -217,7 +160,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Redirect log messages to Logfile at script location (this script not containers).",
     )
-
     parser.add_argument(
         "--create-vadere-container",
         dest="create_vadere_container",
@@ -226,7 +168,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
     )
-
     parser.add_argument(
         "--verbose",
         "-v",
@@ -235,7 +176,6 @@ def parse_args_as_dict(args=None):
         default=0,
         help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
     )
-
     parser.add_argument(
         "--silent",
         "-s",
@@ -245,7 +185,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="No output is generated. Only fatal errors leading to non zero exit codes.",
     )
-
     parser.add_argument(
         "--v.wait-timeout",
         dest="v_wait_timeout",
@@ -253,7 +192,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Time to wait for vadere container to close after OMNeT++ container has finished. Default=360s",
     )
-
     parser.add_argument(
         "--v.traci-port",
         dest="v_traci_port",
@@ -261,7 +199,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Set TraCI Port in Vadere container. (Default: 9998)",
     )
-
     parser.add_argument(
         "--vadere-tag",
         dest="vadere_tag",
@@ -269,7 +206,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Vadere container. (Default: latest)",
     )
-
     parser.add_argument(
         "--omnet-tag",
         dest="omnet_tag",
@@ -277,7 +213,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Omnet container. (Default: latest)",
     )
-
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
@@ -285,7 +220,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Control container. (Default: latest)",
     )
-
     parser.add_argument(
         "--v.loglevel",
         dest="v_loglevel",
@@ -293,7 +227,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
     )
-
     parser.add_argument(
         "--v.logfile",
         dest="v_logfile",
@@ -302,7 +235,6 @@ def parse_args_as_dict(args=None):
         help="Set log file name of Vadere. If not set '', log file will not be created. "
         "This setting has no effect on --log-journald. (Default: '') ",
     )
-
     parser.add_argument(
         "-wc",
         "--with-control",
@@ -311,7 +243,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose file that contains control strategy. (Default: '')",
     )
-
     parser.add_argument(
         "--control-vadere-only",
         dest="control_vadere_only",
@@ -320,7 +251,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set the control action is applied without omnetpp. Direct information dissemination without delay.",
     )
-
     parser.add_argument(
         "--vadere-only",
         dest="vadere_only",
