@@ -1,3 +1,4 @@
+import platform
 from typing import List
 
 import pandas as pd
@@ -154,16 +155,26 @@ class CountMapHdfProvider(IHdfProvider):
         return self._select_where(condition=condition)
 
     def add_data(self, data: any, name: str, dtype: str = "uint8"):
-        import h5py
+        import platform
 
-        file = h5py.File(self._hdf_path, "a")
-        file.create_dataset(f"data/{name}", data=data, dtype=dtype)
-        file.close()
+        if platform.system() != "windows":
+            # at any point if it's required to safe more than dataframes into hdf files
+            # check how to install h5py for windows
+            import h5py
+
+            file = h5py.File(self._hdf_path, "a")
+            file.create_dataset(f"data/{name}", data=data, dtype=dtype)
+            file.close()
 
     def get_data(self, name: str):
-        import h5py
+        import platform
 
-        file = h5py.File(self._hdf_path, "r")
-        ret = file["data"][name][:]
-        file.close()
-        return ret
+        if platform.system() != "windows":
+            # at any point if it's required to read other data than dataframes from hdf files
+            # check how to install h5py for windows
+            import h5py
+
+            file = h5py.File(self._hdf_path, "r")
+            ret = file["data"][name][:]
+            file.close()
+            return ret
