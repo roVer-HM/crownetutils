@@ -1,9 +1,10 @@
-import contextlib
-import pandas as pd
-import os
 import abc
-
+import contextlib
+import os
 from typing import List
+
+import pandas as pd
+
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 
 
@@ -14,7 +15,6 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     """
 
     def __init__(self, hdf_path: str):
-        # warnings.warn("hdf rework", DeprecationWarning)
         self._hdf_path: str = hdf_path
         self._hdf_args: object = {"complevel": 9, "complib": "zlib"}
         self.group: str = self.group_key()
@@ -46,7 +46,7 @@ class IHdfProvider(metaclass=abc.ABCMeta):
 
     def write_dataframe(self, data: pd.DataFrame) -> None:
         with self.ctx(mode="w") as store:
-            store.put(key=self.group, value=data, format='table', data_columns=True)
+            store.put(key=self.group, value=data, format="table", data_columns=True)
 
     def exists(self) -> bool:
         """ check for HDF store """
@@ -58,10 +58,12 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         return pd.DataFrame(df)
 
     def _build_range_condition(self, key: str, _min: str, _max: str) -> List[str]:
-        return [f'{key}<={_max}', f'{key}>={_min}']
+        return [f"{key}<={_max}", f"{key}>={_min}"]
 
-    def _build_exact_condition(self, key: str, value: any, operation: str = Operation.EQ):
+    def _build_exact_condition(
+        self, key: str, value: any, operation: str = Operation.EQ
+    ):
         if isinstance(value, List):
-            return f'ID in {value}'
+            return f"ID in {value}"
         else:
-            return [f'{key}{operation}{str(value)}']
+            return [f"{key}{operation}{str(value)}"]

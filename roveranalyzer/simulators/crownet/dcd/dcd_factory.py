@@ -157,7 +157,7 @@ class DcdBuilder:
             self._scenario_plotter = plotter
         return self
 
-    def build(self):  # buildet csv oder pickle
+    def build(self):
         if self._pickle_state == PickleState.DEACTIVATED or not os.path.exists(
             self._root_pickle
         ):
@@ -168,7 +168,6 @@ class DcdBuilder:
         # usable for the current DcdBuilder configuration
         _pickle = self.read_pickle()
         _builder = self.from_json(_pickle["builder_json"])
-        # todo schauen ob man mit h5 einfach so spalten hinzufügen kann irgendwo hier
         _state = _builder._pickle_state
         _data = _pickle["data"]
         if not self._compare_builder(_builder):

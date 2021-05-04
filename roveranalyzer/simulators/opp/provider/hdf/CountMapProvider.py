@@ -26,10 +26,9 @@ class CountMapHdfProvider(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.COUNT_MAP
 
-    ########################
-    # Exact Functions      #
-    # single value or list #
-    ########################
+    #########################
+    # Exact value functions #
+    #########################
     def select_id_exact(
         self, value: any, operation: str = Operation.EQ
     ) -> pd.DataFrame:
@@ -103,9 +102,9 @@ class CountMapHdfProvider(IHdfProvider):
         ]
         return self._select_where(condition=condition)
 
-    ###################
-    # Range Functions #
-    ###################
+    #########################
+    # Range value functions #
+    #########################
     def select_id_range(self, _min: int, _max: int) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
             key=CountMapKey.ID, _min=str(_min), _max=str(_max)

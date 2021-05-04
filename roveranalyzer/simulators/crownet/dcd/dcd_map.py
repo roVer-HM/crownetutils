@@ -57,14 +57,15 @@ class DcdMap:
             "legend": {"size": 20},
             "tick_size": 16,
         }
-        self.pickle_base_path = pickle_base_path
+        self.hdf_base_path = pickle_base_path
+        self.hdf_file_name = "count_err.hdf"
         self.count_map_provider = CountMapHdfProvider(
-            os.path.join(self.pickle_base_path, "count_err.hdf")
+            os.path.join(self.hdf_base_path, self.hdf_file_name)
         )
 
     @property
     def lazy_load_from_hdf(self):
-        return self.pickle_base_path is not None
+        return self.hdf_base_path is not None
 
     def _load_or_create(self, pickle_name, create_f, *create_args):
         """
@@ -77,7 +78,7 @@ class DcdMap:
             return create_f(*create_args)
 
         # load from hdf if exist and create if missing
-        hdf_path = os.path.join(self.pickle_base_path, pickle_name)
+        hdf_path = os.path.join(self.hdf_base_path, pickle_name)
         if os.path.exists(hdf_path):
             print(f"load from hdf {hdf_path}")
             return self.count_map_provider.get_dataframe()
@@ -125,15 +126,13 @@ class DcdMap2D(DcdMap):
         plotter=None,
         **kwargs,
     ):
-        super().__init__(
-            glb_meta, node_id_map, location_df, plotter, **kwargs
-        )  # erzeugt aus csv-file oder aus pickle geladen
+        super().__init__(glb_meta, node_id_map, location_df, plotter, **kwargs)
         self._map = map_df
         self._global_df = global_df
         self._count_map = None
 
     def iter_nodes_d2d(self, first=0):
-        _i = pd.IndexSlicef
+        _i = pd.IndexSlice
 
         data = self._map.loc[_i[first:], :].groupby(level=self.tsc_id_idx_name)
         for i, ts_2d in data:
@@ -153,7 +152,7 @@ class DcdMap2D(DcdMap):
         if self._count_map is None:
             print("lazy load count_err DataFrame ...", end="")
             self._count_map = self._load_or_create(
-                "count_err.hdf", create_error_df, self.map, self.glb_map
+                self.hdf_file_name, create_error_df, self.map, self.glb_map
             )
         return self._count_map
 
@@ -209,7 +208,7 @@ class DcdMap2D(DcdMap):
                 time_step, node_id
             )[value_name]
         )
-        data = data.set_index(data.index.droplevel([0, 3]))
+        data = data.set_index(data.index.droplevel([0, 3]))  # (x,y) as new index
         full_index = self.meta.grid_index_2d(real_coords=True)
         df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
         df = df.set_index(full_index)

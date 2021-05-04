@@ -5,9 +5,11 @@ import warnings
 import matplotlib.pyplot as plt
 
 from roveranalyzer.simulators.opp.configuration import Config
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
+    CountMapHdfProvider,
+)
 from roveranalyzer.simulators.opp.scave import ScaveRunConverter, ScaveTool
 from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapHdfProvider
 from roveranalyzer.utils import PathHelper
 
 
@@ -28,14 +30,13 @@ class OppDataProvider:
     """
 
     def __init__(
-            self,
-            path: PathHelper,
-            analysis_name,
-            analysis_dir=None,
-            hdf_store_name=None,
-            cfg: Config = None,
+        self,
+        path: PathHelper,
+        analysis_name,
+        analysis_dir=None,
+        hdf_store_name=None,
+        cfg: Config = None,
     ):
-        warnings.warn("provider rework", DeprecationWarning)
         self._root = path
         # output
         self._analysis_name = analysis_name
