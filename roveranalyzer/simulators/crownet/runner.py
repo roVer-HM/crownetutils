@@ -1,5 +1,4 @@
 import argparse
-import logging
 import os
 import signal
 import sys
@@ -24,13 +23,7 @@ from roveranalyzer.simulators.controller.controllerrunner import ControlRunner
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.simulators.opp.runner import OppRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
-
-if len(logging.root.handlers) == 0:
-    # set logger for dev (will be overwritten if needed)
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
-    )
+from roveranalyzer.utils import levels, logger, set_format, set_level
 
 
 # todo: split in default and simulator specific arguments
@@ -268,31 +261,21 @@ def parse_args_as_dict(args=None):
     if ns["opp_exec"] == "":
         ns["opp_exec"] = CrowNetConfig.join_home(f"crownet/src/run_crownet")
 
-    # remove existing handlers and overwrite with user settings
-    for h in logging.root.handlers:
-        logging.root.removeHandler(h)
-
     # set result dir callback based on execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
     ns["result_dir_callback"] = (
         result_dir_vadere_only if ns["vadere_only"] else result_dir_with_opp
     )
 
-    levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
     if ns["silent"]:
         level_idx = 0
     else:
         level_idx = ns["verbose"]
     if ns["create_log_file"]:
-        logging.basicConfig(
-            level=levels[level_idx],
-            format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
-            filename=f"{os.getcwd()}/runner.log",
-        )
-    else:
-        logging.basicConfig(
-            level=levels[level_idx],
-            format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
-        )
+        # TODO set filename=f"{os.getcwd()}/runner.log"
+        pass
+    set_level(levels[level_idx])
+    set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
+
     return ns
 
 
@@ -367,14 +350,15 @@ class BaseRunner:
         return self.ns["result_dir_callback"](self.ns, self.working_dir)
 
     def run(self):
-        logging.debug("execute pre hooks")
+        logger.info("execute pre hooks")
         self.pre()
-        logging.debug("execute simulation")
-        ret = self.run_simulation()
+        logger.info("execute simulation")
+        ret = self.dispatch_run()
         if ret != 0:
             raise RuntimeError("Error in Simulation")
-        logging.debug("execute post hooks")
+        logger.info("execute post hooks")
         self.post()
+        logger.info("done")
 
     def sort_processing(self, ptype, method_list):
 
@@ -522,81 +506,6 @@ class BaseRunner:
         else:
             raise ValueError("Control file not set.")
 
-    def run_simulation(self):
-
-        if self.is_controlled():
-            return self.run_simulation_controlled()
-        else:
-            return self.run_simulation_uncontrolled()
-
-    def run_simulation_controlled(self):
-        if self.is_control_vadere_directly():
-            ret = self.run_simulation_vadere_ctl_only()
-        else:
-            ret = self.run_simulation_vadere_omnet_ctl()
-
-        return ret
-
-    def run_simulation_vadere_ctl_only(self):
-
-        ret = 255
-        logging.info(
-            "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
-        )
-
-        output_dir = os.path.join(
-            os.getcwd(),
-            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
-        )
-        os.makedirs(output_dir, exist_ok=True)
-
-        self.build_control_runner()
-
-        try:
-            if self.ns["create_vadere_container"]:
-                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
-                logging.info(f"start simulation {self.ns['run_name']} ...")
-
-            ret_control, control_container = self.exec_control_runner(mode="client")
-
-            ret = 0  # all good if we reached this.
-            if self.vadere_runner is not None:
-                try:
-                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
-
-                except ReadTimeout:
-                    logging.error(
-                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
-                    )
-                    ret = 255
-
-        except RuntimeError as cErr:
-            logging.error(cErr)
-            ret = 255
-
-        except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
-            ret = 128 + signal.SIGINT
-            raise
-
-        finally:
-            # always stop container and delete if no error occurred
-            err_state = ret != 0
-            logging.debug(f"cleanup with ret={ret}")
-
-            if self.vadere_runner is not None:
-                self.vadere_runner.container_cleanup(has_error_state=err_state)
-
-            self.control_runner.container_cleanup(has_error_state=err_state)
-
-        return ret
-
-    def run_simulation_uncontrolled(self):
-        if self.ns["vadere_only"]:
-            return self.run_vadere()
-        else:
-            return self.run_simulation_uncontrolled_crownet()
-
     def build_and_start_vadere_only(self, port=None):
 
         if port is None:
@@ -631,27 +540,58 @@ class BaseRunner:
             scenario_file=self.ns["scenario_file"], output_path=self.result_base_dir()
         )
 
+    @staticmethod
+    def wait_for_file(filepath, timeout_sec=120):
+        sec = 0
+        while not os.path.exists(filepath):
+            time.sleep(1)
+            sec += 1
+            if sec >= timeout_sec:
+                raise TimeoutError(f"Timeout reached while waiting for {filepath}")
+        return filepath
+
+    def dispatch_run(self):
+
+        if self.is_controlled():
+            return self.run_simulation_controlled()
+        else:
+            return self.run_simulation_uncontrolled()
+
+    def run_simulation_controlled(self):
+        if self.is_control_vadere_directly():
+            ret = self.run_simulation_vadere_ctl_only()
+        else:
+            ret = self.run_simulation_vadere_omnet_ctl()
+
+        return ret
+
+    def run_simulation_uncontrolled(self):
+        if self.ns["vadere_only"]:
+            return self.run_vadere()
+        else:
+            return self.run_simulation_uncontrolled_crownet()
+
     def run_vadere(self):
 
         ret = 255
-        logging.info("Run vadere in container")
+        logger.info("Run vadere in container")
 
         try:
             self.build_and_start_vadere_only()
             ret = 0  # all good if we reached this.
 
         except RuntimeError as cErr:
-            logging.error(cErr)
+            logger.error(cErr)
             ret = 255
         except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
 
         finally:
             # always stop container and delete if no error occurred
             err_state = ret
-            logging.debug(f"cleanup with ret={ret}")
+            logger.debug(f"cleanup with ret={ret}")
 
             # TODO: does not work
 
@@ -674,54 +614,45 @@ class BaseRunner:
                 self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
 
             # start OMNeT++ container and attach to it.
-            logging.info(f"start simulation {self.ns['run_name']} ...")
-            self.opp_runner.exec_opp_run(
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
                 arg_list=self.ns["opp_args"],
                 result_dir=self.ns["result_dir"],
                 experiment_label=self.ns["experiment_label"],
                 run_args_override={},
             )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
 
-            ret = 0  # all good if we reached this.
             if self.vadere_runner is not None:
                 try:
                     self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
-                    self.vadere_runner.parse_log()
                 except ReadTimeout:
-                    logging.error(
+                    logger.error(
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
                     )
                     ret = 255
 
         except RuntimeError as cErr:
-            logging.error(cErr)
+            logger.error(cErr)
             ret = 255
         except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
         finally:
             # always stop container and delete if no error occurred
             err_state = ret != 0
-            logging.debug(f"cleanup with ret={ret}")
+            logger.debug(f"cleanup with ret={ret}")
             if self.vadere_runner is not None:
                 self.vadere_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
-    @staticmethod
-    def wait_for_file(filepath, timeout_sec=120):
-        sec = 0
-        while not os.path.exists(filepath):
-            time.sleep(1)
-            sec += 1
-            if sec >= timeout_sec:
-                raise TimeoutError(f"Timeout reached while waiting for {filepath}")
-        return filepath
-
     def run_simulation_vadere_omnet_ctl(self):
 
-        logging.info(
+        logger.info(
             "Control vadere with omnetpp. Client 1: omnet, server 1: vadere, port: 9998, Client 2: omnet, server 2: controller, port: 9997"
         )
 
@@ -739,21 +670,22 @@ class BaseRunner:
                 self.ns["opp_args"].add(f"--flow-host={self.control_runner.name}")
 
             # start OMNeT++ container and attach to it.
-            logging.info(f"start simulation {self.ns['run_name']} ...")
-            self.opp_runner.exec_opp_run(
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
                 arg_list=self.ns["opp_args"],
                 result_dir=self.ns["result_dir"],
                 experiment_label=self.ns["experiment_label"],
                 run_args_override={},
             )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
 
-            ret = 0  # all good if we reached this.
             if self.vadere_runner is not None:
                 try:
                     self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
-                    self.vadere_runner.parse_log()
                 except ReadTimeout:
-                    logging.error(
+                    logger.error(
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
                     )
                     ret = 255
@@ -762,27 +694,78 @@ class BaseRunner:
                     self.control_runner.container.wait(
                         timeout=self.ns["v_wait_timeout"]
                     )
-                    self.control_runner.parse_log()
                 except ReadTimeout:
-                    logging.error(
+                    logger.error(
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for controler container to finished"
                     )
                     ret = 255
 
         except RuntimeError as cErr:
-            logging.error(cErr)
+            logger.error(cErr)
             ret = 255
         except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
         finally:
             # always stop container and delete if no error occurred
             err_state = ret != 0
-            logging.debug(f"cleanup with ret={ret}")
+            logger.debug(f"cleanup with ret={ret}")
             if self.vadere_runner is not None:
                 self.vadere_runner.container_cleanup(has_error_state=err_state)
+            if self.control_runner is not None:
+                self.control_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
+        return ret
+
+    def run_simulation_vadere_ctl_only(self):
+
+        ret = 255
+        logger.info(
+            "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
+        )
+
+        output_dir = os.path.join(
+            os.getcwd(),
+            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
+        )
+        os.makedirs(output_dir, exist_ok=True)
+
+        self.build_control_runner()
+
+        try:
+            if self.ns["create_vadere_container"]:
+                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
+                logger.info(f"start simulation {self.ns['run_name']} ...")
+
+            ctl_ret = self.exec_control_runner(mode="client")
+            ret = ctl_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"Control container exited with StatusCode '{ret}'")
+
+            if self.vadere_runner is not None:
+                try:
+                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
+                except ReadTimeout:
+                    logger.error(
+                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
+                    )
+                    ret = 255
+        except RuntimeError as cErr:
+            logger.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logger.debug(f"cleanup with ret={ret}")
+            if self.vadere_runner is not None:
+                self.vadere_runner.container_cleanup(has_error_state=err_state)
+            if self.control_runner is not None:
+                self.control_runner.container_cleanup(has_error_state=err_state)
         return ret
 
 

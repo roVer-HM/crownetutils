@@ -1,4 +1,3 @@
-import logging
 import os
 
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -6,6 +5,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.utils import logger
 
 
 class ControlRunner(DockerRunner):
@@ -81,4 +81,6 @@ class ControlRunner(DockerRunner):
         if connection_mode == "client":
             cmd.extend(["--client-mode"])
 
+        logger.debug(f"start controller container(start_controller)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, self.run_args)

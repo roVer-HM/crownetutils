@@ -7,6 +7,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
 )
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
+from roveranalyzer.utils import logger
 
 
 class OppRunner(DockerRunner):
@@ -89,4 +90,6 @@ class OppRunner(DockerRunner):
         _arg.add(f"--experiment-label={experiment_label}")
         _arg.add(self.run_cmd, pos=0)
 
+        logger.debug(f"start omnett++ container(exec_opp_run)")
+        logger.debug(f"cmd: {_arg.to_string()}")
         return self.run(_arg.to_string(), **run_args_override)

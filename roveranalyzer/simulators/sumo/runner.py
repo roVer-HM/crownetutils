@@ -1,4 +1,3 @@
-import logging
 import os
 
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -6,6 +5,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.utils import logger
 
 
 class SumoRunner(DockerRunner):
@@ -63,10 +63,11 @@ class SumoRunner(DockerRunner):
             "--quit-on-end",
         ]
 
-        logging.debug(f"exec_single_server cmd: {cmd}")
         if run_args_override is None:
             run_args_override = {}
 
+        logger.debug(f"start sumo container(single server)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, **run_args_override)
 
     def exec_start_vadere_laucher(self):
