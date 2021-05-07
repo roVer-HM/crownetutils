@@ -54,6 +54,7 @@ class OppDataProvider:
         _hdf_store_name = hdf_store_name
         if _hdf_store_name is None:
             _hdf_store_name = f"{analysis_name}{Suffix.HDF}"
+        # FIXME: why specific CountMapHdfProvider provider?
         self._hdf_store = CountMapHdfProvider(
             self._root.join(self._analysis_dir, _hdf_store_name)
         )
