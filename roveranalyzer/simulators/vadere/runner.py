@@ -1,4 +1,3 @@
-import logging
 import os
 
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -6,6 +5,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.utils import logger
 
 
 class VadereRunner(DockerRunner):
@@ -87,10 +87,11 @@ class VadereRunner(DockerRunner):
         if output_dir != None:
             cmd.extend(["--output-dir", output_dir])
 
-        logging.debug(f"exec_single_server cmd: {cmd}")
         if run_args_override is None:
             run_args_override = {}
 
+        logger.debug(f"start vadere container(single server)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, **run_args_override)
 
     def exec_vadere_only(self, scenario_file, output_path, run_args_override=None):
@@ -106,10 +107,11 @@ class VadereRunner(DockerRunner):
             output_path,
         ]
 
-        logging.debug(f"run cmd: {cmd}")
         if run_args_override is None:
             run_args_override = {}
 
+        logger.debug(f"start vadere container(exec_vadere_only")
+        logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, **run_args_override)
 
     def exec_start_vadere_laucher(self):

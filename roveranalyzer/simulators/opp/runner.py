@@ -1,12 +1,13 @@
 import os
-import subprocess
 
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
+from roveranalyzer.utils import logger
 
 
 class OppRunner(DockerRunner):
@@ -20,7 +21,7 @@ class OppRunner(DockerRunner):
         reuse_policy=DockerReuse.REMOVE_STOPPED,
         detach=False,
         journal_tag="",
-        debug=False,
+        run_cmd="CROWNET",
     ):
         super().__init__(
             image=image,
@@ -32,19 +33,17 @@ class OppRunner(DockerRunner):
             detach=detach,
             journal_tag=journal_tag,
         )
-        if debug:
-            self.run_cmd = "opp_run_dbg"
+        if len(os.path.split(run_cmd)[0]) == 0 and "CROWNET" in run_cmd:
+            # run_cmd only contains executable without path. Assume default location
+            self.run_cmd = CrowNetConfig.join_home(f"crownet/src/{run_cmd}")
         else:
-            self.run_cmd = "opp_run"
+            self.run_cmd = run_cmd
 
     def _apply_default_environment(self):
         super()._apply_default_environment()
-        nedpath = (
-            subprocess.check_output(f"{os.environ['CROWNET_HOME']}/scripts/nedpath")
-            .decode("utf-8")
-            .strip()
-        )
-        self.environment["NEDPATH"] = nedpath
+
+    def set_run_args(self, run_args=None):
+        super().set_run_args()
 
     @staticmethod
     def __build_base_opp_run(base_cmd):
@@ -54,7 +53,7 @@ class OppRunner(DockerRunner):
             cmd = base_cmd
         cmd.extend(["-u", "Cmdenv"])
         cmd.extend(["-l", CrowNetConfig.join_home("inet4/src/INET")])
-        cmd.extend(["-l", CrowNetConfig.join_home("crownet/src/CROWNET")])
+        # cmd.extend(["-l", CrowNetConfig.join_home("crownet/src/CROWNET")])
         cmd.extend(["-l", CrowNetConfig.join_home("simulte/src/lte")])
         cmd.extend(["-l", CrowNetConfig.join_home("veins/src/veins")])
         cmd.extend(
@@ -65,67 +64,32 @@ class OppRunner(DockerRunner):
         )
         return cmd
 
-    def exec_opp_run_details(
-        self,
-        opp_ini="omnetpp.ini",
-        config="final",
-        result_dir="results",
-        experiment_label="out",
-        run_args_override=None,
-        **kwargs,
+    @staticmethod
+    def create_arg_list(
+        base_args: ArgList,
+        result_dir,
+        experiment_label,
     ):
-        cmd = self.__build_base_opp_run(self.run_cmd)
-        cmd.extend(["-c", config])
-        if experiment_label is not None:
-            cmd.extend([f"--experiment-label={experiment_label}"])
-        cmd.extend([f"--result-dir={result_dir}"])
-        cmd.extend(["-q", "rundetails"])
-        cmd.append(opp_ini)
-
-        return self.run(cmd, **run_args_override)
-
-    def exec_opp_run_all(
-        self,
-        opp_ini="omnetpp.ini",
-        config="final",
-        result_dir="results",
-        experiment_label="out",
-        jobs=-1,
-        run_args_override=None,
-    ):
-        cmd = ["opp_run_all"]
-        if jobs > 0:
-            cmd.extend(["-j", jobs])
-        cmd = self.__build_base_opp_run(cmd)
-        cmd.extend(["-c", config])
-        if experiment_label is not None:
-            cmd.extend([f"--experiment-label={experiment_label}"])
-        cmd.extend([f"--result-dir={result_dir}"])
-        cmd.append(opp_ini)
-
-        return self.run(cmd, **run_args_override)
+        _arg = ArgList.from_list(base_args.data)
+        _arg.add(f"--result-dir={result_dir}")
+        _arg.add(f"--experiment-label={experiment_label}")
+        return _arg
 
     def exec_opp_run(
         self,
-        opp_ini="omnetpp.ini",
-        config="final",
-        result_dir="results",
-        experiment_label="out",
+        arg_list: ArgList,
+        result_dir,
+        experiment_label,
         run_args_override=None,
-        **kwargs,
     ):
         """
         Execute opp_run in container.
         """
-        cmd = self.run_cmd
-        cmd = self.__build_base_opp_run(cmd)
-        cmd.extend(["-c", config])
-        if experiment_label is not None:
-            cmd.extend([f"--experiment-label={experiment_label}"])
-        cmd.extend([f"--result-dir={result_dir}"])
-        cmd.append(opp_ini)
+        _arg = ArgList.from_list(arg_list.data)
+        _arg.add(f"--result-dir={result_dir}")
+        _arg.add(f"--experiment-label={experiment_label}")
+        _arg.add(self.run_cmd, pos=0)
 
-        return self.run(cmd, **run_args_override)
-
-    def set_run_args(self, run_args=None):
-        super().set_run_args()
+        logger.debug(f"start omnett++ container(exec_opp_run)")
+        logger.debug(f"cmd: {_arg.to_string()}")
+        return self.run(_arg.to_string(), **run_args_override)

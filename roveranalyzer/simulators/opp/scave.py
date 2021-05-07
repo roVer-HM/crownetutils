@@ -1,6 +1,5 @@
 import glob
 import io
-import logging
 import os
 import pprint as pp
 import signal
@@ -12,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from roveranalyzer.simulators.opp.configuration import Config
-from roveranalyzer.utils import Timer
+from roveranalyzer.utils import Timer, logger
 
 
 class ScaveData:
@@ -358,7 +357,7 @@ class ScaveTool:
         print(" ".join(cmd))
         stdout, stderr = self.read_stdout(cmd, encoding="")
         if stdout == b"":
-            logging.error("error executing scavetool")
+            logger.error("error executing scavetool")
             print(str(stderr, encoding="utf8"))
             return pd.DataFrame()
 
@@ -413,7 +412,7 @@ class ScaveTool:
             raise ValueError("no opp input files selected.")
 
         log = "\n".join(opp_result_files)
-        logging.info(f"found *.vec and *.sca:\n {log}")
+        logger.info(f"found *.vec and *.sca:\n {log}")
         if print_selected_files:
             print("selected files:")
             for f in opp_result_files:
@@ -479,7 +478,7 @@ class ScaveTool:
             else:
                 return out, err
         except subprocess.TimeoutExpired:
-            logging.error("Timout reached")
+            logger.error("Timout reached")
             scave_cmd.kill()
             return b"", io.StringIO("timeout reached")
 
@@ -497,25 +496,25 @@ class ScaveTool:
         try:
             scave_cmd.wait()
             if scave_cmd.returncode != 0:
-                logging.error(f"return code was {scave_cmd.returncode}")
-                logging.error("command:")
-                logging.error(f"{pp.pprint(cmd)}")
+                logger.error(f"return code was {scave_cmd.returncode}")
+                logger.error("command:")
+                logger.error(f"{pp.pprint(cmd)}")
                 print(scave_cmd.stdout.read().decode("utf-8"))
                 print(scave_cmd.stderr.read().decode("utf-8"))
 
             else:
-                logging.info(f"return code was {scave_cmd.returncode}")
+                logger.info(f"return code was {scave_cmd.returncode}")
                 print(scave_cmd.stdout.read().decode("utf-8"))
 
         except subprocess.TimeoutExpired:
-            logging.info(f"scavetool timeout reached. Kill it")
+            logger.info(f"scavetool timeout reached. Kill it")
             os.kill(scave_cmd.pid, signal.SIGKILL)
             time.sleep(0.5)
             if scave_cmd.returncode is None:
-                logging.error("scavetool still not dead after SIGKILL")
+                logger.error("scavetool still not dead after SIGKILL")
                 raise
 
-        logging.info(f"return code: {scave_cmd.returncode}")
+        logger.info(f"return code: {scave_cmd.returncode}")
 
 
 class ScaveConverter:

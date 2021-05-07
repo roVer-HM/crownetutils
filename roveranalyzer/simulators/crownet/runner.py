@@ -1,27 +1,34 @@
 import argparse
-import logging
 import os
 import signal
+import sys
 import time
 from datetime import datetime
 
 import docker
 from requests.exceptions import ReadTimeout
 
-from roveranalyzer.dockerrunner.dockerrunner import DockerCleanup, DockerReuse
+from roveranalyzer.dockerrunner.dockerrunner import (
+    ContainerLogWriter,
+    DockerCleanup,
+    DockerReuse,
+)
+from roveranalyzer.entrypoint.parser import (
+    ArgList,
+    SimulationArgAction,
+    SubstituteAction,
+    filter_options,
+)
 from roveranalyzer.simulators.controller.controllerrunner import ControlRunner
+from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.simulators.opp.runner import OppRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
+from roveranalyzer.utils import levels, logger, set_format, set_level
 
-if len(logging.root.handlers) == 0:
-    # set logger for dev (will be overwritten if needed)
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
-    )
 
 # todo: split in default and simulator specific arguments
 def parse_args_as_dict(args=None):
+    _args = sys.argv[1:] if args is None else args
 
     # parse arguments
     parser = argparse.ArgumentParser()
@@ -35,16 +42,6 @@ def parse_args_as_dict(args=None):
         help="specify preprocessing methods",
         type=str,
     )
-
-    parser.add_argument(
-        "-i",
-        "--ini-file",
-        dest="opp_ini",
-        default="omnetpp.ini",
-        required=False,
-        help="Ini-file for simulation. Default: omnetpp.ini",
-    )
-
     parser.add_argument(
         "-sf",
         "--scenario-file",
@@ -53,37 +50,66 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Scenario-file *.scenario for Vadere simulation.",
     )
-
-    parser.add_argument(
-        "-c",
-        "--config",
-        dest="config",
-        default="final",
-        required=False,
-        help="Config to simulation. Default: final",
-    )
     parser.add_argument(
         "--resultdir",
         dest="result_dir",
         default="results",
         required=False,
-        help="Result directory. Default: results",
+        help="Base result directory used by all containers. Default: results",
     )
     parser.add_argument(
-        "--experiment-label",
-        dest="experiment_label",
-        default="out",
-        required=False,
-        help="experiment-label used in the result path. Default: out",
-    )
-    parser.add_argument(
-        "--use-timestep-label",
-        dest="use_timestep_label",
+        "--write-container-log",
+        dest="write_container_log",
         default=False,
         required=False,
         action="store_true",
-        help="Use current timestamp (sanitized ISO-Format). If this is given '--experiment-label' will be ignored. "
-        "Default: False",
+        help="If true save output of containers in result dir <result>/container_<name>.out ",
+    )
+    parser.add_argument(
+        "--opp-exec",
+        dest="opp_exec",
+        default="",
+        help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
+        "Use --opp. prefix to specify arguments to pass to the "
+        "given executable.",
+    )
+
+    parser.add_argument(
+        "--opp.xxx",
+        *filter_options(_args, "--opp."),
+        dest="opp_args",
+        default=ArgList.from_list(
+            [["-f", "omnetpp.ini"], ["-u", "Cmdenv"], ["-c", "final"]]
+        ),
+        action=SimulationArgAction,
+        prefix="--opp.",
+        help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable. "
+        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
+    )
+
+    parser.add_argument(
+        "--experiment-label",
+        dest="experiment_label",
+        default="timestamp",
+        action=SubstituteAction,
+        do_on=["timestamp"],
+        sub_action=lambda x: datetime.now()
+        .isoformat()
+        .replace("-", "")
+        .replace(":", ""),
+        required=False,
+        help="experiment-label used in the result path. Use 'timestamp' to get current sanitized ISO-Format timestamp.",
+    )
+
+    parser.add_argument(
+        "--override-host-config",
+        dest="override-host-config",
+        default=False,
+        required=False,
+        action="store_true",
+        help="If set use --run-name as container names and override TraCI config parameters set in omnetpp.ini file.",
     )
     parser.add_argument(
         "--run-name",
@@ -101,41 +127,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Delete existing (stopped) containers with the same name.",
     )
-
-    parser.add_argument(
-        "--debug",
-        dest="debug",
-        default=False,
-        required=False,
-        action="store_true",
-        help="Use opp_run_debug Default: False",
-    )
-
-    # ToDo: not possible any more.
-    parser.add_argument(
-        "--run-all",
-        dest="run_all",
-        default=False,
-        required=False,
-        action="store_true",
-        help="Use OMNeT++ internal parameter variation. Not compatible with --debug. Default: False",
-    )
-    parser.add_argument(
-        "-j",
-        "--jobs",
-        dest="jobs",
-        default=-1,
-        required=False,
-        help="In conjunction with --run-all. Set number of parallel executions. Default: Number of Cores.",
-    )
-    parser.add_argument(
-        "--log-journald",
-        dest="log_journald",
-        action="store_true",
-        default=True,
-        required=False,
-    )
-
     parser.add_argument(
         "--cleanup-policy",
         dest="cleanup_policy",
@@ -145,7 +136,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="select what to do with container that are done.",
     )
-
     parser.add_argument(
         "--reuse-policy",
         dest="reuse_policy",
@@ -155,16 +145,14 @@ def parse_args_as_dict(args=None):
         required=False,
         help="select policy to reuse or remove existing running or stopped containers.",
     )
-
     parser.add_argument(
         "--create-log-file",
         dest="create_log_file",
         action="store_true",
         default=False,
         required=False,
-        help="Redirect log messages to Logfile at script location.",
+        help="Redirect log messages to Logfile at script location (this script not containers).",
     )
-
     parser.add_argument(
         "--create-vadere-container",
         dest="create_vadere_container",
@@ -173,7 +161,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
     )
-
     parser.add_argument(
         "--verbose",
         "-v",
@@ -182,7 +169,6 @@ def parse_args_as_dict(args=None):
         default=0,
         help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
     )
-
     parser.add_argument(
         "--silent",
         "-s",
@@ -192,7 +178,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="No output is generated. Only fatal errors leading to non zero exit codes.",
     )
-
     parser.add_argument(
         "--v.wait-timeout",
         dest="v_wait_timeout",
@@ -200,7 +185,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Time to wait for vadere container to close after OMNeT++ container has finished. Default=360s",
     )
-
     parser.add_argument(
         "--v.traci-port",
         dest="v_traci_port",
@@ -208,7 +192,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Set TraCI Port in Vadere container. (Default: 9998)",
     )
-
     parser.add_argument(
         "--vadere-tag",
         dest="vadere_tag",
@@ -216,7 +199,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Vadere container. (Default: latest)",
     )
-
     parser.add_argument(
         "--omnet-tag",
         dest="omnet_tag",
@@ -224,7 +206,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Omnet container. (Default: latest)",
     )
-
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
@@ -232,7 +213,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Control container. (Default: latest)",
     )
-
     parser.add_argument(
         "--v.loglevel",
         dest="v_loglevel",
@@ -240,7 +220,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
     )
-
     parser.add_argument(
         "--v.logfile",
         dest="v_logfile",
@@ -249,7 +228,6 @@ def parse_args_as_dict(args=None):
         help="Set log file name of Vadere. If not set '', log file will not be created. "
         "This setting has no effect on --log-journald. (Default: '') ",
     )
-
     parser.add_argument(
         "-wc",
         "--with-control",
@@ -258,7 +236,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose file that contains control strategy. (Default: '')",
     )
-
     parser.add_argument(
         "--control-vadere-only",
         dest="control_vadere_only",
@@ -267,7 +244,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set the control action is applied without omnetpp. Direct information dissemination without delay.",
     )
-
     parser.add_argument(
         "--vadere-only",
         dest="vadere_only",
@@ -276,38 +252,56 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set run Vadere in container without omnetpp or control.",
     )
-
     if args is None:
         ns = vars(parser.parse_args())
     else:
         ns = vars(parser.parse_args(args))
 
-    if ns["use_timestep_label"]:
-        ns["experiment_label"] = (
-            datetime.now().isoformat().replace("-", "").replace(":", "")
-        )
+    # set default executable based on $CRWNET_HOME variable
+    if ns["opp_exec"] == "":
+        ns["opp_exec"] = CrowNetConfig.join_home(f"crownet/src/run_crownet")
 
-    # remove existing handlers and overwrite with user settings
-    for h in logging.root.handlers:
-        logging.root.removeHandler(h)
+    # set result dir callback based on execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
+    ns["result_dir_callback"] = (
+        result_dir_vadere_only if ns["vadere_only"] else result_dir_with_opp
+    )
 
-    levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
     if ns["silent"]:
         level_idx = 0
     else:
         level_idx = ns["verbose"]
     if ns["create_log_file"]:
-        logging.basicConfig(
-            level=levels[level_idx],
-            format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
-            filename=f"{os.getcwd()}/runner.log",
+        # TODO set filename=f"{os.getcwd()}/runner.log"
+        pass
+    set_level(levels[level_idx])
+    set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
+
+    return ns
+
+
+def result_dir_with_opp(ns, working_dir):
+    """
+    set result dir based on OMNeT++
+    """
+    config = ns["opp_args"].get_value("-c")
+    if os.path.abspath(ns["result_dir"]):
+        return os.path.join(
+            ns["result_dir"],
+            f"{config}_{ns['experiment_label']}",
         )
     else:
-        logging.basicConfig(
-            level=levels[level_idx],
-            format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
+        return os.path.join(
+            working_dir,
+            ns["result_dir"],
+            f"{config}_{ns['experiment_label']}",
         )
-    return ns
+
+
+def result_dir_vadere_only(ns, working_dir):
+    if os.path.abspath(ns["result_dir"]):
+        return ns["result_dir"]
+    else:
+        return os.path.join(working_dir, ns["result_dir"])
 
 
 class process_as:
@@ -349,15 +343,22 @@ class BaseRunner:
                 except AttributeError:
                     continue
 
+    def result_base_dir(self):
+        """
+        get correct result dir independently of execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
+        """
+        return self.ns["result_dir_callback"](self.ns, self.working_dir)
+
     def run(self):
-        logging.debug("execute pre hooks")
+        logger.info("execute pre hooks")
         self.pre()
-        logging.debug("execute simulation")
-        ret = self.run_simulation()
+        logger.info("execute simulation")
+        ret = self.dispatch_run()
         if ret != 0:
             raise RuntimeError("Error in Simulation")
-        logging.debug("execute post hooks")
+        logger.info("execute post hooks")
         self.post()
+        logger.info("done")
 
     def sort_processing(self, ptype, method_list):
 
@@ -397,10 +398,14 @@ class BaseRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
-            debug=self.ns["debug"],
+            run_cmd=self.ns["opp_exec"],
         )
         self.opp_runner.apply_reuse_policy()
         self.opp_runner.set_working_dir(self.working_dir)
+        if self.ns["write_container_log"]:
+            self.opp_runner.set_log_callback(
+                ContainerLogWriter(f"{self.result_base_dir()}/container_opp.out")
+            )
 
     def build_and_start_control_runner(self, port=9997):
         self.build_control_runner(detach=True)
@@ -423,6 +428,10 @@ class BaseRunner:
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
+        if self.ns["write_container_log"]:
+            self.vadere_runner.set_log_callback(
+                ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
+            )
 
         logfile = os.devnull
         if self.ns["v_logfile"] != "":
@@ -449,6 +458,10 @@ class BaseRunner:
             journal_tag=f"control_{run_name}",
         )
         self.control_runner.apply_reuse_policy()
+        if self.ns["write_container_log"]:
+            self.control_runner.set_log_callback(
+                ContainerLogWriter(f"{self.result_base_dir()}/container_control.out")
+            )
 
     def exec_control_runner(self, mode):
 
@@ -493,84 +506,6 @@ class BaseRunner:
         else:
             raise ValueError("Control file not set.")
 
-    def run_simulation(self):
-
-        if self.is_controlled():
-            return self.run_simulation_controlled()
-        else:
-            return self.run_simulation_uncontrolled()
-
-    def run_simulation_controlled(self):
-
-        if self.is_control_vadere_directly():
-            ret = self.run_simulation_vadere_ctl_only()
-        else:
-            ret = self.run_simulation_vadere_omnet_ctl()
-
-        return ret
-
-    def run_simulation_vadere_ctl_only(self):
-
-        ret = 255
-        logging.info(
-            "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
-        )
-
-        output_dir = os.path.join(
-            os.getcwd(),
-            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
-        )
-        os.makedirs(output_dir, exist_ok=True)
-
-        self.build_control_runner()
-
-        try:
-            if self.ns["create_vadere_container"]:
-
-                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
-                logging.info(f"start simulation {self.ns['run_name']} ...")
-
-            ret_control, control_container = self.exec_control_runner(mode="client")
-
-            ret = 0  # all good if we reached this.
-            if self.vadere_runner is not None:
-                try:
-                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
-
-                except ReadTimeout:
-                    logging.error(
-                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
-                    )
-                    ret = 255
-
-        except RuntimeError as cErr:
-            logging.error(cErr)
-            ret = 255
-
-        except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
-            ret = 128 + signal.SIGINT
-            raise
-
-        finally:
-            # always stop container and delete if no error occurred
-            err_state = ret != 0
-            logging.debug(f"cleanup with ret={ret}")
-
-            if self.vadere_runner is not None:
-                self.vadere_runner.container_cleanup(has_error_state=err_state)
-
-            self.control_runner.container_cleanup(has_error_state=err_state)
-
-        return ret
-
-    def run_simulation_uncontrolled(self):
-
-        if self.ns["vadere_only"]:
-            return self.run_vadere()
-        else:
-            return self.run_simulation_uncontrolled_crownet()
-
     def build_and_start_vadere_only(self, port=None):
 
         if port is None:
@@ -588,43 +523,75 @@ class BaseRunner:
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
+        if self.ns["write_container_log"]:
+            self.vadere_runner.set_log_callback(
+                ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
+            )
 
+        # TODO (duplicates write_container_log)
         logfile = os.devnull
         if self.ns["v_logfile"] != "":
             logfile = self.ns["v_logfile"]
 
-        result_path = os.path.join(
-            os.getcwd(), f"results/vadere_only_{self.ns['experiment_label']}/vadere.d"
-        )
-
-        os.makedirs(result_path, exist_ok=True)
+        os.makedirs(self.result_base_dir(), exist_ok=True)
 
         # start vadere container detached in the background. Will be stoped in the finally block
         self.vadere_runner.exec_vadere_only(
-            scenario_file=self.ns["scenario_file"], output_path=result_path
+            scenario_file=self.ns["scenario_file"], output_path=self.result_base_dir()
         )
+
+    @staticmethod
+    def wait_for_file(filepath, timeout_sec=120):
+        sec = 0
+        while not os.path.exists(filepath):
+            time.sleep(1)
+            sec += 1
+            if sec >= timeout_sec:
+                raise TimeoutError(f"Timeout reached while waiting for {filepath}")
+        return filepath
+
+    def dispatch_run(self):
+
+        if self.is_controlled():
+            return self.run_simulation_controlled()
+        else:
+            return self.run_simulation_uncontrolled()
+
+    def run_simulation_controlled(self):
+        if self.is_control_vadere_directly():
+            ret = self.run_simulation_vadere_ctl_only()
+        else:
+            ret = self.run_simulation_vadere_omnet_ctl()
+
+        return ret
+
+    def run_simulation_uncontrolled(self):
+        if self.ns["vadere_only"]:
+            return self.run_vadere()
+        else:
+            return self.run_simulation_uncontrolled_crownet()
 
     def run_vadere(self):
 
         ret = 255
-        logging.info("Run vadere in container")
+        logger.info("Run vadere in container")
 
         try:
             self.build_and_start_vadere_only()
             ret = 0  # all good if we reached this.
 
         except RuntimeError as cErr:
-            logging.error(cErr)
+            logger.error(cErr)
             ret = 255
         except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
 
         finally:
             # always stop container and delete if no error occurred
             err_state = ret
-            logging.debug(f"cleanup with ret={ret}")
+            logger.debug(f"cleanup with ret={ret}")
 
             # TODO: does not work
 
@@ -640,66 +607,52 @@ class BaseRunner:
         self.build_opp_runer()
 
         try:
-
             if self.ns["create_vadere_container"]:
                 self.build_and_start_vadere_runner()
 
-            # start OMNeT++ container and attach to it.
-            logging.info(f"start simulation {self.ns['run_name']} ...")
-            ret_opp, opp_container = self.opp_runner.exec_opp_run(
-                **self.ns, run_args_override={}
-            )
+            if self.ns["override-host-config"]:
+                self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
 
-            ret = 0  # all good if we reached this.
+            # start OMNeT++ container and attach to it.
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
+                arg_list=self.ns["opp_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=self.ns["experiment_label"],
+                run_args_override={},
+            )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
+
             if self.vadere_runner is not None:
                 try:
                     self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
                 except ReadTimeout:
-                    logging.error(
+                    logger.error(
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
                     )
                     ret = 255
 
         except RuntimeError as cErr:
-            logging.error(cErr)
+            logger.error(cErr)
             ret = 255
         except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
         finally:
             # always stop container and delete if no error occurred
             err_state = ret != 0
-            logging.debug(f"cleanup with ret={ret}")
+            logger.debug(f"cleanup with ret={ret}")
             if self.vadere_runner is not None:
                 self.vadere_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
-    def result_base_dir(self):
-        """
-        returns base path for output. Structure is based on OMNeT++ default.
-        ${resultdir}/${configname}_${experiment}/.....
-        """
-        return os.path.join(
-            self.working_dir,
-            self.ns["result_dir"],
-            f"{self.ns['config']}_{self.ns['experiment_label']}",
-        )
-
-    @staticmethod
-    def wait_for_file(filepath, timeout_sec=120):
-        sec = 0
-        while not os.path.exists(filepath):
-            time.sleep(1)
-            sec += 1
-            if sec >= timeout_sec:
-                raise TimeoutError(f"Timeout reached while waiting for {filepath}")
-        return filepath
-
     def run_simulation_vadere_omnet_ctl(self):
 
-        logging.info(
+        logger.info(
             "Control vadere with omnetpp. Client 1: omnet, server 1: vadere, port: 9998, Client 2: omnet, server 2: controller, port: 9997"
         )
 
@@ -712,40 +665,110 @@ class BaseRunner:
 
             self.build_and_start_control_runner()
 
-            # start OMNeT++ container and attach to it.
-            logging.info(f"start simulation {self.ns['run_name']} ...")
-            ret_opp, opp_container = self.opp_runner.exec_opp_run(
-                **self.ns, run_args_override={}
-            )
+            if self.ns["override-host-config"]:
+                self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
+                self.ns["opp_args"].add(f"--flow-host={self.control_runner.name}")
 
-            ret = 0  # all good if we reached this.
+            # start OMNeT++ container and attach to it.
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
+                arg_list=self.ns["opp_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=self.ns["experiment_label"],
+                run_args_override={},
+            )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
+
             if self.vadere_runner is not None:
                 try:
                     self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
                 except ReadTimeout:
-                    logging.error(
+                    logger.error(
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
+                    )
+                    ret = 255
+            if self.control_runner is not None:
+                try:
+                    self.control_runner.container.wait(
+                        timeout=self.ns["v_wait_timeout"]
+                    )
+                except ReadTimeout:
+                    logger.error(
+                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for controler container to finished"
                     )
                     ret = 255
 
         except RuntimeError as cErr:
-            logging.error(cErr)
+            logger.error(cErr)
             ret = 255
         except KeyboardInterrupt as K:
-            logging.info("KeyboardInterrupt detected. Shutdown. ")
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
         finally:
             # always stop container and delete if no error occurred
             err_state = ret != 0
-            logging.debug(f"cleanup with ret={ret}")
+            logger.debug(f"cleanup with ret={ret}")
             if self.vadere_runner is not None:
                 self.vadere_runner.container_cleanup(has_error_state=err_state)
+            if self.control_runner is not None:
+                self.control_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
+        return ret
+
+    def run_simulation_vadere_ctl_only(self):
+
+        ret = 255
+        logger.info(
+            "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
+        )
+
+        output_dir = os.path.join(
+            os.getcwd(),
+            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
+        )
+        os.makedirs(output_dir, exist_ok=True)
+
+        self.build_control_runner()
+
+        try:
+            if self.ns["create_vadere_container"]:
+                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
+                logger.info(f"start simulation {self.ns['run_name']} ...")
+
+            ctl_ret = self.exec_control_runner(mode="client")
+            ret = ctl_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"Control container exited with StatusCode '{ret}'")
+
+            if self.vadere_runner is not None:
+                try:
+                    self.vadere_runner.container.wait(timeout=self.ns["v_wait_timeout"])
+                except ReadTimeout:
+                    logger.error(
+                        f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
+                    )
+                    ret = 255
+        except RuntimeError as cErr:
+            logger.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logger.debug(f"cleanup with ret={ret}")
+            if self.vadere_runner is not None:
+                self.vadere_runner.container_cleanup(has_error_state=err_state)
+            if self.control_runner is not None:
+                self.control_runner.container_cleanup(has_error_state=err_state)
         return ret
 
 
 if __name__ == "__main__":
-
     b = BaseRunner(".")
     print("hi")

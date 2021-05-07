@@ -8,20 +8,10 @@ from roveranalyzer.dockerrunner.dockerrunner import (
 from roveranalyzer.utils import logger
 
 
-class ControlRunner(DockerRunner):
-    class LogLevel:
-        OFF = "OFF"
-        FATAL = "FATAL"
-        ERROR = "ERROR"
-        WARN = "WARN"
-        INFO = "INFO"
-        DEBUG = "DEBUG"
-        TRACE = "TRACE"
-        ALL = "ALL"
-
+class SumoRunner(DockerRunner):
     def __init__(
         self,
-        image="sam-dev.cs.hm.edu:5023/rover/crownet/flowcontrol",
+        image="sam-dev.cs.hm.edu:5023/rover/crownet/sumo",
         tag="latest",
         docker_client=None,
         name="",
@@ -53,34 +43,42 @@ class ControlRunner(DockerRunner):
         super().set_run_args()
         # add...
 
-    def start_controller(
+    def exec_single_server(
         self,
-        loglevel=LogLevel.DEBUG,
-        logfile=os.devnull,
-        run_args_override=None,
-        control_file="control.py",
-        host_name="vadere_rover_run",
-        connection_mode="client",
+        config_path,
         traci_port=9999,
-        scenario=None,
+        message_log=os.devnull,
+        run_args_override=None,
     ):
-
-        # if connection_mode == "client":
-        #     if scenario is None:
-        #         raise ("Scenario file must be provided in client mode.")
-
         cmd = [
-            "python3",
-            control_file,
-            "--port",
+            "sumo",
+            "-v",
+            "--remote-port",
             str(traci_port),
-            "--host-name",
-            host_name,
+            "--configuration-file",
+            config_path,
+            "--message-log",
+            message_log,
+            "--no-step-log",
+            "--quit-on-end",
         ]
 
-        if connection_mode == "client":
-            cmd.extend(["--client-mode"])
+        if run_args_override is None:
+            run_args_override = {}
 
-        logger.debug(f"start controller container(start_controller)")
+        logger.debug(f"start sumo container(single server)")
         logger.debug(f"cmd: {' '.join(cmd)}")
-        return self.run(cmd, self.run_args)
+        return self.run(cmd, **run_args_override)
+
+    def exec_start_vadere_laucher(self):
+        """
+        start the vadere-laucher.py script in the container which creates multiple Vadere
+        instances inside ONE container.
+        """
+        pass
+
+    def exec_vadere_gui(self):
+        """
+        start vadere gui to create or execute vadere scenarios.
+        """
+        pass
