@@ -2,13 +2,13 @@ wheel
 setuptools
 ipywidgets>=7.5.1
 docker
-matplotlib==3.3.2
+matplotlib==3.4.1
 trimesh
-tables
+tables>=3.6.1
 drawnow
 seaborn
-pandas>=1.1.5
-numpy>=1.19.4
+pandas>=1.2.4
+numpy>=1.20.2
 scikit-learn>=0.23.2
 scikit-optimize>=0.8.1,<0.9.0
 scipy
