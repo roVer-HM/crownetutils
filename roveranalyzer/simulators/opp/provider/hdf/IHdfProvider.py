@@ -39,6 +39,10 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     def group_key(self) -> str:
         return "None"
 
+    @property
+    def hdf_path(self):
+        return self._hdf_path
+
     def get_dataframe(self) -> pd.DataFrame:
         with self.ctx(mode="r") as store:
             df = store.get(key=self.group)

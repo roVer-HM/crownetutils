@@ -14,6 +14,7 @@ from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
     CountMapHdfProvider,
 )
+from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
 
@@ -38,7 +39,7 @@ class DcdMap:
         id_map,
         location_df: pd.DataFrame,
         plotter=None,
-        pickle_base_path=None,
+        data_base_dir=None,
     ):
         self.meta = m_glb
         self.node_to_id = (
@@ -57,37 +58,29 @@ class DcdMap:
             "legend": {"size": 20},
             "tick_size": 16,
         }
-        self.hdf_base_path = pickle_base_path
-        self.hdf_file_name = "count_err.hdf"
-        self.count_map_provider = CountMapHdfProvider(
-            os.path.join(self.hdf_base_path, self.hdf_file_name)
-        )
+        self.data_base_dir = data_base_dir
 
-    @property
-    def lazy_load_from_hdf(self):
-        return self.hdf_base_path is not None
-
-    def _load_or_create(self, pickle_name, create_f, *create_args):
-        """
-        Load data from hdf or create data based on :create_f:
-        """
-
-        # just load data with provided create function
-        if not self.lazy_load_from_hdf:
-            print("create from scratch (no hdf)")
-            return create_f(*create_args)
-
-        # load from hdf if exist and create if missing
-        hdf_path = os.path.join(self.hdf_base_path, pickle_name)
-        if os.path.exists(hdf_path):
-            print(f"load from hdf {hdf_path}")
-            return self.count_map_provider.get_dataframe()
-        else:
-            print("create from scratch ...", end=" ")
-            data = create_f(*create_args)
-            print(f"write to hdf {hdf_path}")
-            self.count_map_provider.write_dataframe(data)
-            return data
+    # def _load_or_create(self, pickle_name, create_f, *create_args):
+    #     """
+    #     Load data from hdf or create data based on :create_f:
+    #     """
+    #
+    #     # just load data with provided create function
+    #     if not self.lazy_load_from_hdf:
+    #         print("create from scratch (no hdf)")
+    #         return create_f(*create_args)
+    #
+    #     # load from hdf if exist and create if missing
+    #     hdf_path = os.path.join(self.hdf_base_path, pickle_name)
+    #     if os.path.exists(hdf_path):
+    #         print(f"load from hdf {hdf_path}")
+    #         return self.count_map_provider.get_dataframe()
+    #     else:
+    #         print("create from scratch ...", end=" ")
+    #         data = create_f(*create_args)
+    #         print(f"write to hdf {hdf_path}")
+    #         self.count_map_provider.write_dataframe(data)
+    #         return data
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
@@ -130,6 +123,8 @@ class DcdMap2D(DcdMap):
         self._map = map_df
         self._global_df = global_df
         self._count_map = None
+        self.hdf_file_name = "DcdMap2D.hdf"
+        self._count_map_provider = None
 
     def iter_nodes_d2d(self, first=0):
         _i = pd.IndexSlice
@@ -147,13 +142,28 @@ class DcdMap2D(DcdMap):
         return self._map
 
     @property
+    def count_map_provider(self):
+        if self._count_map_provider is None:
+            self._count_map_provider = CountMapHdfProvider(
+                os.path.join(self.data_base_dir, self.hdf_file_name)
+            )
+
+            if not self._count_map_provider.exists():
+                logger.info(f"create {self.hdf_file_name} from scratch ...")
+                data = create_error_df(self.map, self.glb_map)
+                logger.info(f"write to hdf {self._count_map_provider.hdf_path}")
+                self.count_map_provider.write_dataframe(data)
+
+        return self._count_map_provider
+
+    @property
     def count_map(self):
         # lazy load data if needed
         if self._count_map is None:
-            print("lazy load count_err DataFrame ...", end="")
-            self._count_map = self._load_or_create(
-                self.hdf_file_name, create_error_df, self.map, self.glb_map
+            logger.warning(
+                "complete count_map placed in memory. Use count_map_proivder"
             )
+            self._count_map = self.count_map_provider.get_dataframe()
         return self._count_map
 
     def all_ids(self, with_ground_truth=True):
@@ -438,8 +448,6 @@ class DcdMap2D(DcdMap):
         bins_width=2.5,
     ):
 
-        # fixme: merge all node_id's (remove pivot)
-        # ignore id
         df = self.count_map_provider.select_simtime_and_node_id_exact(
             time_step, node_id
         )[["owner_dist", value]]
