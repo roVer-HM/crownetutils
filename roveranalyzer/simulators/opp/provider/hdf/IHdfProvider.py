@@ -18,6 +18,9 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         self._hdf_path: str = hdf_path
         self._hdf_args: object = {"complevel": 9, "complib": "zlib"}
         self.group: str = self.group_key()
+        self.idx_order: {} = self.index_order()
+
+    # todo maybe getKeyList die von Kidnern implementiert wird damit man weiß welche reihenfolge die keys haben (für tuple wichtig)
 
     @contextlib.contextmanager  # to ensure store closes after access
     def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
@@ -39,6 +42,10 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     def group_key(self) -> str:
         return "None"
 
+    @abc.abstractmethod
+    def index_order(self) -> {}:
+        return {}
+
     @property
     def hdf_path(self):
         return self._hdf_path
@@ -56,6 +63,18 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         """ check for HDF store """
         return os.path.exists(self._hdf_path)
 
+    # todo Useless ?!?
+    #   def check_index_order(self, item: tuple) -> bool:
+    #       """
+    #       Checks if the given tuple is in the correct order
+    #       """
+    #       if len(item) == 0:
+    #           return False
+    #       for i in range(len(item)):
+    #           if item[i] != self.idx_order[i]:
+    #               return False
+    #       return True
+
     def _select_where(self, condition: List[str]) -> pd.DataFrame:
         with self.ctx(mode="r") as store:
             df = store.select(key=self.group, where=condition)
@@ -66,8 +85,8 @@ class IHdfProvider(metaclass=abc.ABCMeta):
 
     def _build_exact_condition(
         self, key: str, value: any, operation: str = Operation.EQ
-    ):
+    ) -> List[str]:
         if isinstance(value, List):
-            return f"ID in {value}"
+            return [f"ID in {value}"]
         else:
             return [f"{key}{operation}{str(value)}"]
