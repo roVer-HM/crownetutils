@@ -45,34 +45,25 @@ class CountMapHdfProvider(IHdfProvider):
         condition = []
         for element in values:
             condition += self.dispatch(key=key, item=element)
+        print(f"Condition: {condition}")
         return condition
 
     def handle_slice(self, key: str, value: slice) -> List[str]:
         print("handle_slice")
-        if value.step != 1 or value.step is None:
+        if value.step and value.step > 1:
             warnings.warn(
                 message=f"Step size of '{value.step}' is not supported. Step size must be '1'."
             )
-        return self._build_range_condition(key=key, _min=value.start, _max=value.stop)
+        condition = self._build_range_condition(
+            key=key, _min=value.start, _max=value.stop
+        )
+        print(f"Condition: {condition}")
+        return condition
 
     def handle_tuple(self, key: str, value: tuple) -> List[str]:
-        print("handle_tuple")
-        for idx, val in enumerate(value):
-            self.dispatch(key, val)
-            print("")
-            # idx = index
-            # value = Wert vom vom Tuple an der Stelle idx
-            # cast type of value
-            # select dispatcher
-            pass
-        # for idx, value in enumerate(t):
-        #     # idx = index
-        #     # value = Wert vom vom Tuple an der Stelle idx
-        #     # cast type of value
-        #     # select dispatcher
-        #     pass
-        return ["handle_tuple"]
-        pass
+        # because the pandas index slicer returns a tuple
+        # it has to be handled manually to pass the correct keys
+        raise NotImplementedError("Tuples can't be handled.")
 
     def dispatch(self, key, item) -> List[str]:
         item_type = type(item)
@@ -82,51 +73,33 @@ class CountMapHdfProvider(IHdfProvider):
 
     def __getitem__(self, item: any):
         # TODO: x conditions
-        #       1. p[2] -> ID (single)
-        #       2. p[0:5] -> ID (range 0-5)
-        #       3. p[slice(0,5,4)] -> ID (range 0-5)  + warning for step_size != 0
-        #       4. p[I[1,2,3,4]] -> simtime (single), x (single), y (single), ID (single)
-        #       5. p[I[1,None,None,4]] -> simtime (single), x (ignore), y (ignore), ID (single) + handle None
-        #       6. p[I[1,2]] -> simtime (single), x(single), y (ignore), ID(ignore) + fill
-        #       7. p[I[1,2,3,4,5,6,7,8]] -> to many values error
+        #       [✓] 1. p[2] -> ID (single) (✓)
+        #       [✓] 2. p[0:5] -> ID (range 0-5)
+        #       [✓] 3. p[slice(0,5,4)] -> ID (range 0-5)  + warning for step_size != 0
+        #       [✓] 4. p[I[1,2,3,4]] -> simtime (single), x (single), y (single), ID (single)
+        #       [✓] 5. p[I[1,None,None,4]] -> simtime (single), x (ignore), y (ignore), ID (single) + handle None
+        #       [✓] 6. p[I[1,2]] -> simtime (single), x(single), y (ignore), ID(ignore) + fill
+        #       [✓] 7. p[I[1,2,3,4,5,6,7,8]] -> to many values error
         if type(item) == tuple:
             print("We have a tuple over here")
-            for idx, val in enumerate(item):
-                self.dispatch(CountMapKey.ID, val)
-                # idx = index
-                # value = Wert vom vom Tuple an der Stelle idx
-                # cast type of value
-                # select dispatcher
-                pass
+            if len(item) > len(self.idx_order):
+                raise ValueError(
+                    f"To many values in tuple. Got: {len(item)} expected: <={len(self.idx_order)} "
+                )
 
-            condition = self.dispatch(CountMapKey.ID, item)
+            condition: List[str] = []
+            for idx in range(len(self.idx_order)):
+                tuple_item = item[idx] if len(item) > idx else None
+                print(f"idx[{idx}] = {tuple_item}")
+                if tuple_item:
+                    condition = condition + self.dispatch(
+                        self.idx_order[idx], tuple_item
+                    )
+            print(f"condition: {condition}")
+            return self._select_where(condition)
         else:
             condition = self.dispatch(CountMapKey.ID, item)
-            pass
-            # todo handle values without tuple (dispatch with KEY="ID")
-        # self.dispatch("ID", item)
-
-        # if isinstance(item, slice):
-        #     # ignore step
-        #     # warning on stepsize != 1
-        #     step = item.step if item.step else 1
-        #     print("IsSlice")
-        #     for i in range(item.start, item.stop, step):
-        #         print(i)
-        # elif isinstance(item, tuple):
-        #     print("IsPandasIndexSlice")
-        #     # slice = range condition
-        #     # int/float/etc = exact condition
-        #     # list = mehrere exact conditions
-        #     # None = kein Index, keine bedigung für select
-        #
-        #     for i in range(len(item)):
-        #         print(f"{i}: {item[i]}")
-        # else:
-        #     print("IsSingleValue")
-        #     condition = self._build_exact_condition(key="ID", value=item)
-        #     print(f"Condition: {condition}")
-        #     print(item)
+            return self._select_where(condition)
 
     def __setitem__(self, key, value):
         raise NotImplementedError("Not supported!")
@@ -208,14 +181,11 @@ class CountMapHdfProvider(IHdfProvider):
     def select_simtime_and_node_id_exact(
         self, simtime: int, node_id: int, operation: str = Operation.EQ
     ) -> pd.DataFrame:
-        condition: List[str] = [
-            self._build_exact_condition(
-                key=CountMapKey.SIMTIME, value=simtime, operation=operation
-            ),
-            self._build_exact_condition(
-                key=CountMapKey.ID, value=node_id, operation=operation
-            ),
-        ]
+        condition: List[str] = self._build_exact_condition(
+            key=CountMapKey.SIMTIME, value=simtime, operation=operation
+        ) + self._build_exact_condition(
+            key=CountMapKey.ID, value=node_id, operation=operation
+        )
         return self._select_where(condition=condition)
 
     #########################

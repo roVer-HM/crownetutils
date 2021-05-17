@@ -11,18 +11,22 @@ if __name__ == "__main__":
     hdf_dir = os.path.join(file_dir, "hdf_slice.hdf")
 
     provider = CountMapHdfProvider(hdf_dir)
-    # df = provider.get_dataframe()
-    # print(provider[slice(0, 5, 2)])
 
-    # delete_me_1 = provider[2]
-    # delete_me_2 = provider[0:8]
-    # [5:-5] = 5:95 # throw error not implemented
-    # delete_me_3 = provider[slice(0, 8, 2)]
-    # data = _I[0:2, [2, 4, 5], 12.0, 6.0], ["ups_error", "rel_error"] # todo maybe later
-    data = _I[0:2, [2, 4, 5], 12.0, 6.0]
-    delete_me_4 = provider[data]
-    # delete_me_3 = provider[[1,2]]
-    # delete_me_3 = provider[1:5]
-    test_tuple = {0: "simtime", 1: "x", 2: "y", 3: "ID"}
+    # resulting condition array
+    # case_1 = provider[1]  # ['ID=1']
+    # case_2 = provider[1:10]  # ['ID<=10', 'ID>=1']
+    # case_3 = provider[1, 2]  # ['simtime=1', 'x=2']
+    # case_4 = provider[1, 2, 3]  # ['simtime=1', 'x=2', 'y=3']
+    # case_5 = provider[1, 2, 3, 4]  # ['simtime=1', 'x=2', 'y=3', 'ID=4']
+    # case_6 = provider[1, 2, 3, 4, 5]  # ValueError: To many values in tuple. Got: 5 expected: <=4
+    # case_7 = provider[1:5, None, None, 1:5]  # ['simtime<=5', 'simtime>=1', 'ID<=5', 'ID>=1']
+    # case_8 = provider[_I[2]]  # ['ID=2']
+    # case_9 = provider[_I[2, None, 4]]  # ['simtime=2', 'y=4']
+    # case_10 = provider[_I[1, 2, 3, 4]]  # ['simtime=1', 'x=2', 'y=3', 'ID=4']
+    # case_11 = provider[_I[1, 2, 3, 4, 5]]  # ValueError: To many values in tuple. Got: 5 expected: <=4
+    # case_12 = provider[[1, 5, 10]]  # ['ID=1', 'ID=5', 'ID=10']
+    # case_13 = provider[_I[[1, 5, 10]]]  # ['ID=1', 'ID=5', 'ID=10']
+    # case_14 = provider[_I[[1, 5, 10], None, [1, 4]]]  # ['simtime=1', 'simtime=5', 'simtime=10', 'y=1', 'y=4']
+
+    dataframe_1 = provider[2, 1.0:50.0, None, 10:20]  # ['simtime=2', 'x=6', 'y=12.0']
     print("")
-    # todo umbauen mit handle_xx-functions
