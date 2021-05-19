@@ -152,3 +152,57 @@ class ArglistTest(unittest.TestCase):
             ],
             arg_list.raw(),
         )
+
+    def test_remove_startswith(self):
+        arg_list = ArgList.from_string("-f omnetpp.ini -c foobar --foo=bar")
+        self.assertTrue(arg_list.contains_key("--foo=bar"))
+        self.assertTrue(arg_list.contains_key("-c"))
+        arg_list.remove_key_startswith("--foo")
+        self.assertFalse(arg_list.contains_key("--foo=bar"))
+        self.assertTrue(arg_list.contains_key("-c"))
+
+    def test_contains_startswith(self):
+        arg_list = ArgList.from_string("-f omnetpp.ini -c foobar --foo=bar")
+        self.assertTrue(arg_list.contains_key_startswith("--foo"))
+
+    def test_getvalue_equal(self):
+        arg_list = ArgList.from_string("-f omnetpp.ini -c foobar --foo=bar")
+        self.assertEqual(arg_list.get_value("--foo="), "bar")
+
+    def test_has_command(self):
+        arg_list_1 = ArgList.from_string("rm -rf /*")
+        self.assertTrue(arg_list_1.has_command)
+
+        arg_list_2 = ArgList.from_string("-f omnetpp.ini -c foobar")
+        self.assertFalse(arg_list_2.has_command)
+
+        arg_list_3 = ArgList.from_string("--f omnetpp.ini -c foobar")
+        self.assertFalse(arg_list_3.has_command)
+
+    def test_from_string(self):
+        cmd = (
+            "../../src/run_crownet_dbg -u Cmdenv -f omnetpp.ini -c fTestDcD -r 0 --sim-time-limit=80s "
+            '"--fingerprint=65f7-c707/tplx 65f7-c88/tplx" --cpu-time-limit=900s --vector-recording=false '
+            '--scalar-recording=true  --result-dir=/crownet.csv/_fooBarD_r_0 --foo "a b c"'
+        )
+        arg_list = ArgList.from_string(cmd)
+        self.assertEqual(
+            [
+                ["../../src/run_crownet_dbg", None],
+                ["-u", "Cmdenv"],
+                ["-f", "omnetpp.ini"],
+                ["-c", "fTestDcD"],
+                ["-r", "0"],
+                ["--sim-time-limit=80s", None],
+                [
+                    "--fingerprint=65f7-c707/tplx 65f7-c88/tplx",
+                    None,
+                ],  # space in key is allowed
+                ["--cpu-time-limit=900s", None],
+                ["--vector-recording=false", None],
+                ["--scalar-recording=true", None],
+                ["--result-dir=/crownet.csv/_fooBarD_r_0", None],
+                ["--foo", "a b c"],  # space in value is allowed
+            ],
+            arg_list.raw(),
+        )
