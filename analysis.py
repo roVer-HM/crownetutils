@@ -16,16 +16,20 @@ from itertools import product
 import matplotlib.pyplot as plt
 from roveranalyzer.utils import check_ax
 import pandas as pd
+import sqlite3
 import numpy as np
-
 
 ROOT = "/home/max/Git/crownet/analysis/roveranalyzer/data"
 RUN = "vadereBase_Simple"
+SPECIFIC_RUN = "vadereBase_20210519"
 IS_VADERE_ANALYSIS = True
 NODE_NAME = "node" if IS_VADERE_ANALYSIS else "pedestrianNode"
 
 PATH_ROOT = f"{ROOT}/{RUN}"
+PATH_SPECIFIC_RUN = f"{ROOT}/{RUN}/{SPECIFIC_RUN}"
 p = PathHelper(PATH_ROOT)
+p_specific = PathHelper(PATH_SPECIFIC_RUN)
+
 
 # @from_pickle(path=PATH_ROOT + "/analysis.p")
 def read_data():
@@ -47,15 +51,39 @@ def read_data():
 # @from_pickle(path=PATH_ROOT + "/paramters.p")
 def read_param():
     scave_tool = ScaveTool()
-    SCA = f"{ROOT}/{RUN}/vars_rep_0.sca"
+    SCA = f"{ROOT}/{RUN}/{SPECIFIC_RUN}/vars_rep_0.sca"
     scave_filter = scave_tool.filter_builder().t_parameter().build()
     df_parameters = scave_tool.read_parameters(SCA, scave_filter=scave_filter)
     return df_parameters
 
 
+def read_spawn_times():
+    df_list = list()
+    vec_files = find("*.vec", PATH_ROOT)
+    for i in range(len(vec_files)):
+        vec_file = vec_files[i]
+        con = sqlite3.connect(vec_file)
+        df = pd.read_sql_query(
+            "SELECT v.moduleName, v.vectorName, v.startSimtimeRaw, v.endSimtimeRaw "
+            "FROM vector v "
+            "WHERE v.moduleName LIKE 'World.node[%].aid.beaconApp' "
+            "AND v.vectorName = 'packetSent:vector(packetBytes)' "
+            "ORDER BY v.startSimtimeRaw ASC", con)
+        df['startTime'] = df['startSimtimeRaw'].apply(lambda x: int(str(x)[:4]) / 1000)
+        df['endTime'] = df['endSimtimeRaw'].apply(lambda x: int(str(x)[:4]) / 10)
+        df['id'] = df['moduleName'].apply(lambda x: find_number(x))
+        df['runId'] = re.search('vars_rep_(.+?).vec', vec_files[i]).group(1)
+        df = df.drop(columns=['moduleName', 'vectorName', 'startSimtimeRaw', 'endSimtimeRaw'])
+        df_list.append(df)
+    return pd.concat(df_list, axis=0)
+
+def find_number(text):
+    num = re.findall(r'[0-9]+', text)
+    return " ".join(num)
+
+
 # @from_pickle(path=PATH_ROOT + "/rcvdPkLifetimeVec.p")
 def read_app_data(callback):
-
     df_list = list()
     vec_files = find("*.vec", PATH_ROOT)
     for i in range(len(vec_files)):
@@ -106,19 +134,9 @@ def filter_for_packageDelay():
 def filter_for_sentPacketToUpper():
     scave = ScaveTool()
     return scave.filter_builder() \
-            .gOpen().module(f"*World.{NODE_NAME}[*].lteNic.mac").OR().module("*.{NODE_NAME}[*].lteNic.mac").gClose() \
-            .AND().name("sentPacketToUpperLayer:vector*")
+        .gOpen().module(f"*World.{NODE_NAME}[*].lteNic.mac").OR().module("*.{NODE_NAME}[*].lteNic.mac").gClose() \
+        .AND().name("sentPacketToUpperLayer:vector*")
 
-
-def make_count_plot(dcd, para):
-    # make count plot
-    f1, ax = dcd.plot_count_diff()
-    maxAge = para.loc[para["name"] == "maxAge", ["value"]].iloc[0].value
-    title = f"{ax.title.get_text()} with neighborhood table maxAge {maxAge}"
-    ax.set_title(title)
-    os.makedirs(p.join("out"), exist_ok=True)
-    out_p = p.join("out/count.png")
-    f1.savefig(out_p)
 
 def make_count_plot(delay):
     df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
@@ -183,7 +201,6 @@ def generate_plots_rcvdPackage_delay_combined():
 
 
 def generate_plots_rcvdPackage_delay_median(delay):
-
     df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
 
     f1, ax1 = check_ax()
@@ -218,8 +235,8 @@ def generate_plots_rcvdPackage_delay_median(delay):
     f1.savefig(p.join("out/delay_rcvdPackage_median.png"))
     f2.savefig(p.join("out/delay_rcvdPackage_mean.png"))
 
-def generate_plots_sendPacketToUpper_delay_median(delay):
 
+def generate_plots_sendPacketToUpper_delay_median(delay):
     df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
 
     f1, ax1 = check_ax()
@@ -256,8 +273,39 @@ def generate_plots_sendPacketToUpper_delay_median(delay):
     f1.savefig(p.join("out/delay_sentPacketUpper_median.png"))
     f2.savefig(p.join("out/delay_sentPacketUpper_mean.png"))
 
-def make_delay_plot(dcd, para, delay):
 
+def all_pedestrians_instantiated():
+    df = read_spawn_times()
+    latest_spawn_time = df["startTime"].max()
+
+
+def pedestrian_count():
+    df = read_spawn_times()
+    for i in range(10):
+        data = []
+        df_filtered = df[df['runId'] == str(i)]
+        last_person_time = int(df_filtered["endTime"].max())
+
+        for a in range(10, last_person_time, 10):
+            tmp = df_filtered[df_filtered['endTime'] > a]
+            count = len(tmp)
+            data.append([a, count])
+
+        df_ped_count = pd.DataFrame(data, columns=['time', 'pedCount'])
+
+        fig, ax = plt.subplots(1, 1)
+        x = df_ped_count.time.values
+        y = df_ped_count.pedCount.values
+        ax.plot(x, y)
+        ax.set_xlabel("Time in [s]")
+        ax.set_ylabel("Pedestrian Count")
+        plt.title("Pedestrian Count over Time")
+
+        fig = ax.get_figure()
+        fig.savefig(p.join(f"out/ped_count/pedestrian_count_{i}.png"))
+
+
+def make_delay_plot(dcd, para, delay):
     # make count plot
     f1, ax = dcd.plot_count_diff()
     maxAge = para.loc[para["name"] == "maxAge", ["value"]].iloc[0].value
@@ -308,13 +356,15 @@ def make_delay_plot(dcd, para, delay):
 if __name__ == "__main__":
     # dcd = read_data()
     # para = read_param()
-    delay = read_app_data(filter_for_packageDelay)
-    upper = read_app_data(filter_for_sentPacketToUpper)
+    # delay = read_app_data(filter_for_packageDelay)
+    # upper = read_app_data(filter_for_sentPacketToUpper)
 
     # make_delay_plot(dcd, para, delay)
+    # pedestrian_count(dcd)
 
     # Mean/Median delay and sentPacketToUpper
-    generate_plots_rcvdPackage_delay_median(delay)
-    generate_plots_sendPacketToUpper_delay_median(upper)
+    # generate_plots_rcvdPackage_delay_median(delay)
+    pedestrian_count()
+    # generate_plots_sendPacketToUpper_delay_median(upper)
 
     # generate_plots_rcvdPackage_delay_combined()
