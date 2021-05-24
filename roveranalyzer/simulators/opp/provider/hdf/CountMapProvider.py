@@ -163,28 +163,3 @@ class CountMapProvider(IHdfProvider):
             key=CountMapKey.SQERR, _min=str(_min), _max=str(_max)
         )
         return self._select_where(condition=condition)
-
-    def add_data(self, data: any, name: str, dtype: str = "uint8"):
-        import platform
-
-        if platform.system() != "windows":
-            # at any point if it's required to safe more than dataframes into hdf files
-            # check how to install h5py for windows
-            import h5py
-
-            file = h5py.File(self._hdf_path, "a")
-            file.create_dataset(f"data/{name}", data=data, dtype=dtype)
-            file.close()
-
-    def get_data(self, name: str):
-        import platform
-
-        if platform.system() != "windows":
-            # at any point if it's required to read other data than dataframes from hdf files
-            # check how to install h5py for windows
-            import h5py
-
-            file = h5py.File(self._hdf_path, "r")
-            ret = file["data"][name][:]
-            file.close()
-            return ret
