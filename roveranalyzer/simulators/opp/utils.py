@@ -1,13 +1,10 @@
 import glob
 import os
-import warnings
 
 import matplotlib.pyplot as plt
 
 from roveranalyzer.simulators.opp.configuration import Config
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
-    CountMapHdfProvider,
-)
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
 from roveranalyzer.simulators.opp.scave import ScaveRunConverter, ScaveTool
 from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
 from roveranalyzer.utils import PathHelper
@@ -54,8 +51,8 @@ class OppDataProvider:
         _hdf_store_name = hdf_store_name
         if _hdf_store_name is None:
             _hdf_store_name = f"{analysis_name}{Suffix.HDF}"
-        # FIXME: why specific CountMapHdfProvider provider?
-        self._hdf_store = CountMapHdfProvider(
+        # FIXME: why specific CountMapProvider provider?
+        self._hdf_store = CountMapProvider(
             self._root.join(self._analysis_dir, _hdf_store_name)
         )
 

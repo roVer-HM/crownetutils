@@ -11,9 +11,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
-    CountMapHdfProvider,
-)
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
 from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
@@ -144,7 +142,7 @@ class DcdMap2D(DcdMap):
     @property
     def count_map_provider(self):
         if self._count_map_provider is None:
-            self._count_map_provider = CountMapHdfProvider(
+            self._count_map_provider = CountMapProvider(
                 os.path.join(self.data_base_dir, self.hdf_file_name)
             )
 
