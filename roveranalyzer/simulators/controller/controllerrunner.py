@@ -5,6 +5,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.utils import logger
 
 
@@ -62,6 +63,7 @@ class ControlRunner(DockerRunner):
         host_name="vadere_rover_run",
         connection_mode="client",
         traci_port=9999,
+        use_local=False,
         scenario=None,
     ):
 
@@ -69,8 +71,18 @@ class ControlRunner(DockerRunner):
         #     if scenario is None:
         #         raise ("Scenario file must be provided in client mode.")
 
+        # use python source code of flowcontroler instead of installed flowcontroler package in the container.
+        # the /init_dev.sh script is part of the container an will install
+        if use_local:
+            exec_cmd = "/init_dev.sh"
+            env = self.run_args.get("environment", {})
+            env.setdefault("CROWNET_HOME", CrowNetConfig.path_crownet_home())
+            self.run_args["environment"] = env
+        else:
+            exec_cmd = "python3"
+
         cmd = [
-            "python3",
+            exec_cmd,
             control_file,
             "--port",
             str(traci_port),
