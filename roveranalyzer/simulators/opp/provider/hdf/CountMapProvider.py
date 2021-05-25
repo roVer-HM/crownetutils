@@ -33,6 +33,14 @@ class CountMapProvider(IHdfProvider):
             3: CountMapKey.ID,
         }
 
+    def columns(self) -> List[str]:
+        return [
+            CountMapKey.COUNT,
+            CountMapKey.ERR,
+            CountMapKey.OWNER_DIST,
+            CountMapKey.SQERR,
+        ]
+
     def default_index_key(self) -> str:
         return CountMapKey.SIMTIME
 
@@ -118,48 +126,48 @@ class CountMapProvider(IHdfProvider):
     #########################
     def select_id_range(self, _min: int, _max: int) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.ID, _min=str(_min), _max=str(_max)
+            key=CountMapKey.ID, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_simtime_range(self, _min: int, _max: int) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.SIMTIME, _min=str(_min), _max=str(_max)
+            key=CountMapKey.SIMTIME, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_x_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.X, _min=str(_min), _max=str(_max)
+            key=CountMapKey.X, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_y_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.Y, _min=str(_min), _max=str(_max)
+            key=CountMapKey.Y, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_count_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.COUNT, _min=str(_min), _max=str(_max)
+            key=CountMapKey.COUNT, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_err_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.ERR, _min=str(_min), _max=str(_max)
+            key=CountMapKey.ERR, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_owner_dist_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.OWNER_DIST, _min=str(_min), _max=str(_max)
+            key=CountMapKey.OWNER_DIST, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_sqerr_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.SQERR, _min=str(_min), _max=str(_max)
+            key=CountMapKey.SQERR, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)

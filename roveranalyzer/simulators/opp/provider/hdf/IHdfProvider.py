@@ -2,7 +2,7 @@ import abc
 import contextlib
 import os
 import warnings
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -54,6 +54,10 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         return {}
 
     @abc.abstractmethod
+    def columns(self) -> List[str]:
+        return []
+
+    @abc.abstractmethod
     def default_index_key(self) -> str:
         return "None"
 
@@ -103,13 +107,24 @@ class IHdfProvider(metaclass=abc.ABCMeta):
 
         return condition
 
+    def cast_to_set(self, value) -> Set:
+        value_type = type(value)
+        if value_type in [str, float, int]:
+            return {value}
+        elif value_type == Set:
+            return value
+        else:
+            return set(value)
+
     # key is required because the dispatcher handles every type the same way
     def _handle_tuple(
         self, key: str, value: tuple
     ) -> Tuple[List[str], Optional[List[str]]]:
-        if type(value[0]) == tuple:
-            condition = self._handle_index_tuple(value[0])
-            columns = value[1]
+        column_check_set: Set = self.cast_to_set(value[1])
+        if column_check_set.issubset(self.columns()):
+            # tuple of tuple with columns
+            condition = self.dispatch(key, value[0])[0]
+            columns = list(column_check_set)
             return condition, columns
         else:
             condition = self._handle_index_tuple(value)
@@ -158,8 +173,8 @@ class IHdfProvider(metaclass=abc.ABCMeta):
             df = store.select(key=self.group, where=condition, columns=columns)
         return pd.DataFrame(df)
 
-    def _build_range_condition(self, key: str, _min: str, _max: str) -> List[str]:
-        return [f"{key}<={_max}", f"{key}>={_min}"]
+    def _build_range_condition(self, key: str, _min: float, _max: float) -> List[str]:
+        return [f"{key}<={str(_max)}", f"{key}>={str(_min)}"]
 
     def _build_exact_condition(
         self, key: str, value: any, operation: str = Operation.EQ
