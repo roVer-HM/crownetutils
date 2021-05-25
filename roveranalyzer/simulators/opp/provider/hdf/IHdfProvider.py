@@ -2,7 +2,7 @@ import abc
 import contextlib
 import os
 import warnings
-from typing import List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -17,7 +17,7 @@ class IHdfProvider(metaclass=abc.ABCMeta):
 
     def __init__(self, hdf_path: str):
         self._hdf_path: str = hdf_path
-        self._hdf_args: object = {"complevel": 9, "complib": "zlib"}
+        self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
         self.group: str = self.group_key()
         self.idx_order: {} = self.index_order()
         self.dispatcher = {
@@ -28,22 +28,6 @@ class IHdfProvider(metaclass=abc.ABCMeta):
             slice: self._handle_slice,
             tuple: self._handle_tuple,
         }
-
-    @contextlib.contextmanager  # to ensure store closes after access
-    def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
-        _args = dict(self._hdf_args)
-        _args.update(kwargs)
-        store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
-        try:
-            yield store
-        finally:
-            store.close()
-
-    def __set_args(self, append=False, **kwargs) -> None:
-        if append:
-            self._hdf_args.update(kwargs)
-        else:
-            self._hdf_args = kwargs
 
     @abc.abstractmethod
     def group_key(self) -> str:
@@ -65,6 +49,16 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     def hdf_path(self):
         return self._hdf_path
 
+    @contextlib.contextmanager  # to ensure store closes after access
+    def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
+        _args = dict(self._hdf_args)
+        _args.update(kwargs)
+        store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
+        try:
+            yield store
+        finally:
+            store.close()
+
     def _handle_primitive(
         self, key: str, value: any
     ) -> Tuple[List[str], Optional[List[str]]]:
@@ -84,7 +78,8 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     ) -> Tuple[List[str], Optional[List[str]]]:
         if value.step and value.step > 1:
             warnings.warn(
-                message=f"Step size of '{value.step}' is not supported. Step size must be '1'."
+                message=f"Step size of '{value.step}' is not supported. Step size must be '1'.",
+                category=UserWarning,
             )
         condition = self._build_range_condition(
             key=key, _min=value.start, _max=value.stop
