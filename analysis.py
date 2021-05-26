@@ -2,8 +2,6 @@ import os, fnmatch, re
 import matplotlib
 from matplotlib.lines import Line2D
 
-# from roveranalyzer.simulators.rover.dcd.interactive import Interactive2DDensityPlot, InteractiveDelayOverDistance
-
 matplotlib.use('TkAgg')
 
 import matplotlib.animation as animation
@@ -19,10 +17,10 @@ import pandas as pd
 import sqlite3
 import numpy as np
 
-ROOT = "/home/max/Git/crownet/analysis/roveranalyzer/data"
-RUN = "vadereBase_Simple"
-SPECIFIC_RUN = "vadereBase_20210519"
-IS_VADERE_ANALYSIS = True
+ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
+RUN = "sumoSimple"
+SPECIFIC_RUN = ""
+IS_VADERE_ANALYSIS = False
 NODE_NAME = "node" if IS_VADERE_ANALYSIS else "pedestrianNode"
 
 PATH_ROOT = f"{ROOT}/{RUN}"
@@ -66,7 +64,7 @@ def read_spawn_times():
         df = pd.read_sql_query(
             "SELECT v.moduleName, v.vectorName, v.startSimtimeRaw, v.endSimtimeRaw "
             "FROM vector v "
-            "WHERE v.moduleName LIKE 'World.node[%].aid.beaconApp' "
+            f"WHERE v.moduleName LIKE 'World.{NODE_NAME}[%].aid.beaconApp' "
             "AND v.vectorName = 'packetSent:vector(packetBytes)' "
             "ORDER BY v.startSimtimeRaw ASC", con)
         df['startTime'] = df['startSimtimeRaw'].apply(lambda x: int(str(x)[:4]) / 1000)
@@ -76,6 +74,7 @@ def read_spawn_times():
         df = df.drop(columns=['moduleName', 'vectorName', 'startSimtimeRaw', 'endSimtimeRaw'])
         df_list.append(df)
     return pd.concat(df_list, axis=0)
+
 
 def find_number(text):
     num = re.findall(r'[0-9]+', text)
@@ -105,7 +104,7 @@ def read_app_data(callback):
 
         _df = ScaveTool().load_df_from_scave(input_paths=vec_files[i], scave_filter=scave_f)
         rep_id = re.search('vars_rep_(.+?).vec', vec_files[i]).group(1)
-        _df['repetitionId'] = rep_id
+        _df['repetitionId'] = str(rep_id)
         df_list.append(_df)
 
     df_all = df_list[0]
@@ -200,6 +199,35 @@ def generate_plots_rcvdPackage_delay_combined():
     # f3.savefig(p.join("out/delay_rcvdPackage_combined.png"))
 
 
+def generate_mean_delay_per_run(delay):
+
+    f, ax = check_ax()
+    ax.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)")
+    ax.set_xlabel("time [s]")
+    ax.set_ylabel(f"median delay (window size: 1.0s )[s]")
+    for a in range(len(delay.repetitionId.unique())):
+        f1, ax1 = check_ax()
+        df_filtered = delay[delay['repetitionId'] == f"{a}"]
+        df_filtered = df_filtered.opp.filter().vector().normalize_vectors(axis=0)
+        plots = [[f"Packet Delay Run #{a}", df_filtered]]
+        time_per_bin = 1.0  # seconds
+        for n, df in plots:
+            bins = int(np.floor(df["time"].max() / time_per_bin))
+            df_mean = df.groupby(pd.cut(df["time"], bins)).mean()
+            df_mean = df_mean.dropna()
+            ax.plot("time", "value", data=df_mean, label=n)
+            ax1.plot("time", "value", data=df_mean, label=n)
+            ax.set_xlim(0, 200)
+            ax1.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)")
+            ax1.set_xlabel("time [s]")
+            ax1.set_ylabel(f"median delay (window size: {time_per_bin}s )[s]")
+            ax1.legend()
+            ax.legend()
+
+            f1.savefig(p.join(f"out/delay/delay_rcvdPackage_mean_{a}.png"))
+
+    f.savefig(p.join(f"out/delay/delay_rcvdPackage_mean.png"))
+
 def generate_plots_rcvdPackage_delay_median(delay):
     df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
 
@@ -279,7 +307,57 @@ def all_pedestrians_instantiated():
     latest_spawn_time = df["startTime"].max()
 
 
-def pedestrian_count():
+def mean_simulation_time():
+    data = []
+    df = read_spawn_times()
+    for i in range(10):
+        df_filtered = df[df['runId'] == f"{i}"]
+        last_person_time = int(df_filtered["endTime"].max())
+        data.append([i, last_person_time])
+
+    df_sim_time = pd.DataFrame(data, columns=['runId', 'sim_time'])
+
+    # fig, ax = plt.subplots(1, 1)
+    y = df_sim_time.sim_time.values
+    x = df_sim_time.runId.values
+    # ax.scatter(x, y, marker='.', color='red')
+    ax = df_sim_time.plot.bar(x='runId', y='sim_time', rot=0)
+
+    # plt.xticks(np.arange(0, 10, 1))
+    ax.set_xlabel("Run Id")
+    ax.set_ylabel("Time in [s]")
+    plt.title("Length of Simulation per Run")
+
+    fig = ax.get_figure()
+    fig.savefig(p.join("out/simulation_times.png"))
+
+
+def mean_pedestrian_count():
+    list = []
+    df = read_spawn_times()
+    for i in range(10):
+        df_filtered = df[df['runId'] == f"{i}"]
+        last_person_time = int(df_filtered["endTime"].max())
+
+        for a in range(10, last_person_time, 10):
+            tmp = df_filtered[df_filtered['endTime'] > a]
+            count = len(tmp)
+            list.append([i, a, count])
+
+    df_ped_count = pd.DataFrame(list, columns=['runId', 'time', 'pedCount'])
+    df_ped_count_agg = df_ped_count.groupby(['time'], as_index=False).agg({"pedCount": np.mean})
+    df_reduced = df_ped_count_agg[df_ped_count_agg['time'] % 50 == 0]
+
+    ax = df_reduced.plot.bar(x='time', y='pedCount', rot=0)
+    ax.set_xlabel("Time in [s]")
+    ax.set_ylabel("Pedestrian Count")
+    plt.title("Mean Pedestrian Count Per Time Over All Simulations")
+
+    fig = ax.get_figure()
+    fig.savefig(p.join("out/mean_ped_count_over_time.png"))
+
+
+def pedestrian_count_plot():
     df = read_spawn_times()
     for i in range(10):
         data = []
@@ -354,17 +432,24 @@ def make_delay_plot(dcd, para, delay):
 
 
 if __name__ == "__main__":
+    # all_pedestrians_instantiated()
+    # mean_simulation_time()
+    # mean_pedestrian_count()
+
     # dcd = read_data()
     # para = read_param()
-    # delay = read_app_data(filter_for_packageDelay)
+    delay = read_app_data(filter_for_packageDelay)
     # upper = read_app_data(filter_for_sentPacketToUpper)
 
     # make_delay_plot(dcd, para, delay)
     # pedestrian_count(dcd)
 
     # Mean/Median delay and sentPacketToUpper
+    generate_mean_delay_per_run(delay)
     # generate_plots_rcvdPackage_delay_median(delay)
-    pedestrian_count()
     # generate_plots_sendPacketToUpper_delay_median(upper)
+
+    # Generate Pedestrian Count Plots
+    # pedestrian_count()
 
     # generate_plots_rcvdPackage_delay_combined()
