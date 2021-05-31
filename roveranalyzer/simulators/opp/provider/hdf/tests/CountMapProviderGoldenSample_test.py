@@ -32,8 +32,120 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.test_out_dir)
 
-    @patch("pandas.HDFStore")
-    def test_index_slicer(self, mock_store: MagicMock):
+    def test_exact_methods(self):
+        simtime: int = 1
+        x: float = 2.0
+        y: float = 3.0
+        id: int = 4
+        count: float = 5.0
+        err: float = 6.0
+        owner: float = 7.0
+        sqerr: float = 8.0
+
+        test_simtime_dataframe = self.provider.select_simtime_exact(simtime)
+        test_x_dataframe = self.provider.select_x_exact(x)
+        test_y_dataframe = self.provider.select_y_exact(y)
+        test_id_dataframe = self.provider.select_id_exact(id)
+        test_count_dataframe = self.provider.select_count_exact(count)
+        test_err_dataframe = self.provider.select_err_exact(err)
+        test_owner_dataframe = self.provider.select_owner_dist_exact(owner)
+        test_sqerr_dataframe = self.provider.select_sqerr_exact(sqerr)
+        test__node_and_id_dataframe = self.provider.select_simtime_and_node_id_exact(
+            42, 43
+        )
+
+        self.assertTrue(
+            self.sample_dataframe[simtime : simtime + 1].equals(test_simtime_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(x) : int(x) + 1].equals(test_x_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(y) : int(y) + 1].equals(test_y_dataframe)
+        )
+        self.assertTrue(self.sample_dataframe[id : id + 1].equals(test_id_dataframe))
+        self.assertTrue(
+            self.sample_dataframe[int(count) : int(count) + 1].equals(
+                test_count_dataframe
+            )
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(err) : int(err) + 1].equals(test_err_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(owner) : int(owner) + 1].equals(
+                test_owner_dataframe
+            )
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(sqerr) : int(sqerr) + 1].equals(
+                test_sqerr_dataframe
+            )
+        )
+        self.assertTrue(
+            self.sample_dataframe[50:51].equals(test__node_and_id_dataframe)
+        )
+        self.assertEquals(len(self.provider.select_simtime_exact(42)), 2)
+
+    def test_range_methods(self):
+        _range: int = 5
+        simtime: int = 1
+        x: float = 2.0
+        y: float = 3.0
+        id: int = 4
+        count: int = 5
+        err: int = 6
+        owner = 7
+        sqerr = 8
+
+        test_simtime_dataframe = self.provider.select_simtime_range(
+            simtime, simtime + _range
+        )
+        test_x_dataframe = self.provider.select_x_range(x, x + _range)
+        test_y_dataframe = self.provider.select_y_range(y, y + _range)
+        test_id_dataframe = self.provider.select_id_range(id, id + _range)
+        test_count_dataframe = self.provider.select_count_range(count, count + _range)
+        test_err_dataframe = self.provider.select_err_range(err, err + _range)
+        test_owner_dataframe = self.provider.select_owner_dist_range(
+            owner, owner + _range
+        )
+        test_sqerr_dataframe = self.provider.select_sqerr_range(sqerr, sqerr + _range)
+
+        self.assertTrue(
+            self.sample_dataframe[simtime : simtime + 1 + _range].equals(
+                test_simtime_dataframe
+            )
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(x) : int(x) + 1 + _range].equals(test_x_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[int(y) : int(y) + 1 + _range].equals(test_y_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[id : id + 1 + _range].equals(test_id_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[count : count + 1 + _range].equals(
+                test_count_dataframe
+            )
+        )
+        self.assertTrue(
+            self.sample_dataframe[err : err + 1 + _range].equals(test_err_dataframe)
+        )
+        self.assertTrue(
+            self.sample_dataframe[owner : owner + 1 + _range].equals(
+                test_owner_dataframe
+            )
+        )
+        self.assertTrue(
+            self.sample_dataframe[sqerr : sqerr + 1 + _range].equals(
+                test_sqerr_dataframe
+            )
+        )
+        self.assertEqual(len(self.provider.select_simtime_range(42, 43)), 3)
+
+    def test_index_slicer(self):
         # TODO: conditions
         #       [✓] 1. p[2] -> ID (single) (✓)
         #       [✓] 2. p[0:5] -> ID (range 0-5)
