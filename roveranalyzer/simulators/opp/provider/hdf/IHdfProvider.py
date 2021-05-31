@@ -20,7 +20,7 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
         self.group: str = self.group_key()
         self.idx_order: {} = self.index_order()
-        self.dispatcher = {
+        self._dispatcher = {
             int: self._handle_primitive,
             float: self._handle_primitive,
             str: self._handle_primitive,
@@ -49,6 +49,10 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     def hdf_path(self):
         return self._hdf_path
 
+    @property
+    def dispatcher(self):
+        return self._dispatcher
+
     @contextlib.contextmanager  # to ensure store closes after access
     def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
         _args = dict(self._hdf_args)
@@ -58,6 +62,16 @@ class IHdfProvider(metaclass=abc.ABCMeta):
             yield store
         finally:
             store.close()
+
+    @staticmethod
+    def cast_to_set(value: Any):
+        t = type(value)
+        if t in [str, int, float]:
+            return {value}
+        elif t == set:
+            return value
+        else:
+            return set(value)
 
     def _handle_primitive(
         self, key: str, value: any
@@ -102,15 +116,6 @@ class IHdfProvider(metaclass=abc.ABCMeta):
 
         return condition
 
-    def cast_to_set(self, value) -> Set:
-        value_type = type(value)
-        if value_type in [str, float, int]:
-            return {value}
-        elif value_type == Set:
-            return value
-        else:
-            return set(value)
-
     # key is required because the dispatcher handles every type the same way
     def _handle_tuple(
         self, key: str, value: tuple
@@ -132,7 +137,6 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         return condition, columns
 
     def __getitem__(self, item: any):
-        # todo handle case p[_I[0:6],["err]]
         condition, columns = self.dispatch(self.default_index_key(), item)
         print(
             f"hdf select condition: {condition}, "
@@ -175,6 +179,6 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         self, key: str, value: any, operation: str = Operation.EQ
     ) -> List[str]:
         if isinstance(value, List):
-            return [f"ID in {value}"]
+            return [f"{key} in {value}"]
         else:
             return [f"{key}{operation}{str(value)}"]
