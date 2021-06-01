@@ -1,16 +1,22 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import re
+import seaborn as sns
 import numpy as np
 import os, fnmatch
 
-ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
-RUN = "sumoSimple"
+from analysis import ROOT, RUN, plot_vspans
+
+# ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
+# RUN = "sumoBottleneck"
 PATH_ROOT = f"{ROOT}/{RUN}"
 OUTPUT_PATH = f"{PATH_ROOT}/out/position"
 SPEED_OUTPUT_PATH = f"{PATH_ROOT}/out/speed"
+PAINT_INTERVALS = True
 
 def read_position_files():
     position_list = find('positions.txt', PATH_ROOT)
+    position_list.sort()
 
     df_all = []
     columns = ["time", "id", "x", "y"]
@@ -33,10 +39,9 @@ def find(pattern, path):
 
 
 def scatter_pedestrian_positions():
-    time = 140
-    to = 160
+    time = 50
+    to = 70
     runId = 3
-    threshold = 20
     df = read_position_files()
     for u in range(time, to + 10, 10):
         df_filter = df[df['time'] == u]
@@ -45,10 +50,9 @@ def scatter_pedestrian_positions():
         x = df_filter.x.values
         y = df_filter.y.values
         ax.scatter(x, y, label='pedestrian', marker='.', color='red')
-        ax.set_ylim(320, 460)
+        # ax.set_ylim(320, 460)
         ax.set_xlabel("x-coordinate")
         ax.set_ylabel("y-coordinate")
-        # ax.set_ylim(df_filter['y'].min() - threshold, df_filter['y'].max() + threshold)
         plt.title("Pedestrian positions at time step " + str(u))
         ax.legend()
         fig = ax.get_figure()
@@ -56,27 +60,29 @@ def scatter_pedestrian_positions():
 
 
 def scatter_plot_min_max():
-    # df: pd.DataFrame = pd.read_csv(path + type, index_col="time")
     df = read_position_files()
     df = df.drop(columns="id")
     df_time = df.groupby("time").agg({"y": [np.max, np.min], "x": [np.max, np.min]})
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
     x = df_time.index.values
     y_min = df_time.loc[:, ('y', 'amin')]
     y_max = df_time.loc[:, ('y', 'amax')]
+
     ax.scatter(x, y_max, label='max y coord', marker='_', color='red')
     ax.scatter(x, y_min, label='min y coord', marker='_', color='green')
+    ax = plot_vspans(ax)
+
     ax.set_xlabel("time in [s]")
+    # ax.set_ylim(0, 600)
     ax.set_ylabel("y-coordinates")
-    # ax.set_xlim(0, 500)
     ax.legend()
-    # plt.xticks(np.arange(0, 550, 50))
-    # plt.yticks(np.arange(0, 600, 50))
-    plt.grid()
+
+    plt.xticks(np.arange(0, 1000, 100))
+    # plt.grid()
+
     fig = ax.get_figure()
     fig.savefig(OUTPUT_PATH + '/min_max.png')
-    # fig.show()
 
 
 def average_speed():
@@ -196,7 +202,7 @@ def average_speed_per_pedestrian():
 
 
 if __name__ == "__main__":
-    scatter_pedestrian_positions()
-    # scatter_plot_min_max()
+    # scatter_pedestrian_positions()
+    scatter_plot_min_max()
     # average_speed_per_pedestrian()
     # average_speed_per_pedestrian_per_run()
