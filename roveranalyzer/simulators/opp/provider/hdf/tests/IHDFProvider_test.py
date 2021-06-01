@@ -48,17 +48,28 @@ class IHDFProviderTest(unittest.TestCase):
         )
 
     def test_cast_to_set(self):
+        class SomeClass:
+            a = 1
+            b = 2
+
+        test_class = SomeClass()
         result_1 = self.provider.cast_to_set(1)
         result_2 = self.provider.cast_to_set(1.0)
         result_3 = self.provider.cast_to_set("1")
         result_4 = self.provider.cast_to_set({1})
         result_5 = self.provider.cast_to_set((1, 2))
+        result_6 = self.provider.cast_to_set([1, 2])
+        result_7 = self.provider.cast_to_set(None)
+        result_8 = self.provider.cast_to_set(test_class)
 
         self.assertEqual(result_1, {1})
         self.assertEqual(result_2, {1.0})
         self.assertEqual(result_3, {"1"})
         self.assertEqual(result_4, {1})
         self.assertEqual(result_5, {1, 2})
+        self.assertEqual(result_6, {1, 2})
+        self.assertEqual(result_7, None)
+        self.assertEqual(result_8, test_class)
 
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
@@ -75,29 +86,14 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_condition, condition)
         self.assertEqual(result_columns, None)
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.dispatch"
-    )
-    def test_handle_list(self, mock_dispatch: MagicMock):
+    def test_handle_list(self):
         key = "any_key"
         values = [1, "2", 3.0, None]
-        conditions = [f"{key}={values[0]}", f"{key}={values[1]}", f"{key}={values[2]}"]
-        mock_dispatch.side_effect = [
-            [conditions[0]],
-            [conditions[1]],
-            [conditions[2]],
-            [],
-        ]
+        filtered_values = [v for v in values if v is not None]
+        conditions = [f"{key} in {filtered_values}"]
         result_condition, result_columns = self.provider._handle_list(
             key=key, values=values
         )
-        calls = [
-            call(key="any_key", item=values[0]),
-            call(key="any_key", item=values[1]),
-            call(key="any_key", item=values[2]),
-            call(key="any_key", item=values[3]),
-        ]
-        mock_dispatch.assert_has_calls(calls)
         self.assertEqual(result_condition, conditions)
         self.assertEqual(result_columns, None)
 

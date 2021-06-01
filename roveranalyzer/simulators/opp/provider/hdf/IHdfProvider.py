@@ -68,10 +68,10 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         t = type(value)
         if t in [str, int, float]:
             return {value}
-        elif t == set:
-            return value
-        else:
+        elif t in [list, tuple]:
             return set(value)
+        else:
+            return value
 
     def _handle_primitive(
         self, key: str, value: any
@@ -82,9 +82,8 @@ class IHdfProvider(metaclass=abc.ABCMeta):
     def _handle_list(
         self, key: str, values: List
     ) -> Tuple[List[str], Optional[List[str]]]:
-        condition = []
-        for element in values:
-            condition += self.dispatch(key=key, item=element)
+        list_without_none = [v for v in values if v is not None]
+        condition = self._build_exact_condition(key, list_without_none)
         return condition, None
 
     def _handle_slice(
@@ -121,14 +120,14 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         self, key: str, value: tuple
     ) -> Tuple[List[str], Optional[List[str]]]:
         column_check_set: Set = self.cast_to_set(value[1])
-        if column_check_set.issubset(self.columns()):
-            # tuple of tuple with columns
-            condition = self.dispatch(key, value[0])[0]
-            columns = list(column_check_set)
-            return condition, columns
-        else:
-            condition = self._handle_index_tuple(value)
-            return condition, None
+        if type(column_check_set) == set:
+            if column_check_set.issubset(self.columns()):
+                # tuple of tuple with columns
+                condition = self.dispatch(key, value[0])[0]
+                columns = list(column_check_set)
+                return condition, columns
+        condition = self._handle_index_tuple(value)
+        return condition, None
 
     def dispatch(self, key, item) -> Tuple[List[str], Optional[List[str]]]:
         item_type = type(item)

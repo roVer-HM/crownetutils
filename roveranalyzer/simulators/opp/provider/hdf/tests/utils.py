@@ -29,8 +29,15 @@ def create_count_map_dataframe(number_entries: int = 50) -> pd.DataFrame:
     df = pd.DataFrame(
         entries, index=mult_idx, columns=["count", "err", "owner_dist", "sqerr"]
     )
-    df.loc[(42, 42.0, 42.0, 43)] = [42.0, 42.0, 42.0, 42.0]
-    return df
+    # additional cases
+    df.loc[(42, 42.0, 42.0, 43)] = [42.0, 42.0, 42.0, 43.0]
+    df.loc[(42, 42.0, 43.0, 42)] = [42.0, 42.0, 43.0, 42.0]
+    df.loc[(42, 42.0, 43.0, 43)] = [42.0, 42.0, 43.0, 43.0]
+    df.loc[(42, 43.0, 42.0, 42)] = [42.0, 43.0, 42.0, 42.0]
+    df.loc[(42, 43.0, 42.0, 43)] = [42.0, 43.0, 42.0, 43.0]
+    df.loc[(42, 43.0, 43.0, 42)] = [42.0, 43.0, 43.0, 42.0]
+    df.loc[(42, 43.0, 43.0, 43)] = [42.0, 43.0, 43.0, 43.0]
+    return df.sort_index()
 
 
 def safe_dataframe_to_hdf(
