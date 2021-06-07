@@ -139,10 +139,6 @@ class IHdfProvider(metaclass=abc.ABCMeta):
 
     def __getitem__(self, item: any):
         condition, columns = self.dispatch(self.default_index_key(), item)
-        print(
-            f"hdf select condition: {condition}, "
-            f"columns: {'[]' if columns is None else columns}"
-        )
         dataframe = self._select_where(condition, columns)
         if dataframe.empty:
             raise ValueError(

@@ -4,7 +4,6 @@ import unittest
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
-from utils import create_count_map_dataframe, make_dirs, safe_dataframe_to_hdf
 
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
     CountMapKey,
@@ -12,6 +11,11 @@ from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
 )
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
+from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+    create_count_map_dataframe,
+    make_dirs,
+    safe_dataframe_to_hdf,
+)
 
 
 class CountMapProviderTest(unittest.TestCase):

@@ -5,7 +5,6 @@ import warnings
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
-from utils import create_count_map_dataframe, make_dirs, safe_dataframe_to_hdf
 
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
     CountMapKey,
@@ -13,6 +12,11 @@ from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
 )
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
+from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+    create_count_map_dataframe,
+    make_dirs,
+    safe_dataframe_to_hdf,
+)
 
 
 class IHDFProviderTest(unittest.TestCase):
@@ -274,10 +278,8 @@ class IHDFProviderTest(unittest.TestCase):
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
     )
-    @patch("builtins.print")
     def test_get_item(
         self,
-        print_mock: MagicMock,
         mock_select_where: MagicMock,
         mock_dispatch: MagicMock,
     ):
@@ -291,10 +293,6 @@ class IHDFProviderTest(unittest.TestCase):
             self.provider.default_index_key(), call_value
         )
         mock_select_where.assert_called_once_with(expected_condition, expected_columns)
-        print_mock.assert_called_once_with(
-            f"hdf select condition: {expected_condition}, "
-            f"columns: {'[]' if expected_columns is None else expected_columns}"
-        )
         self.assertTrue(result_dataframe.equals(self.sample_dataframe))
         mock_select_where.reset_mock()
         # test empty dataframe return

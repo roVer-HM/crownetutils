@@ -4,10 +4,14 @@ import unittest
 
 import pandas as pd
 from pandas import IndexSlice as _I
-from utils import create_count_map_dataframe, make_dirs, safe_dataframe_to_hdf
 
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
+from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+    create_count_map_dataframe,
+    make_dirs,
+    safe_dataframe_to_hdf,
+)
 
 
 class IHDFProviderGoldenSampleTest(unittest.TestCase):
