@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 
-from roveranalyzer.entrypoint.parser import test_parser
+# from roveranalyzer.entrypoint.parser import test_parser
 from roveranalyzer.simulators.crownet.dcd.dcd_factory import DcdBuilder, PickleState
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMetaData
 from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
