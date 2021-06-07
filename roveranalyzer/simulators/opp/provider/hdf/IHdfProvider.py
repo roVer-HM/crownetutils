@@ -126,6 +126,8 @@ class IHdfProvider(metaclass=abc.ABCMeta):
                 condition = self.dispatch(key, value[0])[0]
                 columns = list(column_check_set)
                 return condition, columns
+            elif all(isinstance(x, str) for x in column_check_set):
+                raise ValueError(f"Unknown column index in {column_check_set}")
         condition = self._handle_index_tuple(value)
         return condition, None
 
@@ -144,7 +146,7 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         dataframe = self._select_where(condition, columns)
         if dataframe.empty:
             raise ValueError(
-                "Returned dataframe is empty. Please check your index names."
+                "Returned dataframe was empty. Please check your index names."
             )
         return dataframe
 

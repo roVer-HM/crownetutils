@@ -131,10 +131,11 @@ class IHDFProviderTest(unittest.TestCase):
     )
     def test_handle_index_tuple(self, mock_dispatch: MagicMock):
         # tuple to long
-        with self.assertRaises(ValueError) as context:
+        try:
             invalid_len_tuple = (1, 2, 3, 4, 5)
             self.provider._handle_index_tuple(invalid_len_tuple)
-            self.assertTrue("To many values in tuple." in str(context.exception))
+        except ValueError as e:
+            self.assertTrue("To many values in tuple." in str(e))
             mock_dispatch.assert_not_called()
 
         # mock return values
@@ -295,20 +296,19 @@ class IHDFProviderTest(unittest.TestCase):
             f"columns: {'[]' if expected_columns is None else expected_columns}"
         )
         self.assertTrue(result_dataframe.equals(self.sample_dataframe))
-
+        mock_select_where.reset_mock()
         # test empty dataframe return
-        with self.assertRaises(ValueError) as context:
-            mock_select_where.reset_mock()
-            mock_select_where.return_value = pd.DataFrame()
-            result_dataframe = self.provider[call_value]
+        try:
+            self.provider[call_value]
+        except ValueError as e:
             mock_select_where.assert_not_called()
-            self.assertTrue(result_dataframe.empty)
-            self.assertTrue("Returned dataframe is empty." in str(context.exception))
+            self.assertTrue("Returned dataframe was empty." in str(e))
 
     def test_set_item(self):
-        with self.assertRaises(NotImplementedError) as context:
+        try:
             self.provider[1] = "Any"
-            self.assertTrue("Not supported!" in str(context.exception))
+        except NotImplementedError as e:
+            self.assertTrue("Not supported!" in str(e))
 
     def test_get_dataframe(self):
         # Note: pandas isn't mocked because it is important to check the read functionality at least once
