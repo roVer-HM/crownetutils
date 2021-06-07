@@ -244,6 +244,16 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set the control action is applied without omnetpp. Direct information dissemination without delay.",
     )
+
+    parser.add_argument(
+        "--control-use-local",
+        dest="ctl_local",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If true container uses currently checkout code instead of installed coded during container creation.",
+    )
+
     parser.add_argument(
         "--vadere-only",
         dest="vadere_only",
@@ -481,6 +491,7 @@ class BaseRunner:
                 host_name=host_name,
                 connection_mode="client",
                 traci_port=9999,
+                use_local=self.ns["ctl_local"],
             )
         else:
 
@@ -491,6 +502,7 @@ class BaseRunner:
                 host_name=client_name,
                 connection_mode="server",
                 traci_port=9997,
+                use_local=self.ns["ctl_local"],
             )
 
     def is_controlled(self):

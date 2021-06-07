@@ -44,6 +44,16 @@ class DockerReuse(Enum):
         return self.value
 
 
+def stop_containers(names):
+    c = docker.DockerClient = docker.from_env()
+    for container in names:
+        try:
+            c = c.containers.get(container)
+            c.stop(timeout=2)
+        except Exception:
+            pass
+
+
 class DockerRunner:
     NET = "rovernet"
 

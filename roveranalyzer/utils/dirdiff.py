@@ -27,7 +27,13 @@ def create_md(arg):
 def create_dir_diff(
     path,
     remove_front="",
-    exclude=(r".*sca$", r".*vec$", r".*container.*\.out$", r".*command\.out$"),
+    exclude=(
+        r".*sca$",
+        r".*vec$",
+        r".*container.*\.out$",
+        r".*command\.out$",
+        r".*\.scenario",
+    ),
 ):
     dir_content = glob.glob(path, recursive=True)
     dir_content_filtered = []

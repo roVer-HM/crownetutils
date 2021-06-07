@@ -1,6 +1,7 @@
 import argparse
 import copy
 import re
+import shlex
 from typing import Sequence, Text
 
 from roveranalyzer.dockerrunner.dockerrunner import DockerCleanup, DockerReuse
@@ -58,20 +59,14 @@ class SimulationArgAction(argparse.Action):
         setattr(namespace, self.dest, ns_dest)
 
 
-def test_parser(args=None, parse_args=False):
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--data-dir", dest="data_dir", help="Base data directory.")
-
-    if parse_args:
-        return parser.parse_known_args(args=args)
-    else:
-        return parser
-
-
 class ArgList:
     def __init__(self):
         self.data = []
+
+    @classmethod
+    def from_string(cls, cmd: str):
+        cmd_list = shlex.split(cmd.strip())
+        return cls.from_flat_list(cmd_list)
 
     @classmethod
     def from_flat_list(cls, data):
@@ -158,19 +153,41 @@ class ArgList:
             raise ValueError(f"expected str or list got {type(value)}")
         return value
 
+    @property
+    def has_command(self):
+        return False if len(self.data) == 0 else not self.data[0][0].startswith("-")
+
     def remove_key(self, key):
         self.data = [_arg for _arg in self.data if _arg[0] != key]
+
+    def remove_key_startswith(self, key):
+        self.data = [_arg for _arg in self.data if not _arg[0].startswith(key)]
 
     def contains_key(self, key):
         return any([_arg[0] == key for _arg in self.data])
 
-    def get_value(self, key, default=None):
-        if not self.contains_key(key):
-            return default
-        return self.data[self.key_index(key)[0]][1]
+    def contains_key_startswith(self, key):
+        return any([_arg[0].startswith(key) for _arg in self.data])
+
+    def get_value(self, key: str, default=None):
+        if key.endswith("="):
+            # single key item
+            if not self.contains_key_startswith(key):
+                return default
+            val = self.data[self.key_index_startswith(key)[0]][
+                0
+            ]  # select key (value is always None here)
+            return val.split("=")[1]
+        else:
+            if not self.contains_key(key):
+                return default
+            return self.data[self.key_index(key)[0]][1]
 
     def key_index(self, key):
         return [idx for idx, _arg in enumerate(self.data) if _arg[0] == key]
+
+    def key_index_startswith(self, key):
+        return [idx for idx, _arg in enumerate(self.data) if _arg[0].startswith(key)]
 
     def add(self, key, value=None, pos=-1):
         """
@@ -184,9 +201,10 @@ class ArgList:
         elif pos >= 0 and pos < len(self.data):
             self.data.insert(pos, self.build_arg(key, value))
 
-    def add_override(self, key, value=None):
+    def add_override(self, key, value=None, as_single_item=False):
         """
         add key, override any (one or more) existing keys
+        If as_single_item save item as ['key=value', None]
         """
         self.remove_key(key)
         self.data.append(self.build_arg(key, value))
