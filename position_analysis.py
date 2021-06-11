@@ -1,18 +1,20 @@
+import math
+
 import matplotlib.pyplot as plt
 import pandas as pd
-import re
-import seaborn as sns
 import numpy as np
 import os, fnmatch
 
-from analysis import ROOT, RUN, plot_vspans
+from analysis import ROOT, RUN, plot_vspans, intervalList, mean_pedestrian_count
 
 # ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
 # RUN = "sumoBottleneck"
 PATH_ROOT = f"{ROOT}/{RUN}"
 OUTPUT_PATH = f"{PATH_ROOT}/out/position"
 SPEED_OUTPUT_PATH = f"{PATH_ROOT}/out/speed"
+DISTANCE_OUTPUT_PATH = f"{PATH_ROOT}/out/distance"
 PAINT_INTERVALS = True
+
 
 def read_position_files():
     position_list = find('positions.txt', PATH_ROOT)
@@ -26,8 +28,12 @@ def read_position_files():
         tmp['runId'] = i
         df_all.append(tmp)
 
-    return pd.concat(df_all, ignore_index=True)
+    df = pd.concat(df_all, ignore_index=True)
 
+    if RUN == "vadereBottleneck":
+        df = df[df['runId'] != 1]
+
+    return df
 
 def find(pattern, path):
     result = []
@@ -39,24 +45,35 @@ def find(pattern, path):
 
 
 def scatter_pedestrian_positions():
-    time = 50
-    to = 70
-    runId = 3
+    runId = 2
     df = read_position_files()
-    for u in range(time, to + 10, 10):
-        df_filter = df[df['time'] == u]
-        df_filter = df_filter[df_filter['runId'] == runId]
-        fig, ax = plt.subplots(1, 1)
-        x = df_filter.x.values
-        y = df_filter.y.values
-        ax.scatter(x, y, label='pedestrian', marker='.', color='red')
-        # ax.set_ylim(320, 460)
-        ax.set_xlabel("x-coordinate")
-        ax.set_ylabel("y-coordinate")
-        plt.title("Pedestrian positions at time step " + str(u))
-        ax.legend()
-        fig = ax.get_figure()
-        fig.savefig(OUTPUT_PATH + '/position' + str(u) + '_' + str(runId) + '.png')
+    df_filtered = df[df['runId'] == runId]
+
+    for begin, end in intervalList:
+        begin = int(begin)
+        end = int(end)
+        df_all = df_filtered.query(f'time >= {begin}').query(f'time <= {end}')
+        min = round((df_all['y'].min() - 10) / 10) * 10
+        max = round((df_all['y'].max() + 10) / 10) * 10
+
+        for u in [begin, end - (round(((end - begin) / 2) / 10) * 10), end]:
+            df_filter = df_filtered[df_filtered['time'] == u]
+
+            x = df_filter.x.values
+            y = df_filter.y.values
+
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+            ax.scatter(x, y, label='Pedestrian', marker='.', color='red')
+            ax.set_ylim(min, max)
+            ax.set_xlabel("x-coordinate")
+            ax.set_ylabel("y-coordinate")
+            ax.legend()
+
+            plt.title("Pedestrian positions at time step " + str(u))
+            plt.yticks(np.arange(min, max, 10))
+
+            fig = ax.get_figure()
+            fig.savefig(OUTPUT_PATH + '/position_' + str(u) + '_' + str(runId) + '.png', bbox_inches='tight')
 
 
 def scatter_plot_min_max():
@@ -69,16 +86,16 @@ def scatter_plot_min_max():
     y_min = df_time.loc[:, ('y', 'amin')]
     y_max = df_time.loc[:, ('y', 'amax')]
 
-    ax.scatter(x, y_max, label='max y coord', marker='_', color='red')
-    ax.scatter(x, y_min, label='min y coord', marker='_', color='green')
+    ax.scatter(x, y_max, label='max y coord', marker='_', color='blue', alpha=1)
+    ax.scatter(x, y_min, label='min y coord', marker='_', color='green', alpha=1)
     ax = plot_vspans(ax)
-
     ax.set_xlabel("time in [s]")
-    # ax.set_ylim(0, 600)
     ax.set_ylabel("y-coordinates")
     ax.legend()
 
-    plt.xticks(np.arange(0, 1000, 100))
+    plt.title("Min/Max Positions", y=1.05)
+
+    plt.xticks(np.arange(0, 900, 100))
     # plt.grid()
 
     fig = ax.get_figure()
@@ -97,11 +114,11 @@ def average_speed():
     for i in range(len(df_id)):
         if i == 0:
             distance.append(580 - df_id.iloc[i].y)
-        elif i == len(df_id)-1:
-            distance.append(df_id.iloc[i-1].y - df_id.iloc[i].y)
+        elif i == len(df_id) - 1:
+            distance.append(df_id.iloc[i - 1].y - df_id.iloc[i].y)
             break
         else:
-            row1, row2 = df_id.iloc[i-1], df_id.iloc[i]
+            row1, row2 = df_id.iloc[i - 1], df_id.iloc[i]
             distance.append(row1.y - row2.y)
     df_id['distance'] = distance
     y = df_id.distance.values
@@ -166,7 +183,7 @@ def average_speed_per_pedestrian():
 
     x = df.id.unique()
     df_speed = pd.DataFrame(columns=['id', 'averageSpeed'])
-    for a in range(min(x), max(x)+1):
+    for a in range(min(x), max(x) + 1):
         node_id = 0
         distance = []
         df_id = df[df['id'] == a]
@@ -182,7 +199,7 @@ def average_speed_per_pedestrian():
                 distance.append(row1.y - row2.y)
         df_id['distance'] = distance
         df = pd.concat([df, df_id]).drop_duplicates(['x', 'y', 'time', 'id'], keep='last')
-        average_speed = df_id['distance'].sum() / df_id['distance'].count()
+        average_speesumoBottleneckd = df_id['distance'].sum() / df_id['distance'].count()
         df_speed = df_speed.append({'id': node_id, 'averageSpeed': average_speed}, ignore_index=True)
 
     x = df_speed.id.values
@@ -190,7 +207,7 @@ def average_speed_per_pedestrian():
 
     # Scatter plot
     ax.scatter(x, y, marker='.', color='red')
-    plt.xticks(np.arange(min(x), max(x)+1, 1))
+    plt.xticks(np.arange(min(x), max(x) + 1, 1))
     fig = ax.get_figure()
     fig.savefig(OUTPUT_PATH + '/average_speed_scatter.png')
 
@@ -201,8 +218,80 @@ def average_speed_per_pedestrian():
     fig2.savefig(OUTPUT_PATH + '/average_speed_boxplot.png')
 
 
+def calculate_distance_between_pedestrians_and_enb():
+    distance = []
+    df = read_position_files()
+
+    run_ids = df.runId.unique()
+    run_ids.sort()
+
+    for run in run_ids:
+        print(f"Aggregating run {run}")
+        df_filtered = df[df["runId"] == run]
+        for i in range(df["time"].min(), df["time"].max(), 10):
+            df_tmp = df_filtered[df_filtered["time"] == i]
+            id_list = df_tmp.id.unique()
+            id_list.sort()
+            for index, id in enumerate(id_list):
+                x1 = df_tmp[df_tmp["id"] == id]["x"].values[0]
+                y1 = df_tmp[df_tmp["id"] == id]["y"].values[0]
+                enb_x = 300
+                enb_y = 300
+                for k in range(index + 1, len(df_tmp.id), 1):
+                    x2 = df_tmp[df_tmp["id"] == id_list[k]]["x"].values[0]
+                    y2 = df_tmp[df_tmp["id"] == id_list[k]]["y"].values[0]
+                    dist = math.sqrt(abs((x2 - x1) ** 2 - (y2 - y1) ** 2))
+                    dist_enb = math.sqrt(abs((enb_x - x1) ** 2 - (enb_y - y1) ** 2))
+                    distance.append([i, dist, dist_enb])
+
+    df = pd.DataFrame(distance)
+    df.columns = ["time", "distance", "distance_enb"]
+
+    tmp = []
+    for x in range(df["time"].min(), df["time"].max() + 10, 10):
+        df_tmp = df[df["time"] == x]
+        tmp.append([x, "{0:,.2f}".format(df_tmp['distance'].mean()), "{0:,.2f}".format(df_tmp['distance_enb'].mean())])
+
+    df_all = pd.DataFrame(tmp)
+    df_all = df_all.astype(float)
+    df_all.columns = ["time", "distance", "distance_enb"]
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+
+    ax.plot("time", "distance", data=df_all, label="Distance among pedestrians", color="green")
+    ax.plot("time", "distance_enb", data=df_all, label="Distance Pedestrian/eNB", color="purple")
+    ax.set_xlabel("Time in [s]")
+    ax.set_ylabel("Distance")
+    ax.set_ylim(0, 160)
+    ax.set_xlim(0, 800)
+
+    # Ped Count
+    df_reduced = mean_pedestrian_count()
+
+    ax1 = ax.twinx()
+    ax1.plot("time", "pedCount", color="orange", label="Mean Pedestrian Count", data=df_reduced)
+    ax1.set_ylabel("Mean Pedestrian Count")
+    ax1.set_ylim(0, 33)
+    ax1.set_yticks(np.arange(0, 33, 3))
+
+    lines_1, labels1 = ax.get_legend_handles_labels()
+    lines_2, labels2 = ax1.get_legend_handles_labels()
+
+    lines = lines_1 + lines_2
+    labels = labels1 + labels2
+
+    ax.legend(lines, labels, loc=0)
+
+    plot_vspans(ax)
+
+    fig.savefig(DISTANCE_OUTPUT_PATH + f"/distance_mean_to_enb.png")
+
+    return ax
+
+
 if __name__ == "__main__":
-    # scatter_pedestrian_positions()
-    scatter_plot_min_max()
+    # calculate_distance_between_pedestrians()
+    scatter_pedestrian_positions()
+    # scatter_plot_min_max()
     # average_speed_per_pedestrian()
     # average_speed_per_pedestrian_per_run()

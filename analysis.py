@@ -18,18 +18,17 @@ import sqlite3
 import numpy as np
 
 ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
-RUN = "sumoBottleneck"
-SPECIFIC_RUN = ""
+RUN = "vadereBottleneck"
+# SPECIFIC_RUN = ""
 
 PAINT_INTERVALS = True
-IS_VADERE_ANALYSIS = False
+IS_VADERE_ANALYSIS = True if "vadere" in RUN else False
 NODE_NAME = "node" if IS_VADERE_ANALYSIS else "pedestrianNode"
 
 PATH_ROOT = f"{ROOT}/{RUN}"
-PATH_SPECIFIC_RUN = f"{ROOT}/{RUN}/{SPECIFIC_RUN}"
+# PATH_SPECIFIC_RUN = f"{ROOT}/{RUN}/{SPECIFIC_RUN}"
 p = PathHelper(PATH_ROOT)
-p_specific = PathHelper(PATH_SPECIFIC_RUN)
-
+# p_specific = PathHelper(PATH_SPECIFIC_RUN)
 
 # @from_pickle(path=PATH_ROOT + "/analysis.p")
 def read_data():
@@ -47,14 +46,14 @@ def read_data():
 
     return dcd
 
-
-# @from_pickle(path=PATH_ROOT + "/paramters.p")
+"""
 def read_param():
     scave_tool = ScaveTool()
     SCA = f"{ROOT}/{RUN}/{SPECIFIC_RUN}/vars_rep_0.sca"
     scave_filter = scave_tool.filter_builder().t_parameter().build()
     df_parameters = scave_tool.read_parameters(SCA, scave_filter=scave_filter)
     return df_parameters
+"""
 
 
 def read_spawn_times():
@@ -179,8 +178,12 @@ def generate_mean_delay_per_run(delay):
                 df_mean = df_mean.dropna()
                 ax.plot("time", "value", data=df_mean, label=n)
                 ax1.plot("time", "value", data=df_mean, label=n)
-                # ax.set_xlim(400, 550)
-                ax1.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)")
+
+                ax1.set_ylim(0, 30)
+                ax1.set_xlim(0, 800)
+
+                ax.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)", y=1.05)
+                ax1.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)", y=1.05)
                 ax1.set_xlabel("time [s]")
                 ax1.set_ylabel(f"median delay (window size: {time_per_bin}s )[s]")
                 ax1.legend()
@@ -188,6 +191,7 @@ def generate_mean_delay_per_run(delay):
 
                 f1.savefig(p.join(f"out/delay/delay_rcvdPackage_mean_{a}.png"))
 
+    ax = plot_vspans(ax)
     f.savefig(p.join(f"out/delay/delay_rcvdPackage_mean.png"))
 
 
@@ -208,16 +212,18 @@ def generate_plots_rcvdPackage_delay_median(delay):
         ax1.plot("time", "value", data=df_median, label=n)
         ax2.plot("time", "value", data=df_mean, label=n)
         plt.yticks(np.arange(0, 45, 5))
+
         ax1.set_ylim(0, 30)
+        ax1.set_xlim(0, 800)
         ax2.set_ylim(0, 30)
-        # ax2.set_xlim(0, 550)
+        ax2.set_xlim(0, 800)
 
     label = "time [s]"
     title = "rcvdPkLifetime (delay) of all packets (beacon + map)"
     ax1 = plot_vspans(ax1)
     ax2 = plot_vspans(ax2)
-    ax1.set_title(title)
-    ax2.set_title(title)
+    ax1.set_title(title, y = 1.05)
+    ax2.set_title(title, y = 1.05)
     ax1.set_xlabel(label)
     ax2.set_xlabel(label)
     # plt.xticks(np.arange(0, 550, 50))
@@ -229,6 +235,24 @@ def generate_plots_rcvdPackage_delay_median(delay):
 
     f1.savefig(p.join("out/delay_rcvdPackage_median.png"))
     f2.savefig(p.join("out/delay_rcvdPackage_mean.png"))
+
+
+def delay_with_ped_count_and_distance_to_enb(delay):
+    import position_analysis as pos
+
+    df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
+    distancPedCountPlot = pos.calculate_distance_between_pedestrians_and_enb()
+
+    plots = [["packet delay", df_all]]
+    time_per_bin = 1.0  # seconds
+    for n, df in plots:
+        bins = int(np.floor(df["time"].max() / time_per_bin))
+        df_mean = df.groupby(pd.cut(df["time"], bins)).mean()
+        df_mean = df_mean.dropna()
+        distancPedCountPlot.plot("time", "value", data=df_mean, label=n)
+
+    fig = distancPedCountPlot.get_figure()
+    fig.savefig(p.join("out/delay_ped_count_distance_enb.png"))
 
 
 def generate_plots_sendPacketToUpper_delay_median(delay):
@@ -246,22 +270,30 @@ def generate_plots_sendPacketToUpper_delay_median(delay):
         df_median = df.groupby(pd.cut(df["time"], bins)).median()
         df_mean = df_mean.dropna()
         df_median = df_median.dropna()
+
         ax1.plot("time", "value", data=df_median, label=n)
         ax2.plot("time", "value", data=df_mean, label=n)
+        ax1 = plot_vspans(ax1)
+        ax2 = plot_vspans(ax2)
+
+        ax1.set_ylim(0, 500)
+        ax1.set_xlim(0, 800)
         ax2.set_ylim(0, 500)
-        plt.xticks(np.arange(0, 900, 100))
+        ax2.set_xlim(0, 800)
+
+        # plt.xticks(np.arange(0, 700, 100))
         # ax2.set_xlim(0, 550)
 
     label = "time [s]"
-    title = "sendPacketToUpper of all packets (beacon + map)"
-    ax1.set_title(title)
-    ax2.set_title(title)
+    title = "Amount of bytes sent (beacon + map)"
+    ax1.set_title(title, y = 1.05)
+    ax2.set_title(title, y = 1.05)
     ax1.set_xlabel(label)
     ax2.set_xlabel(label)
     # plt.xticks(np.arange(0, 550, 50))
 
-    ax1.set_ylabel(f"median sentPacketUpper (window size: {time_per_bin}s )[s]")
-    ax2.set_ylabel(f"mean sentPacketUpper (window size: {time_per_bin}s )[s]")
+    ax1.set_ylabel(f"Median amount of bytes (window size: {time_per_bin}s )[s]")
+    ax2.set_ylabel(f"Mean amount of bytes (window size: {time_per_bin}s )[s]")
 
     ax1.legend()
     ax2.legend()
@@ -285,6 +317,9 @@ def mean_simulation_time():
         data.append([i, last_person_time])
 
     df_sim_time = pd.DataFrame(data, columns=['runId', 'sim_time'])
+    if RUN == "vadereBottleneck":
+        df_sim_time = df_sim_time[df_sim_time['runId'] != 1]
+
     return df_sim_time['sim_time'].mean()
 
 
@@ -298,17 +333,12 @@ def simulation_duration_per_run():
 
     df_sim_time = pd.DataFrame(data, columns=['runId', 'sim_time'])
 
-    # fig, ax = plt.subplots(1, 1)
-    y = df_sim_time.sim_time.values
-    x = df_sim_time.runId.values
-    # ax.scatter(x, y, marker='.', color='red')
-    ax = df_sim_time.plot.bar(x='runId', y='sim_time', rot=0)
-
-    # plt.xticks(np.arange(0, 10, 1))
+    ax = df_sim_time.plot.bar(x='runId', y='sim_time', label="Pedestrian Count", rot=0)
     ax.set_xlabel("Run Id")
     ax.set_ylabel("Time in [s]")
     ax.set_ylim(0, 1000)
-    ax.axvline(mean_simulation_time(), label="Mean Simulation Time", color="blue", alpha=0.3, linestyle="--")
+    ax.axhline(mean_simulation_time(), label="Mean Simulation Duration", color="red", alpha=1, linestyle="--")
+    ax.legend()
 
     plt.yticks(np.arange(0, 1000, 100))
     plt.title("Length of Simulation per Run")
@@ -317,7 +347,7 @@ def simulation_duration_per_run():
     fig.savefig(p.join("out/simulation_times.png"))
 
 
-def delay_with_ped_count(delay):
+def data_with_ped_count(data):
     # Mean Pedestrian Count
     list = []
     df = read_spawn_times()
@@ -332,34 +362,37 @@ def delay_with_ped_count(delay):
 
     df_ped_count = pd.DataFrame(list, columns=['runId', 'time', 'pedCount'])
     df_ped_count_agg = df_ped_count.groupby(['time'], as_index=False).agg({"pedCount": np.mean})
-    df_reduced = df_ped_count_agg[df_ped_count_agg['time'] % 50 == 0]
+    df_reduced = df_ped_count_agg[df_ped_count_agg['time'] % 10 == 0]
 
     # Mean Package Delay
-    df_all = delay.opp.filter().vector().normalize_vectors(axis=0)
+    df_all = data.opp.filter().vector().normalize_vectors(axis=0)
 
     f1, ax1 = check_ax()
     ax2 = ax1.twinx()
 
-    plots = [["packet delay", df_all]]
+    plots = [["Mean Packet Delay", df_all]]
     time_per_bin = 1.0  # seconds
     for n, df in plots:
         bins = int(np.floor(df["time"].max() / time_per_bin))
         df_mean = df.groupby(pd.cut(df["time"], bins)).mean()
         df_mean = df_mean.dropna()
         ax1.plot("time", "value", data=df_mean, label=n)
-        ax2.plot("time", "pedCount", color="purple", data=df_reduced)
+        ax2.plot("time", "pedCount", color="purple", label="Mean Pedestrian Count", data=df_reduced)
 
     label = "time [s]"
-    title = "rcvdPkLifetime (delay) of all packets (beacon + map)"
+    title = "Mean Bytes Sent"
+    ax1.set_ylim(0, 500)
+    ax1.set_xlim(0, 800)
     ax1 = plot_vspans(ax1)
-    ax1.set_title(title)
+    ax1.set_title(title, y=1.05)
     ax1.set_xlabel(label)
-    ax1.set_ylabel(f"median delay (window size: {time_per_bin}s )[s]")
+    ax1.set_ylabel(f"Mean Bytes Sent (window size: {time_per_bin}s )[s]")
     ax2.set_ylabel("Number of Pedestrians")
-    ax1.legend(loc='center left', bbox_to_anchor=(1.0, 1.0))
+    ax1.legend()
+    # ax1.legend(loc='center left', bbox_to_anchor=(1.0, 1.0))
 
     fig = ax1.get_figure()
-    fig.savefig(p.join("out/delay_mean_ped_count.png"), bbox_inches="tight")
+    fig.savefig(p.join("out/data_with_ped_count.png"), bbox_inches="tight")
 
 
 def mean_pedestrian_count():
@@ -376,7 +409,7 @@ def mean_pedestrian_count():
 
     df_ped_count = pd.DataFrame(list, columns=['runId', 'time', 'pedCount'])
     df_ped_count_agg = df_ped_count.groupby(['time'], as_index=False).agg({"pedCount": np.mean})
-    df_reduced = df_ped_count_agg[df_ped_count_agg['time'] % 50 == 0]
+    df_reduced = df_ped_count_agg[df_ped_count_agg['time'] % 10 == 0]
 
     ax = df_reduced.plot.bar(x='time', y='pedCount', rot=0, figsize=(8, 6))
     ax.set_xlabel("Time in [s]")
@@ -386,6 +419,8 @@ def mean_pedestrian_count():
 
     fig = ax.get_figure()
     fig.savefig(p.join("out/mean_ped_count_over_time.png"))
+
+    return df_reduced
 
 
 def pedestrian_count_per_run():
@@ -414,39 +449,63 @@ def pedestrian_count_per_run():
         fig.savefig(p.join(f"out/ped_count/pedestrian_count_{i}.png"))
 
 
+intervalList = [[10, 80], [90, 120], [150, 300], [350, 430], [500, 640]] # Sumo Bottleneck
+# intervalList = [[10, 70], [80, 120], [150, 350], [400, 510]]  # Sumo Simple
+
+
 def plot_vspans(ax):
     if PAINT_INTERVALS:
-        intervalList = [[10, 80], [150, 300], [350, 430], [500, mean_simulation_time()]]
-        alpha = 0.1
+        intervalCounter = 1
 
         ax.axvline(mean_simulation_time(), label="Mean Simulation Time", color="red", alpha=1, linestyle="--")
         for begin, end in intervalList:
             # Interval
-            ax.axvspan(begin, end, label=f"Interval from {begin}s to {end}s", color="yellow", alpha=alpha)
-            # Mean Delay of Simulations
-            alpha += 0.05
+            ax.axvspan(begin, end, color="yellow", alpha=0.35, ec="red")
+            ax.annotate(f"{intervalCounter}", xy=(((begin + end) / 2) - 6, ax.get_ylim()[1]), fontsize=12)
+            intervalCounter += 1
 
         return ax
 
 
+def delay_mean_variance_per_interval(data):
+    df_all = data.opp.filter().vector().normalize_vectors(axis=0)
+    for i, x in intervalList:
+        df_filtered = df_all.query(f"time >= {i}").query(f"time <= {x}")
+        print(f"Interval {i} to {x}")
+        print(f"{df_filtered['value'].max()}\t{df_filtered['value'].min()}\t{df_filtered['value'].mean()}\t{df_filtered['value'].median()}\t{df_filtered['value'].var()}\t{df_filtered['value'].std()}")
+        # print(f"Maximum: {df_filtered['value'].max()}")
+        # print(f"Minimum: {df_filtered['value'].min()}")
+        # print(f"Mean: {df_filtered['value'].mean()}")
+        # print(f"Median: {df_filtered['value'].median()}")
+        # print(f"Variance: {df_filtered['value'].var()}")
+        # print(f"Standard Deviation: {df_filtered['value'].std()}")
+        print("-------------------------")
+
+
 if __name__ == "__main__":
-    all_pedestrians_instantiated()
-    simulation_duration_per_run()
-    mean_pedestrian_count()
+
+    # all_pedestrians_instantiated()
+    # simulation_duration_per_run()
+    # mean_pedestrian_count()
+    print(mean_simulation_time())
 
     delay = read_app_data(filter_for_packageDelay)
-    # upper = read_app_data(filter_for_sentPacketToUpper)
+    upper = read_app_data(filter_for_sentPacketToUpper)
 
     # Reduce failed Vadere run
-    # delay = delay[delay['repetitionId'] != "1"]
-    # upper = upper[upper['repetitionId'] != "1"]
+    if RUN == "vadereBottleneck":
+        delay = delay[delay['repetitionId'] != "1"]
+        # upper = upper[upper['repetitionId'] != "1"]
 
     # Delay with Mean Pedestrian Count
-    delay_with_ped_count(delay)
+    data_with_ped_count(upper)
+    # delay_with_ped_count_and_distance_to_enb(delay)
 
     # Mean/Median Delay
     # generate_mean_delay_per_run(delay)
     # generate_plots_rcvdPackage_delay_median(delay)
+    # delay_mean_variance_per_interval(delay)
 
     # Mean/Median sentPacketToUpper
+    # delay_mean_variance_per_interval(upper)
     # generate_plots_sendPacketToUpper_delay_median(upper)
