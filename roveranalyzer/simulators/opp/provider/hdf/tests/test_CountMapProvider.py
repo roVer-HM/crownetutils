@@ -55,13 +55,21 @@ class CountMapProviderTest(unittest.TestCase):
             2: CountMapKey.Y,
             3: CountMapKey.ID,
         }
+        sample_columns = [
+            CountMapKey.COUNT,
+            CountMapKey.ERR,
+            CountMapKey.OWNER_DIST,
+            CountMapKey.SQERR,
+        ]
         result_grp_key = self.provider.group_key()
         result_index_order = self.provider.index_order()
         result_default_index = self.provider.default_index_key()
+        result_columns = self.provider.columns()
 
         self.assertEqual(result_grp_key, sample_grp_key)
         self.assertEqual(result_index_order, sample_index_order)
         self.assertEqual(result_default_index, sample_default_index)
+        self.assertEqual(result_columns, sample_columns)
 
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
@@ -145,6 +153,23 @@ class CountMapProviderTest(unittest.TestCase):
         self.provider.select_count_exact(self.count)
         mock_build_exact_condition.assert_called_once_with(
             key=CountMapKey.COUNT, value=self.count, operation=Operation.EQ
+        )
+        mock_select_where.assert_called_once_with(condition=condition)
+
+    @patch(
+        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+    )
+    @patch(
+        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
+    )
+    def test_select_err_exact(
+        self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
+    ):
+        condition = [f"{CountMapKey.ERR}{Operation.EQ}{self.err}"]
+        mock_build_exact_condition.return_value = condition
+        self.provider.select_err_exact(self.err)
+        mock_build_exact_condition.assert_called_once_with(
+            key=CountMapKey.ERR, value=self.err, operation=Operation.EQ
         )
         mock_select_where.assert_called_once_with(condition=condition)
 
