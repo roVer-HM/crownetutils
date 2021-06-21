@@ -162,6 +162,18 @@ class IHdfProvider(metaclass=abc.ABCMeta):
         """ check for HDF store """
         return os.path.exists(self._hdf_path)
 
+    def set_attribute(self, attr_key: str, value: Any):
+        import tables
+
+        with tables.open_file(self._hdf_path, "a") as hdf_file:
+            hdf_file.root[self.group_key()].table.attrs[attr_key] = value
+
+    def get_attribute(self, attr_key: str):
+        import tables
+
+        with tables.open_file(self._hdf_path, "r") as hdf_file:
+            return hdf_file.root[self.group_key()].table.attrs[attr_key]
+
     def _select_where(
         self, condition: List[str], columns: List[str] = None
     ) -> pd.DataFrame:
