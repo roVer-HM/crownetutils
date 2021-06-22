@@ -24,7 +24,7 @@ class DcdMapKey:
 class DcdMapProvider(IHdfProvider):
     def __init__(self, hdf_path):
         super().__init__(hdf_path)
-        self.selection_alias = {"NaN": 0, "ymf": 1}
+        self.selection_mapping = {"NaN": 0, "ymf": 1}
         self.node_regex = re.compile(r"dcdMap_(?P<node>\d+)\.csv")
 
     def group_key(self) -> str:
@@ -51,14 +51,34 @@ class DcdMapProvider(IHdfProvider):
     def default_index_key(self) -> str:
         return DcdMapKey.SIMTIME
 
-    def create_from_csv(self, csv_base_path: str) -> None:
-        dcd_files = self.get_dcd_file_paths(csv_base_path)
-        for file_path in dcd_files:
+    def create_from_csv(self, csv_paths: List[str]) -> None:
+        for file_path in csv_paths:
             dcd_df = self.build_dcd_dataframe(file_path)
             with self.ctx() as store:
                 store.append(
                     key=self.group, value=dcd_df, format="table", data_columns=True
                 )
+        self.set_selection_mapping_attribute()
+
+    def parse_node_id(self, path: str) -> int:
+        grps = [m.groupdict() for m in self.node_regex.finditer(path)]
+        if not grps:
+            raise ValueError(f"No node id found in: {path}")
+        node_id = int(grps.pop()["node"])
+        return node_id
+
+    def build_dcd_dataframe(self, path: str) -> pd.DataFrame:
+        df = pd.read_csv(filepath_or_buffer=path, sep=";", header=1)
+        df["node"] = self.parse_node_id(path)
+        index = [i[1] for i in self.index_order().items()]
+        df.set_index(keys=index, inplace=True)
+        df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].fillna(
+            self.selection_mapping["NaN"]
+        )
+        df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].replace(
+            self.selection_mapping
+        )
+        return df
 
     def get_dcd_file_paths(self, base_path: str) -> List[str]:
         dcd_files = []
@@ -68,24 +88,8 @@ class DcdMapProvider(IHdfProvider):
                     dcd_files.append(os.path.join(root, name))
         return dcd_files
 
-    def parse_node_id(self, path: str) -> int:
-        grps = [m.groupdict() for m in self.node_regex.finditer(path)]
-        node_id = int(grps.pop()["node"])
-        return node_id
+    def get_selection_mapping_attribute(self):
+        return self.get_attribute("selection_mapping")
 
-    def build_dcd_dataframe(self, path: str) -> pd.DataFrame:
-        df = pd.read_csv(filepath_or_buffer=path, sep=";", header=1)
-        df["node"] = self.parse_node_id(path)
-        index = [
-            DcdMapKey.SIMTIME,
-            DcdMapKey.X,
-            DcdMapKey.Y,
-            DcdMapKey.SOURCE,
-            DcdMapKey.NODE,
-        ]
-        df.set_index(keys=index, inplace=True)
-        df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].fillna(
-            self.selection_alias["NaN"]
-        )
-        df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].replace(self.selection_alias)
-        return df
+    def set_selection_mapping_attribute(self):
+        self.set_attribute("selection_mapping", self.selection_mapping)
