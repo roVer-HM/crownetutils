@@ -309,7 +309,7 @@ class DockerRunner:
             err = True  # stop but do not delete container
             raise  # re-raise so other parts can react to SIGINT
         except ReadTimeout as e:
-            logger.error("wait tdimeout reached")
+            logger.error("wait timeout reached")
             err = True  # stop but do not delete container
             raise RuntimeError(e)
         except docker.errors.APIError as e:
