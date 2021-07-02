@@ -1,23 +1,24 @@
 import os
-import shutil
 import unittest
 
 import pandas as pd
+from fs.tempfs import TempFS
 from pandas import IndexSlice as _I
 
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
     create_count_map_dataframe,
+    create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
 
 
 class IHDFProviderGoldenSampleTest(unittest.TestCase):
-    test_out_dir: str = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "unittest"
-    )
+    # create tmp fs. (use fs.root_path to access as normal path)
+    fs: TempFS = create_tmp_fs("IHDFProviderGoldenSampleTest", auto_clean=True)
+    test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
     sample_dataframe: pd.DataFrame = create_count_map_dataframe()
 
@@ -30,7 +31,7 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_out_dir)
+        cls.fs.close()
 
     def test_exact_methods(self):
         provider = CountMapProvider(self.sample_file_dir)

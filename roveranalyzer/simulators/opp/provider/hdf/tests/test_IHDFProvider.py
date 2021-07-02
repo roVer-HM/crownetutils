@@ -1,28 +1,30 @@
 import os
-import shutil
 import unittest
 import warnings
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
+from fs.tempfs import TempFS
 
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
     CountMapKey,
     CountMapProvider,
 )
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import UnsupportedOperation
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
     create_count_map_dataframe,
+    create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
 
 
 class IHDFProviderTest(unittest.TestCase):
-    test_out_dir: str = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "unittest"
-    )
+    # create tmp fs. (use fs.root_path to access as normal path)
+    fs: TempFS = create_tmp_fs("IHDFProviderTest")
+    test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
     provider: CountMapProvider = CountMapProvider(sample_file_dir)
     sample_dataframe: pd.DataFrame = create_count_map_dataframe()
@@ -36,7 +38,7 @@ class IHDFProviderTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_out_dir)
+        cls.fs.close()
 
     @patch("pandas.HDFStore")
     def test_ctx_2(self, mock_store: MagicMock):
@@ -305,7 +307,7 @@ class IHDFProviderTest(unittest.TestCase):
     def test_set_item(self):
         try:
             self.provider[1] = "Any"
-        except NotImplementedError as e:
+        except UnsupportedOperation as e:
             self.assertTrue("Not supported!" in str(e))
 
     def test_get_dataframe(self):
