@@ -70,7 +70,7 @@ class DcdMapProvider(IHdfProvider):
     def build_dcd_dataframe(self, path: str) -> pd.DataFrame:
         df = pd.read_csv(filepath_or_buffer=path, sep=";", header=1)
         df["node"] = self.parse_node_id(path)
-        index = [i[1] for i in self.index_order().items()]
+        index = list(self.index_order().values())
         df.set_index(keys=index, inplace=True)
         df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].fillna(
             self.selection_mapping["NaN"]

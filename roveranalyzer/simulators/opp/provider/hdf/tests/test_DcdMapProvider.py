@@ -1,10 +1,10 @@
 import os
-import shutil
 import unittest
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
+from fs.tempfs import TempFS
 
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import (
     DcdMapKey,
@@ -13,14 +13,15 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import (
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
     create_dcd_csv_dataframe,
+    create_tmp_fs,
     make_dirs,
 )
 
 
 class DcdMapProviderTest(unittest.TestCase):
-    test_out_dir: str = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "unittest"
-    )
+    # create tmp fs. (use fs.root_path to access as normal path)
+    fs: TempFS = create_tmp_fs("CountMapProviderTest")
+    test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
     provider: DcdMapProvider = DcdMapProvider(sample_file_dir)
 
@@ -30,7 +31,8 @@ class DcdMapProviderTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_out_dir)
+        # close temporary filesystem
+        cls.fs.close()
 
     def test_DcdMapProperties(self):
         sample_grp_key = HdfGroups.DCD_MAP
