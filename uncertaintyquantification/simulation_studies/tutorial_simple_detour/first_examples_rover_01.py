@@ -2,6 +2,7 @@
 #!/usr/bin/python3
 
 import sys
+
 from tutorial.imports import *
 
 # This is just to make sure that the systems path is set up correctly, to have correct imports, it can be ignored:
@@ -33,7 +34,9 @@ if __name__ == "__main__":
 
     parameter = [
         Parameter(
-            name="number_of_agents_mean", simulator="dummy", stages=[15, 20],
+            name="number_of_agents_mean",
+            simulator="dummy",
+            stages=[15, 20],
         )  # number of agtens to be generated in 100s
     ]
     dependent_parameters = [
@@ -59,7 +62,9 @@ if __name__ == "__main__":
         ),
         DependentParameter(name="sim-time-limit", simulator="omnet", equation="180s"),
         DependentParameter(
-            name="*.station[0].app[0].incidentTime", simulator="omnet", equation="100s",
+            name="*.station[0].app[0].incidentTime",
+            simulator="omnet",
+            equation="100s",
         ),
         DependentParameter(
             name="*.radioMedium.obstacleLoss.typename",

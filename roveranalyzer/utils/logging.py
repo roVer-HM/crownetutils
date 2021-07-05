@@ -44,3 +44,4 @@ levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
 logger = set_default()
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)

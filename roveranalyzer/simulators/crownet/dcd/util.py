@@ -123,10 +123,8 @@ class DcdMetaData:
 def create_error_df(map_df, glb_df):
     """
     Extract count errors for each count measure based on cell(x, y), time and owner(Id).
-    RowIndex('simtime', 'x', 'y')
-    ColumnIndex('ID', 'values')
-      ID (nodeIds with 0:= ground truth)
-      values ('err' and 'serr')
+    RowIndex('simtime', 'x', 'y', 'ID')
+    ColumnIndex('count', 'err', 'owner_dist', 'sqerr')
     """
     t = Timer.create_and_start("create_error_df", label="create_error_df")
     # copy count information of maps and ground truth into one data frame
@@ -194,6 +192,8 @@ def create_error_df(map_df, glb_df):
     # sort columns for convinces
     all_pivot = all_pivot.sort_index(axis="columns")
     t.stop()
+    # remove pivot property and flat the table
+    all_pivot = all_pivot.stack(0)
     return all_pivot
 
 

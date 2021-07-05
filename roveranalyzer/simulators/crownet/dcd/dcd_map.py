@@ -1,5 +1,4 @@
 import os
-import pickle
 from functools import wraps
 from itertools import combinations
 
@@ -12,6 +11,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
+from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
+from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
 
@@ -36,7 +37,7 @@ class DcdMap:
         id_map,
         location_df: pd.DataFrame,
         plotter=None,
-        pickle_base_path=None,
+        data_base_dir=None,
     ):
         self.meta = m_glb
         self.node_to_id = (
@@ -55,33 +56,29 @@ class DcdMap:
             "legend": {"size": 20},
             "tick_size": 16,
         }
-        self.pickle_base_path = pickle_base_path
+        self.data_base_dir = data_base_dir
 
-    @property
-    def lazy_load_from_pickle(self):
-        return self.pickle_base_path is not None
-
-    def _load_or_create(self, pickle_name, create_f, *create_args):
-        """
-        Load data from pickle or create data based on :create_f:
-        """
-
-        # just load data with provided create function
-        if not self.lazy_load_from_pickle:
-            print("create from scratch (no pickle)")
-            return create_f(*create_args)
-
-        # load from pickle if exist and create if missing
-        pickle_path = os.path.join(self.pickle_base_path, pickle_name)
-        if os.path.exists(pickle_path):
-            print(f"load from pickle {pickle_path}")
-            return pickle.load(open(pickle_path, "rb"))
-        else:
-            print("create from scratch ...", end=" ")
-            data = create_f(*create_args)
-            print(f"write to pickle {pickle_path}")
-            pickle.dump(data, open(pickle_path, "wb"))
-            return data
+    # def _load_or_create(self, pickle_name, create_f, *create_args):
+    #     """
+    #     Load data from hdf or create data based on :create_f:
+    #     """
+    #
+    #     # just load data with provided create function
+    #     if not self.lazy_load_from_hdf:
+    #         print("create from scratch (no hdf)")
+    #         return create_f(*create_args)
+    #
+    #     # load from hdf if exist and create if missing
+    #     hdf_path = os.path.join(self.hdf_base_path, pickle_name)
+    #     if os.path.exists(hdf_path):
+    #         print(f"load from hdf {hdf_path}")
+    #         return self.count_map_provider.get_dataframe()
+    #     else:
+    #         print("create from scratch ...", end=" ")
+    #         data = create_f(*create_args)
+    #         print(f"write to hdf {hdf_path}")
+    #         self.count_map_provider.write_dataframe(data)
+    #         return data
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
@@ -123,7 +120,9 @@ class DcdMap2D(DcdMap):
         super().__init__(glb_meta, node_id_map, location_df, plotter, **kwargs)
         self._map = map_df
         self._global_df = global_df
-        self._count_err = None
+        self._count_map = None
+        self.hdf_file_name = "DcdMap2D.hdf"
+        self._count_map_provider = None
 
     def iter_nodes_d2d(self, first=0):
         _i = pd.IndexSlice
@@ -141,14 +140,29 @@ class DcdMap2D(DcdMap):
         return self._map
 
     @property
+    def count_map_provider(self):
+        if self._count_map_provider is None:
+            self._count_map_provider = CountMapProvider(
+                os.path.join(self.data_base_dir, self.hdf_file_name)
+            )
+
+            if not self._count_map_provider.exists():
+                logger.info(f"create {self.hdf_file_name} from scratch ...")
+                data = create_error_df(self.map, self.glb_map)
+                logger.info(f"write to hdf {self._count_map_provider.hdf_path}")
+                self.count_map_provider.write_dataframe(data)
+
+        return self._count_map_provider
+
+    @property
     def count_map(self):
         # lazy load data if needed
-        if self._count_err is None:
-            print("lazy load count_err DataFrame ...", end="")
-            self._count_err = self._load_or_create(
-                "count_err.p", create_error_df, self.map, self.glb_map
+        if self._count_map is None:
+            logger.warning(
+                "complete count_map placed in memory. Use count_map_proivder"
             )
-        return self._count_err
+            self._count_map = self.count_map_provider.get_dataframe()
+        return self._count_map
 
     def all_ids(self, with_ground_truth=True):
         ids = np.array(list(self.id_to_node.keys()))
@@ -198,9 +212,11 @@ class DcdMap2D(DcdMap):
          (N, M) where N,M is the number of cells in X respectively Y axis
         """
         data = pd.DataFrame(
-            self.count_map.loc[Idx[time_step], Idx[node_id, value_name]]
+            self.count_map_provider.select_simtime_and_node_id_exact(
+                time_step, node_id
+            )[value_name]
         )
-        data.columns = data.columns.droplevel(0)
+        data = data.set_index(data.index.droplevel([0, 3]))  # (x,y) as new index
         full_index = self.meta.grid_index_2d(real_coords=True)
         df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
         df = df.set_index(full_index)
@@ -430,11 +446,9 @@ class DcdMap2D(DcdMap):
         bins_width=2.5,
     ):
 
-        # fixme: merge all node_id's (remove pivot)
-        # ignore id
-        df = self.count_map.loc[Idx[time_step], Idx[:, ("owner_dist", value)]].stack(
-            level=0
-        )
+        df = self.count_map_provider.select_simtime_and_node_id_exact(
+            time_step, node_id
+        )[["owner_dist", value]]
         df = df.reset_index(drop=True)
 
         # average over distance (ignore node_id)

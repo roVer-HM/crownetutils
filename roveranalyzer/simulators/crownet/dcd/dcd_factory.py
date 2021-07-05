@@ -79,7 +79,7 @@ class DcdBuilder:
         self._features = [delay_feature, owner_dist_feature]
         self._global_csv_path = None
         self._node_csv_paths = []
-        self._pickle_base_path = None
+        self._data_base_path = None
         self._root_pickle = None
         self._pickle_state = PickleState.DEACTIVATED
 
@@ -99,15 +99,15 @@ class DcdBuilder:
         self._node_csv_paths = node_csv_paths
         return self
 
-    def pickle_base_path(self, path):
-        self._pickle_base_path = path
+    def data_base_path(self, path):
+        self._data_base_path = path
         return self
 
     def pickle_name(self, pickle_name):
         if os.path.isabs(pickle_name):
             self._root_pickle = pickle_name
         else:
-            self._root_pickle = os.path.join(self._pickle_base_path, pickle_name)
+            self._root_pickle = os.path.join(self._data_base_path, pickle_name)
         return self
 
     def pickle_as(self, state: PickleState):
@@ -175,7 +175,9 @@ class DcdBuilder:
 
         # Apply missing build steps based on pickle state (if any)
         print(f"found pickle state {_state} build object ...")
-        if _state == PickleState.CSV_ONLY:
+        if (
+            _state == PickleState.CSV_ONLY
+        ):  # no location table, features only csv, (delay gets calulated afterwards)
             # location_df, no id mapping, no merging, no features
             _data = self.do_merge(**_data)
             _data = self.do_feature(**_data)
@@ -192,7 +194,7 @@ class DcdBuilder:
             _data,
             self._map_type,
             plotter=self._scenario_plotter,
-            pickle_base_path=self._pickle_base_path,
+            data_base_dir=self._data_base_path,
         )
 
     def _compare_builder(self, other):
@@ -205,7 +207,7 @@ class DcdBuilder:
             data,
             self._map_type,
             plotter=self._scenario_plotter,
-            pickle_base_path=self._pickle_base_path,
+            data_base_dir=self._data_base_path,
         )
 
     @classmethod
@@ -229,12 +231,14 @@ class DcdBuilder:
             "data": data,
         }
         p.update(kwargs)
-        pickle.dump(p, open(self._root_pickle, "wb"))
+        with open(self._root_pickle, "wb") as fd:
+            pickle.dump(p, fd)
 
     def read_pickle(self):
         if self._root_pickle is None:
             raise RuntimeError("Path not set")
-        data = pickle.load(open(self._root_pickle, "rb"))
+        with open(self._root_pickle, "rb") as fd:
+            data = pickle.load(fd)
         return data
 
     def _pickle_if_needed(self, data, state):
@@ -265,20 +269,20 @@ class DcdBuilder:
 
         # load map for each node *.csv -> list of DataFrames
         njobs = int(multiprocessing.cpu_count() * 0.60)
-        pool = multiprocessing.Pool(processes=njobs)
-        job_args = [
-            {
-                "csv_path": p,
-                "index": self.VIEW_IDX[
-                    1:
-                ],  # ID will be set later (use always VIEW_IDX here. IN full map source will be set later)
-                "column_types": self._map_cols,
-                "real_coords": self._real_coords,
-                "df_filter": self._single_df_filters,
-            }
-            for p in node_data_paths
-        ]
-        df_data = run_pool(pool, build_density_map, job_args)
+        with multiprocessing.Pool(processes=njobs) as pool:
+            job_args = [
+                {
+                    "csv_path": p,
+                    "index": self.VIEW_IDX[
+                        1:
+                    ],  # ID will be set later (use always VIEW_IDX here. IN full map source will be set later)
+                    "column_types": self._map_cols,
+                    "real_coords": self._real_coords,
+                    "df_filter": self._single_df_filters,
+                }
+                for p in node_data_paths
+            ]
+            df_data = run_pool(pool, build_density_map, job_args)
         return {"global_data": df_global, "node_data": df_data}
 
     def do_merge(self, global_data, node_data):

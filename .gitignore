@@ -1,7 +1,8 @@
 .idea
 tags
 tags**
-*.h5
+**/*.h5
+**/*.hdf5
 tutorials/test_data.d
 .directory
 **/*.mp4
