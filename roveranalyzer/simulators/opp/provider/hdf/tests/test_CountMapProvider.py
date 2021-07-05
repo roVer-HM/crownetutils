@@ -1,9 +1,9 @@
 import os
-import shutil
 import unittest
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
+from fs.tempfs import TempFS
 
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
     CountMapKey,
@@ -13,15 +13,16 @@ from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
     create_count_map_dataframe,
+    create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
 
 
 class CountMapProviderTest(unittest.TestCase):
-    test_out_dir: str = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "unittest"
-    )
+    # create tmp fs. (use fs.root_path to access as normal path)
+    fs: TempFS = create_tmp_fs("CountMapProviderTest")
+    test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
     provider: CountMapProvider = CountMapProvider(sample_file_dir)
     sample_dataframe: pd.DataFrame = create_count_map_dataframe()
@@ -44,7 +45,8 @@ class CountMapProviderTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_out_dir)
+        # close temporary filesystem
+        cls.fs.close()
 
     def test_CountMapProperties(self):
         sample_grp_key = HdfGroups.COUNT_MAP

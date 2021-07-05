@@ -70,6 +70,30 @@ class SumoRunner(DockerRunner):
         logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, **run_args_override)
 
+    def single_launcher(
+        self,
+        traci_port=9999,
+        message_log=os.devnull,
+        run_args_override=None,
+    ):
+        cmd = [
+            "/veins_launchd",
+            "-vvv",
+            "--port",
+            str(traci_port),
+            "--bind",
+            "0.0.0.0",
+            "--logfile",
+            message_log,
+            "--single-run",
+        ]
+        if run_args_override is None:
+            run_args_override = {}
+
+        logger.debug(f"start sumo container(single server)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
+        return self.run(cmd, **run_args_override)
+
     def exec_start_vadere_laucher(self):
         """
         start the vadere-laucher.py script in the container which creates multiple Vadere
