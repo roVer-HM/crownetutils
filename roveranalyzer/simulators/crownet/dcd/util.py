@@ -1,4 +1,3 @@
-import multiprocessing
 from itertools import repeat
 
 import numpy as np
@@ -133,7 +132,7 @@ def create_error_df(map_df, glb_df):
     g["ID"] = 0
     g["x_owner"] = glb_df.index.get_level_values("x")
     g["y_owner"] = glb_df.index.get_level_values("y")
-    g = g.reset_index().set_index(["ID", "simtime", "x", "y"], drop=True)
+    g = g.reset_index().set_index(["simtime", "x", "y", "ID"], drop=True)
     all = pd.concat([g, d])
 
     # explode missing count values of node data based on global data. Due to the fact that the ground truth (ID=0) is
@@ -168,7 +167,10 @@ def create_error_df(map_df, glb_df):
         # clear values for times where node _id is not present
         if _id > 0:
             present_at_times = (
-                map_df.loc[_id].index.get_level_values("simtime").unique().to_numpy()
+                map_df.loc[Idx[:, :, :, :, _id]]
+                .index.get_level_values("simtime")
+                .unique()
+                .to_numpy()
             )
             not_present_at_times = np.setdiff1d(all_times, present_at_times)
             all_pivot.loc[Idx[not_present_at_times, :], Idx[_id]] = np.nan
@@ -246,6 +248,27 @@ def owner_dist_feature(_df_ret, **kwargs):
     _df_ret = _df_ret.set_index(index_names, drop=True, verify_integrity=True)
 
     return _df_ret
+
+
+def read_csv(csv_path, _index_types: dict, _col_types: dict, real_coords=True):
+    """
+    read csv and set index
+    """
+    _df = LazyDataFrame.from_path(csv_path)
+    _df.dtype = z = {**_index_types, **_col_types}
+    select_columns = list(_df.dtype.keys())
+    index_names = list(_index_types.keys())
+    df_raw: pd.DataFrame = _df.df(set_index=False, column_selection=select_columns)
+    df_raw = df_raw.set_index(index_names)
+    df_raw = df_raw.sort_index()
+
+    meta = _df.read_meta_data()
+    _m = DcdMetaData.from_dict(meta)
+
+    if real_coords:
+        df_raw = _apply_real_coords(df_raw, _m)
+
+    return df_raw, _m
 
 
 def _density_get_raw(csv_path, index, col_types):

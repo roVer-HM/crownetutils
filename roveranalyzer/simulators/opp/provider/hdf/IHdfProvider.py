@@ -14,21 +14,56 @@ class UnsupportedOperation(RuntimeError):
         super().__init__(args, kwargs)
 
 
+class FrameConsumer(metaclass=abc.ABCMeta):
+    """
+    Consume dataframe and use it for some actions
+    """
+
+    def __init__(self):
+        pass
+
+    @abc.abstractmethod
+    def consume(self, df: pd.DataFrame):
+        pass
+
+
 class BaseHdfProvider:
     def __init__(self, hdf_path: str, group: str = "root"):
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
 
-    def get_dataframe(self, key=None) -> pd.DataFrame:
+    def get_dataframe(self, group=None) -> pd.DataFrame:
         """
         Select the entire dataframe behind given key or the default location.
         Warning: this may take some time and may cause memory problems
         """
-        _key = self.group if key is None else key
+        _key = self.group if group is None else group
         with self.ctx(mode="r") as store:
             df = store.get(key=_key)
         return pd.DataFrame(df)
+
+    def set_attribute(self, attr_key: str, value: Any, group=None):
+        import tables
+
+        _key = self.group if group is None else group
+        with tables.open_file(self._hdf_path, "a") as hdf_file:
+            if _key not in hdf_file.root:
+                hdf_file.create_group("/", _key, "")
+            hdf_file.root[_key].table.attrs[attr_key] = value
+
+    def get_attribute(self, attr_key: str, group=None):
+        import tables
+
+        _key = self.group if group is None else group
+        with tables.open_file(self._hdf_path, "r") as hdf_file:
+            if _key not in hdf_file.root:
+                raise ValueError(f"no group found for {_key=}")
+            return hdf_file.root[_key].table.attrs[attr_key]
+
+    def contains_group(self, group):
+        with self.ctx() as ctx:
+            return group in [g._v_name for g in ctx.groups()]
 
     @contextlib.contextmanager  # to ensure store closes after access
     def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
@@ -85,16 +120,6 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     @property
     def dispatcher(self):
         return self._dispatcher
-
-    # @contextlib.contextmanager  # to ensure store closes after access
-    # def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
-    #     _args = dict(self._hdf_args)
-    #     _args.update(kwargs)
-    #     store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
-    #     try:
-    #         yield store
-    #     finally:
-    #         store.close()
 
     @staticmethod
     def cast_to_set(value: Any):
@@ -182,30 +207,13 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     def __setitem__(self, key, value):
         raise UnsupportedOperation("Not supported!")
 
-    # def get_dataframe(self) -> pd.DataFrame:
-    #     with self.ctx(mode="r") as store:
-    #         df = store.get(key=self.group)
-    #     return pd.DataFrame(df)
-
     def write_dataframe(self, data: pd.DataFrame) -> None:
-        with self.ctx(mode="w") as store:
+        with self.ctx(mode="a") as store:
             store.put(key=self.group, value=data, format="table", data_columns=True)
 
     def exists(self) -> bool:
         """ check for HDF store """
         return os.path.exists(self._hdf_path)
-
-    def set_attribute(self, attr_key: str, value: Any):
-        import tables
-
-        with tables.open_file(self._hdf_path, "a") as hdf_file:
-            hdf_file.root[self.group_key()].table.attrs[attr_key] = value
-
-    def get_attribute(self, attr_key: str):
-        import tables
-
-        with tables.open_file(self._hdf_path, "r") as hdf_file:
-            return hdf_file.root[self.group_key()].table.attrs[attr_key]
 
     def _select_where(
         self, condition: List[str], columns: List[str] = None
