@@ -57,8 +57,6 @@ class BaseHdfProvider:
 
         _key = self.group if group is None else group
         with tables.open_file(self._hdf_path, "r") as hdf_file:
-            if _key not in hdf_file.root:
-                raise ValueError(f"no group found for {_key=}")
             return hdf_file.root[_key].table.attrs[attr_key]
 
     def contains_group(self, group):

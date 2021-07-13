@@ -50,6 +50,12 @@ class DcdMapProviderTest(unittest.TestCase):
             DcdMapKey.RECEIVED_TIME,
             DcdMapKey.SELECTION,
             DcdMapKey.OWN_CELL,
+            DcdMapKey.X_OWNER,
+            DcdMapKey.Y_OWNER,
+            DcdMapKey.OWNER_DIST,
+            DcdMapKey.DELAY,
+            DcdMapKey.MEASURE_AGE,
+            DcdMapKey.UPDATE_AGE,
         ]
         result_grp_key = self.provider.group_key()
         result_index_order = self.provider.index_order()
@@ -87,12 +93,14 @@ class DcdMapProviderTest(unittest.TestCase):
             [
                 call(
                     key=self.provider.group_key(),
+                    index=False,
                     value=ret_df_1,
                     format="table",
                     data_columns=True,
                 ),
                 call(
                     key=self.provider.group_key(),
+                    index=False,
                     value=ret_df_2,
                     format="table",
                     data_columns=True,
@@ -122,7 +130,7 @@ class DcdMapProviderTest(unittest.TestCase):
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.parse_node_id"
     )
-    @patch("pandas.read_csv")
+    @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.read_csv")
     def test_build_dcd_dataframe(
         self, mock_read_csv: MagicMock, mock_parse_node_id: MagicMock
     ):
@@ -146,7 +154,7 @@ class DcdMapProviderTest(unittest.TestCase):
         self.assertTrue(
             result["selection"].isin(self.provider.selection_mapping.values()).all()
         )
-        self.assertTrue(result.reset_index()["node"].isin([own_node_id]).all())
+        self.assertTrue(result.reset_index()[DcdMapKey.NODE].isin([own_node_id]).all())
 
     def test_get_dcd_file_paths(self):
         with mock.patch("os.walk") as mockwalk:

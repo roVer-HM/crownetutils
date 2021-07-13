@@ -10,7 +10,7 @@ import pandas as pd
 import pandas.testing as pdt
 
 # from roveranalyzer.entrypoint.parser import test_parser
-from roveranalyzer.simulators.crownet.dcd.dcd_factory import DcdBuilder, PickleState
+from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdBuilder, PickleState
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMetaData
 from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
 from roveranalyzer.simulators.crownet.dcd.util import remove_not_selected_cells
