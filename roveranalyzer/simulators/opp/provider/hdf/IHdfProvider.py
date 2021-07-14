@@ -198,7 +198,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         dataframe = self._select_where(condition, columns)
         if dataframe.empty:
             raise ValueError(
-                "Returned dataframe was empty. Please check your index names."
+                f"Returned dataframe was empty. Please check your index names.{condition=}"
             )
         return dataframe
 

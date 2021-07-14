@@ -7,6 +7,8 @@ from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
 from roveranalyzer.simulators.crownet.dcd.util import *
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
+    DcDGlobalDensity,
+    DcDGlobalPosition,
     pos_density_from_csv,
 )
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
@@ -25,6 +27,42 @@ class DcdHdfBuilder(FrameConsumer):
         self.global_path = global_path
         self.count_map_provider = CountMapProvider(self.hdf_path)
         self.dcd_map_provider = DcdMapProvider(self.hdf_path)
+        self.pos_provider = DcDGlobalPosition(self.hdf_path)
+        self.glb_map = DcDGlobalDensity(self.hdf_path)
+
+    def build_dcd_map(
+        self,
+        time_slice: slice = slice(None),
+        id_slice: slice = slice(None),
+        x_slice: slice = slice(None),
+        y_slice: slice = slice(None),
+    ):
+        if not os.path.exists(self.hdf_path):
+            print(f"create HDF {self.hdf_path}")
+            self.create_hdf_fast()
+
+        glb_meta = DcdMetaData(
+            self.pos_provider.get_attribute("cell_size"),
+            self.pos_provider.get_attribute("cell_count"),
+            self.pos_provider.get_attribute("cell_bound"),
+            node_id=0,  # global object
+        )
+        global_df = self.glb_map[Idx[time_slice, x_slice, y_slice], :]
+        map_df = self.dcd_map_provider[
+            Idx[time_slice, x_slice, y_slice, :, id_slice], :
+        ]
+        location_df = self.pos_provider[Idx[time_slice, id_slice], :]
+        count_slice = Idx[time_slice, x_slice, y_slice, id_slice]
+
+        ret = DcdMap2D(
+            glb_meta,
+            global_df,
+            map_df,
+            location_df,
+            self.count_map_provider,
+            count_slice,
+        )
+        return ret
 
     def create_hdf_fast(self):
         t = Timer.create_and_start("create_hdf", label="")
@@ -427,17 +465,12 @@ class DcdBuilder:
         print("create location df [x, y] -> nodeId")
         location_df, global_df = self.build_location_df(global_df)
 
-        # ID mapping
-        print("create node id mapping")
-        location_df, node_id_map = self.build_id_map(location_df, node_data)
-
         # merge node frames and set index
         print("merge dataframes")
-        map_df = self.merge_frames(node_data, node_id_map, self._map_idx)
+        map_df = self.merge_frames(node_data, self._map_idx)
 
         _ret = {
             "glb_meta": meta_data,
-            "node_id_map": node_id_map,
             "global_df": global_df,
             "map_df": map_df,  # may be full map based on self._type!
             "location_df": location_df,
@@ -478,30 +511,11 @@ class DcdBuilder:
         return glb_loc_df, glb_df
 
     @staticmethod
-    def build_id_map(location_df, node_data):
-        # read id from meta data object of each node_data tuple
-        ids = [n[0].node_id for n in node_data]
-        ids.sort()
-        ids = list(enumerate(ids, 1))
-        ids.insert(0, (0, "-1"))
-        node_to_id = {n[1]: n[0] for n in ids}
-
-        location_df["node_id"] = location_df["node_id"].apply(
-            lambda x: node_to_id.get(x, -1)
-        )
-        location_df = location_df.set_index(["simtime", "node_id"])
-        return location_df, node_to_id
-
-    @staticmethod
-    def merge_frames(input_df, node_to_id, index):
+    def merge_frames(input_df, index):
         node_dfs = []
         for meta, _df in input_df:
-            if meta.node_id not in node_to_id:
-                raise ValueError(f"{meta.node_id} not found in id_map")
             # add ID as column
-            _df["ID"] = node_to_id[meta.node_id]
-            # replace source string id with int based ID
-            _df["source"] = _df["source"].map(node_to_id)
+            _df["ID"] = meta.node_id
             # remove index an collect in list for later pd.concat
             _df = _df.reset_index()
             node_dfs.append(_df)

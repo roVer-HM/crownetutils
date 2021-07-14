@@ -56,9 +56,11 @@ def pos_density_from_csv(csv_path: str, hdf_path: str):
 
     pos.set_attribute("cell_size", meta.cell_size)
     pos.set_attribute("cell_count", meta.cell_count)
+    pos.set_attribute("cell_bound", meta.bound)
 
     density.set_attribute("cell_size", meta.cell_size)
     density.set_attribute("cell_count", meta.cell_count)
+    density.set_attribute("cell_bound", meta.bound)
 
     return pos, density
 
@@ -99,7 +101,7 @@ class DcDGlobalDensity(IHdfProvider):
         return HdfGroups.DCD_GLOBAL_DENSITY
 
     def index_order(self) -> {}:
-        return DcdGlobalMapKey.global_density_columns()
+        return {0: DcdGlobalMapKey.SIMTIME, 1: DcdGlobalMapKey.X, 2: DcdGlobalMapKey.Y}
 
     def columns(self) -> List[str]:
         return [DcdGlobalMapKey.COUNT]

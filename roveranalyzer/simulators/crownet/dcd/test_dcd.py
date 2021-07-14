@@ -180,10 +180,3 @@ class HdfTest(unittest.TestCase):
         )
         i = InteractiveAreaPlot(dcd, ax, value="count")
         i.show()
-
-
-if __name__ == "__main__":
-    argv = sys.argv[1:]
-    ns, args = test_parser(args=argv, parse_args=True)
-    _glb_config = vars(ns)
-    unittest.main(argv=[argv[0], *args])
