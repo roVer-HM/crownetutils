@@ -34,18 +34,11 @@ class DcdMap:
     def __init__(
         self,
         m_glb: DcdMetaData,
-        id_map,
         location_df: pd.DataFrame,
         plotter=None,
         data_base_dir=None,
     ):
         self.meta = m_glb
-        self.node_to_id = (
-            id_map  # mapping of omnetpp identifier to data frame id's [1,..., max]
-        )
-        self.id_to_node = {
-            v: k for k, v in id_map.items()
-        }  # data frame id to omnetpp node identifier
         self.location_df = location_df
         self.scenario_plotter = plotter
         self.plot_wrapper = None
@@ -110,19 +103,20 @@ class DcdMap2D(DcdMap):
     def __init__(
         self,
         glb_meta: DcdMetaData,
-        node_id_map: dict,
         global_df: pd.DataFrame,
         map_df: pd.DataFrame,
         location_df: pd.DataFrame,
+        count_p: CountMapProvider = None,
+        count_slice: pd.IndexSlice = None,
         plotter=None,
         **kwargs,
     ):
-        super().__init__(glb_meta, node_id_map, location_df, plotter, **kwargs)
+        super().__init__(glb_meta, location_df, plotter, **kwargs)
         self._map = map_df
         self._global_df = global_df
         self._count_map = None
-        self.hdf_file_name = "DcdMap2D.hdf"
-        self._count_map_provider = None
+        self._count_p = count_p
+        self._count_slice = count_slice
 
     def iter_nodes_d2d(self, first=0):
         _i = pd.IndexSlice
@@ -140,34 +134,30 @@ class DcdMap2D(DcdMap):
         return self._map
 
     @property
-    def count_map_provider(self):
-        if self._count_map_provider is None:
-            self._count_map_provider = CountMapProvider(
-                os.path.join(self.data_base_dir, self.hdf_file_name)
-            )
-
-            if not self._count_map_provider.exists():
-                logger.info(f"create {self.hdf_file_name} from scratch ...")
-                data = create_error_df(self.map, self.glb_map)
-                logger.info(f"write to hdf {self._count_map_provider.hdf_path}")
-                self.count_map_provider.write_dataframe(data)
-
-        return self._count_map_provider
+    def count_p(self):
+        if self._count_p is None:
+            raise ValueError("count map is not setup")
+        return self._count_p
 
     @property
     def count_map(self):
         # lazy load data if needed
         if self._count_map is None:
-            logger.warning(
-                "complete count_map placed in memory. Use count_map_proivder"
-            )
-            self._count_map = self.count_map_provider.get_dataframe()
+            logger.info("load count map from HDF")
+            self._count_map = self._count_p[self._count_slice, :]
         return self._count_map
 
     def all_ids(self, with_ground_truth=True):
-        ids = np.array(list(self.id_to_node.keys()))
-        if not with_ground_truth:
-            ids = ids[ids != 0]
+        ids = (
+            self.location_df.index.get_level_values("node_id")
+            .unique()
+            .to_numpy()
+            .sort()
+        )
+        # ids = np.array(list(self.id_to_node.keys()))
+        if with_ground_truth:
+            np.insert(ids, 0, 0)
+            # ids = ids[ids != 0]
         return ids
 
     def valid_times(self, _from=-1, _to=-1):
@@ -245,7 +235,6 @@ class DcdMap2D(DcdMap):
             _data = self.map.loc[_i[node_id, time_step, x, y], :]
             _data_dict = _data.to_dict()
             _data_dict["_node_id"] = int(node_id)
-            _data_dict["_omnet_node_id"] = self.id_to_node[node_id]
         except KeyError:
             pass
         finally:
@@ -350,9 +339,7 @@ class DcdMap2D(DcdMap):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
         ax = ax.flatten()
-        f.suptitle(
-            f"Node {node_id}_{self.id_to_node[node_id]} for time {simtime} {title}"
-        )
+        f.suptitle(f"Node {node_id} for time {simtime} {title}")
         self.area_plot(simtime, node_id, ax=ax[0])
         self.plot_location_map(simtime, ax=ax[1])
         self.plot_count(ax=ax[2])
@@ -377,7 +364,7 @@ class DcdMap2D(DcdMap):
         for _id, df in places.groupby(level=self.tsc_id_idx_name):
             # move coordinate for node :id: to center of cell.
             df = df + 0.5 * self.meta.cell_size
-            ax.scatter(df["x"], df["y"], label=f"{_id}_{self.id_to_node[_id]}")
+            ax.scatter(df["x"], df["y"], label=f"{_id}")
 
         if add_legend:
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
@@ -576,7 +563,7 @@ class DcdMap2D(DcdMap):
             ax.set_title(kwargs["title"], **self.font_dict["title"])
         else:
             ax.set_title(
-                f"Area plot of '{value}'. node: {node_id}/{self.id_to_node[node_id]} time: "
+                f"Area plot of '{value}'. node: {node_id} time: "
                 f"{time_step} cell [{cell[0]}, {cell[1]}]",
                 **self.font_dict["title"],
             )
@@ -610,15 +597,13 @@ class DcdMap2D(DcdMap):
 
         for _id, df in self.iter_nodes_d2d(first=1):
             df_time = df.groupby(level=self.tsc_time_idx_name).sum()
-            ax.plot(
-                df_time.index, df_time["count"], label=f"{_id}_{self.id_to_node[_id]}"
-            )
+            ax.plot(df_time.index, df_time["count"], label=f"{_id}")
 
         g = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()
         ax.plot(
             g.index.get_level_values(self.tsc_time_idx_name),
             g["count"],
-            label=f"0_{self.id_to_node[0]}",
+            label=f"0",
         )
         ax.legend()
         return f, ax
@@ -665,7 +650,6 @@ class DcdMap2DMulti(DcdMap2D):
     def __init__(
         self,
         glb_meta: DcdMetaData,
-        node_id_map: dict,
         global_df: pd.DataFrame,
         map_df: pd.DataFrame,
         location_df: pd.DataFrame,
@@ -678,9 +662,7 @@ class DcdMap2DMulti(DcdMap2D):
         glb_meta: Meta data instance for current map. cell size, map size
         node_id_map: Mapping between node
         """
-        super().__init__(
-            glb_meta, node_id_map, global_df, map_df, location_df, **kwargs
-        )
+        super().__init__(glb_meta, global_df, map_df, location_df, **kwargs)
         self.map_all_df = map_all_df
 
     def info_dict(self, x, y, time_step, node_id):

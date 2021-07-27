@@ -17,6 +17,26 @@ def intersect(line1, line2):
     ) and ccw(line1[0], line1[1], line2[0]) != ccw(line1[0], line1[1], line2[1])
 
 
+class ProgressCmd:
+    def __init__(self, cycle_count, prefix="", print_interval=0.1):
+        self.cycle_count = cycle_count
+        self.print_interval = print_interval
+        self.prefix = prefix
+        self.curr = 0
+        self.curr_th = 0.0
+
+    def incr(self, cycle=1):
+        self.curr += cycle
+        if (self.curr / self.cycle_count) > self.curr_th:
+            self.curr_th += self.print_interval
+            print(
+                f"\r{self.prefix}{self.curr:03}/{self.cycle_count:03}--{(self.curr / self.cycle_count):02.2%}",
+                end="",
+            )
+        if self.curr >= self.cycle_count:
+            print("")
+
+
 class Timer:
 
     ACTIVE = True

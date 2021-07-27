@@ -10,7 +10,7 @@ import pandas as pd
 import pandas.testing as pdt
 
 # from roveranalyzer.entrypoint.parser import test_parser
-from roveranalyzer.simulators.crownet.dcd.dcd_factory import DcdBuilder, PickleState
+from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdBuilder, PickleState
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMetaData
 from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
 from roveranalyzer.simulators.crownet.dcd.util import remove_not_selected_cells
@@ -180,10 +180,3 @@ class HdfTest(unittest.TestCase):
         )
         i = InteractiveAreaPlot(dcd, ax, value="count")
         i.show()
-
-
-if __name__ == "__main__":
-    argv = sys.argv[1:]
-    ns, args = test_parser(args=argv, parse_args=True)
-    _glb_config = vars(ns)
-    unittest.main(argv=[argv[0], *args])

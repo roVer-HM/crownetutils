@@ -1,8 +1,9 @@
 import os
 import unittest
 import warnings
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
+import pandas
 import pandas as pd
 from fs.tempfs import TempFS
 
@@ -297,11 +298,11 @@ class IHDFProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(expected_condition, expected_columns)
         self.assertTrue(result_dataframe.equals(self.sample_dataframe))
         mock_select_where.reset_mock()
+        mock_select_where.return_value = pandas.DataFrame()
         # test empty dataframe return
         try:
             self.provider[call_value]
         except ValueError as e:
-            mock_select_where.assert_not_called()
             self.assertTrue("Returned dataframe was empty." in str(e))
 
     def test_set_item(self):
@@ -376,6 +377,31 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_eq, expected_eq)
         self.assertEqual(result_default, expected_eq)
         self.assertEqual(result_list, expected_list)
+
+    @patch("tables.open_file")
+    def test_set_attribute(self, mock_open_file: MagicMock):
+        key = "key"
+        value = "value"
+        self.provider.set_attribute(key, value)
+        mock_open_file.assert_called_once_with(self.provider.hdf_path, "a")
+        hdf_group_select: MagicMock = (
+            mock_open_file.return_value.__enter__().root.__getitem__
+        )
+        hdf_group_select.assert_called_once_with(self.provider.group)
+        attr_select: MagicMock = hdf_group_select.return_value.table.attrs.__setitem__
+        attr_select.assert_called_once_with(key, value)
+
+    @patch("tables.open_file")
+    def test_get_attribute(self, mock_open_file: MagicMock):
+        key = "key"
+        self.provider.get_attribute(key)
+        mock_open_file.assert_called_once_with(self.provider.hdf_path, "r")
+        hdf_group_select: MagicMock = (
+            mock_open_file.return_value.__enter__().root.__getitem__
+        )
+        hdf_group_select.assert_called_once_with(self.provider.group)
+        attr_select: MagicMock = hdf_group_select.return_value.table.attrs.__getitem__
+        attr_select.assert_called_once_with(key)
 
 
 if __name__ == "__main__":
