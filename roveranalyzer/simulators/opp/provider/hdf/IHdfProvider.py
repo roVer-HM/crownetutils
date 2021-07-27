@@ -195,6 +195,8 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
 
     def __getitem__(self, item: any):
         condition, columns = self.dispatch(self.default_index_key(), item)
+        # remove conditions containing 'None' values
+        condition = [i for i in condition if not "None" in i]
         dataframe = self._select_where(condition, columns)
         if dataframe.empty:
             raise ValueError(
@@ -217,7 +219,8 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         self, condition: List[str], columns: List[str] = None
     ) -> pd.DataFrame:
         with self.ctx(mode="r") as store:
-            df = store.select(key=self.group, where=condition, columns=columns)
+            con = None if len(condition) == 0 else condition
+            df = store.select(key=self.group, where=con, columns=columns)
         return pd.DataFrame(df)
 
     @staticmethod

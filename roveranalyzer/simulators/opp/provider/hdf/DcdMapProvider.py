@@ -77,6 +77,8 @@ class DcdMapProvider(IHdfProvider):
         super().__init__(hdf_path)
         self.selection_mapping = {"NaN": 0, "ymf": 1}
         self.node_regex = re.compile(r"dcdMap_(?P<node>\d+)\.csv")
+        # some filter callbacks to apply to parsed csv before any further processing
+        self.csv_filters = []
 
     def group_key(self) -> str:
         return HdfGroups.DCD_MAP
@@ -140,6 +142,7 @@ class DcdMapProvider(IHdfProvider):
             _index_types=DcdMapKey.types_csv_index,
             _col_types=DcdMapKey.types_csv_columns,
             real_coords=True,
+            df_filter=self.csv_filters,
         )
         # add own node id
         df[DcdMapKey.NODE] = self.parse_node_id(path)

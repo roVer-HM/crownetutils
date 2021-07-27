@@ -29,6 +29,7 @@ class DcdHdfBuilder(FrameConsumer):
         self.dcd_map_provider = DcdMapProvider(self.hdf_path)
         self.pos_provider = DcDGlobalPosition(self.hdf_path)
         self.glb_map = DcDGlobalDensity(self.hdf_path)
+        self.single_df_filters = []
 
     def build_dcd_map(
         self,
@@ -39,6 +40,8 @@ class DcdHdfBuilder(FrameConsumer):
     ):
         if not os.path.exists(self.hdf_path):
             print(f"create HDF {self.hdf_path}")
+            # append filters before processing
+            self.dcd_map_provider.csv_filters.extend(self.single_df_filters)
             self.create_hdf_fast()
 
         glb_meta = DcdMetaData(
@@ -47,11 +50,9 @@ class DcdHdfBuilder(FrameConsumer):
             self.pos_provider.get_attribute("cell_bound"),
             node_id=0,  # global object
         )
-        global_df = self.glb_map[Idx[time_slice, x_slice, y_slice], :]
-        map_df = self.dcd_map_provider[
-            Idx[time_slice, x_slice, y_slice, :, id_slice], :
-        ]
-        location_df = self.pos_provider[Idx[time_slice, id_slice], :]
+        global_df = self.glb_map[Idx[time_slice, x_slice, y_slice]]
+        map_df = self.dcd_map_provider[Idx[time_slice, x_slice, y_slice, :, id_slice] :]
+        location_df = self.pos_provider[Idx[time_slice, id_slice] :]
         count_slice = Idx[time_slice, x_slice, y_slice, id_slice]
 
         ret = DcdMap2D(

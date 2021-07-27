@@ -250,7 +250,13 @@ def owner_dist_feature(_df_ret, **kwargs):
     return _df_ret
 
 
-def read_csv(csv_path, _index_types: dict, _col_types: dict, real_coords=True):
+def read_csv(
+    csv_path,
+    _index_types: dict,
+    _col_types: dict,
+    real_coords=True,
+    df_filter=None,
+):
     """
     read csv and set index
     """
@@ -261,6 +267,15 @@ def read_csv(csv_path, _index_types: dict, _col_types: dict, real_coords=True):
     df_raw: pd.DataFrame = _df.df(set_index=False, column_selection=select_columns)
     df_raw = df_raw.set_index(index_names)
     df_raw = df_raw.sort_index()
+
+    # apply given filters first (if any)
+    if df_filter is not None:
+        if type(df_filter) == list:
+            for _f in df_filter:
+                df_raw = _f(df_raw)
+        else:
+            # apply early filter to remove not needed data to increase performance
+            df_raw = df_filter(df_raw)
 
     meta = _df.read_meta_data()
     _m = DcdMetaData.from_dict(meta)
