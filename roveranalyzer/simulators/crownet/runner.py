@@ -73,7 +73,6 @@ def parse_args_as_dict(args=None):
         "Use --opp. prefix to specify arguments to pass to the "
         "given executable.",
     )
-
     parser.add_argument(
         "--opp.xxx",
         *filter_options(_args, "--opp."),
@@ -87,6 +86,28 @@ def parse_args_as_dict(args=None):
         "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
         "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
         "executable. Defaults: ",
+    )
+    parser.add_argument(
+        "--sumo-exec",
+        dest="sumo_exec",
+        default=None,
+        required=False,
+        help="Specify Sumo executable. (sumo or sumo-gui) Default=sumo",
+    )
+    parser.add_argument(
+        "--sumo.xxx",
+        *filter_options(_args, "--sumo."),
+        dest="sumo_args",
+        default=ArgList.from_list(
+            [
+                ["--no-step-log", None],
+                ["--quit-on-end", None],
+                ["--remote-port", "9999"],
+            ]
+        ),
+        action=SimulationArgAction,
+        prefix="--sumo.",
+        help="Sumo Arguments",
     )
 
     parser.add_argument(
@@ -117,15 +138,6 @@ def parse_args_as_dict(args=None):
         nargs="?",
         default="rover_run",
         help="Set name of current run. This will be CONTAINER_TAG for journald. Default: rover_run",
-    )
-
-    parser.add_argument(
-        "--delete-existing-containers",
-        dest="delete_existing_containers",
-        action="store_true",
-        default=False,
-        required=False,
-        help="Delete existing (stopped) containers with the same name.",
     )
     parser.add_argument(
         "--cleanup-policy",
@@ -160,6 +172,22 @@ def parse_args_as_dict(args=None):
         default=False,
         required=False,
         help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
+    )
+    parser.add_argument(
+        "--create-sumo-container",
+        dest="create_sumo_container",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set a sumo container with name sumo_<run-name> is created matching to opp_<run-name> container.",
+    )
+    parser.add_argument(
+        "--delete-existing-containers",
+        dest="delete_existing_containers",
+        action="store_true",
+        default=False,
+        required=False,
+        help="Delete existing (stopped) containers with the same name.",
     )
     parser.add_argument(
         "--verbose",
@@ -214,20 +242,13 @@ def parse_args_as_dict(args=None):
         help="Choose Control container. (Default: latest)",
     )
     parser.add_argument(
-        "--v.loglevel",
-        dest="v_loglevel",
-        default="INFO",
+        "--sumo-tag",
+        dest="sumo_tag",
+        default="latest",
         required=False,
-        help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
+        help="Choose Sumo container. (Default: latest)",
     )
-    parser.add_argument(
-        "--v.logfile",
-        dest="v_logfile",
-        default="",
-        required=False,
-        help="Set log file name of Vadere. If not set '', log file will not be created. "
-        "This setting has no effect on --log-journald. (Default: '') ",
-    )
+
     parser.add_argument(
         "-wc",
         "--with-control",
@@ -244,7 +265,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If set the control action is applied without omnetpp. Direct information dissemination without delay.",
     )
-
     parser.add_argument(
         "--control-use-local",
         dest="ctl_local",
@@ -253,7 +273,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If true container uses currently checkout code instead of installed coded during container creation.",
     )
-
     parser.add_argument(
         "--vadere-only",
         dest="vadere_only",
@@ -261,6 +280,21 @@ def parse_args_as_dict(args=None):
         default=False,
         required=False,
         help="If set run Vadere in container without omnetpp or control.",
+    )
+    parser.add_argument(
+        "--v.loglevel",
+        dest="v_loglevel",
+        default="INFO",
+        required=False,
+        help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
+    )
+    parser.add_argument(
+        "--v.logfile",
+        dest="v_logfile",
+        default="",
+        required=False,
+        help="Set log file name of Vadere. If not set '', log file will not be created. "
+        "This setting has no effect on --log-journald. (Default: '') ",
     )
     if args is None:
         ns = vars(parser.parse_args())
