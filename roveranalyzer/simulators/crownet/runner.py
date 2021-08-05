@@ -22,8 +22,53 @@ from roveranalyzer.entrypoint.parser import (
 from roveranalyzer.simulators.controller.controllerrunner import ControlRunner
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.simulators.opp.runner import OppRunner
+from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
+
+
+class SimSetup:
+    # (OMNeT, Vadere, Sumo, Control)
+    OMNET = 1 << 3  # 1000
+    VADER = 1 << 2  # 0100
+    SUMO = 1 << 1  # 0010
+    CONTROL = 1  # 0001
+
+    OmnetSumo = OMNET | SUMO
+    OmnetVadere = OMNET | VADER
+    OmnetVadereControl = OMNET | VADER | CONTROL
+    VadereControl = VADER | CONTROL
+
+    def __init__(self, id=0):
+        self.id = id
+
+    def add(self, val):
+        self.id = self.id | val
+        return self
+
+    def remove(self, val):
+        self.id = self.id & (0b1111 ^ val)
+
+    @property
+    def is_controlled(self):
+        return (self.id & self.CONTROL) == self.CONTROL
+
+    def has_simulator(self, other):
+        return (self.id & other) == other
+
+    def __str__(self):
+        ret = "{SimSetup: "
+        ret += "Omnet-" if self.has_simulator(self.OMNET) else ""
+        ret += "Vadere-" if self.has_simulator(self.VADER) else ""
+        ret += "Sumo-" if self.has_simulator(self.SUMO) else ""
+        ret += "Control-" if self.has_simulator(self.CONTROL) else ""
+        ret = ret[0:-1]
+        ret += "}"
+        ret = ret.replace("-*", "-")
+        return ret
+
+    def __eq__(self, other):
+        return self.id == other
 
 
 # todo: split in default and simulator specific arguments
@@ -320,7 +365,38 @@ def parse_args_as_dict(args=None):
     set_level(levels[level_idx])
     set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
 
+    _setup = parse_simulation_setup(ns)
+    ns["simulationSetup"] = _setup
+
     return ns
+
+
+def parse_simulation_setup(ns: dict):
+    _setup = SimSetup()
+    # assume omnet is used by default
+    _setup.add(SimSetup.OMNET)
+
+    if ns["control"] is not None:
+        _setup.add(SimSetup.CONTROL)
+
+    if ns["control"] and ns["control_vadere_only"]:
+        # no omnet only vadere and control
+        _setup.add(SimSetup.CONTROL)
+        _setup.add(SimSetup.VADER)
+        _setup.remove(SimSetup.OMNET)
+        return _setup
+
+    if ns["vadere_only"]:
+        # only vadere
+        return SimSetup(SimSetup.VADER)
+
+    if ns["sumo_exec"] is None:
+        # we will use vadere
+        _setup.add(SimSetup.VADER)
+    else:
+        _setup.add(SimSetup.SUMO)
+
+    return _setup
 
 
 def result_dir_with_opp(ns, working_dir):
@@ -372,6 +448,7 @@ class BaseRunner:
         self.vadere_runner = None
         self.opp_runner = None
         self.control_runner = None
+        self.sumo_runner = None
 
         # prepare post and pre map
         self.f_map: dict = {}
@@ -432,7 +509,7 @@ class BaseRunner:
                 print(f"pre: '{_f.__name__}' as post function with prio: {prio} ...")
                 _f()
 
-    def build_opp_runer(self):
+    def build_opp_runner(self):
         run_name = self.ns["run_name"]
         self.opp_runner = OppRunner(
             docker_client=self.docker_client,
@@ -449,6 +526,24 @@ class BaseRunner:
         if self.ns["write_container_log"]:
             self.opp_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_opp.out")
+            )
+
+    def build_sumo_runner(self):
+        run_name = self.ns["run_name"]
+        self.sumo_runner = SumoRunner(
+            docker_client=self.docker_client,
+            name=f"sumo_{run_name}",
+            tag=self.ns["sumo_tag"],
+            cleanup_policy=self.ns["cleanup_policy"],
+            reuse_policy=self.ns["reuse_policy"],
+            detach=True,  # we do not wait for this container (see OMNeT container)
+            journal_tag=f"sumo_{run_name}",
+        )
+        self.sumo_runner.apply_reuse_policy()
+        self.sumo_runner.set_working_dir(self.working_dir)
+        if self.ns["write_container_log"]:
+            self.sumo_runner.set_log_callback(
+                ContainerLogWriter(f"{self.result_base_dir()}/container_sumo.out")
             )
 
     def build_and_start_control_runner(self, port=9997):
@@ -539,19 +634,6 @@ class BaseRunner:
                 use_local=self.ns["ctl_local"],
             )
 
-    def is_controlled(self):
-        if self.ns["control"] is None:
-            return False
-        else:
-            return True
-
-    def is_control_vadere_directly(self):
-
-        if self.is_controlled():
-            return self.ns["control_vadere_only"]
-        else:
-            raise ValueError("Control file not set.")
-
     def build_and_start_vadere_only(self, port=None):
 
         if port is None:
@@ -598,24 +680,22 @@ class BaseRunner:
 
     def dispatch_run(self):
 
-        if self.is_controlled():
-            return self.run_simulation_controlled()
-        else:
-            return self.run_simulation_uncontrolled()
+        _setup = self.ns["simulationSetup"]
 
-    def run_simulation_controlled(self):
-        if self.is_control_vadere_directly():
-            ret = self.run_simulation_vadere_ctl_only()
-        else:
+        if _setup == SimSetup.OmnetVadereControl:
             ret = self.run_simulation_vadere_omnet_ctl()
+        elif _setup == SimSetup.VadereControl:
+            ret = self.run_simulation_vadere_ctl()
+        elif _setup == SimSetup.VADER:
+            ret = self.run_vadere()
+        elif _setup == SimSetup.OmnetVadere:
+            ret = self.run_simulation_omnet_vadere()
+        elif _setup == SimSetup.OmnetSumo:
+            ret = self.run_simulation_omnet_sumo()
+        else:
+            raise RuntimeError(f"unexpected simulation setup. {str(_setup)}")
 
         return ret
-
-    def run_simulation_uncontrolled(self):
-        if self.ns["vadere_only"]:
-            return self.run_vadere()
-        else:
-            return self.run_simulation_uncontrolled_crownet()
 
     def run_vadere(self):
 
@@ -647,10 +727,65 @@ class BaseRunner:
 
         return ret
 
-    def run_simulation_uncontrolled_crownet(self):
+    def run_simulation_omnet_sumo(self):
+        ret = 255  # fail
+        self.build_opp_runner()
 
+        try:
+            sumo_args = self.ns["sumo_args"]
+            if self.ns["create_sumo_container"]:
+                self.build_sumo_runner()
+                # todo: check sumo_exec namespace which lauchner to use.
+                self.sumo_runner.single_launcher(
+                    traci_port=sumo_args.get_value("--port"),
+                    bind=sumo_args.get_value("--bind"),
+                )
+
+            if self.ns["override-host-config"]:
+                self.ns["opp_args"].add(
+                    f"--sumo-host={self.sumo_runner.name}:{sumo_args.get_value('--port')}"
+                )
+
+            # start OMNeT++ container and attach to it
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
+                arg_list=self.ns["opp_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=self.ns["experiment_label"],
+                run_args_override={},
+            )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
+
+            if self.vadere_runner is not None:
+                try:
+                    self.vadere_runner.container.wait(timeout=60)
+                except ReadTimeout:
+                    logger.error(
+                        f"Timeout (60s) reached while waiting for sumo container to finished"
+                    )
+                    ret = 255
+
+        except RuntimeError as cErr:
+            logger.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logger.debug(f"cleanup with ret={ret}")
+            if self.sumo_runner is not None:
+                self.sumo_runner.container_cleanup(has_error_state=err_state)
+            self.opp_runner.container_cleanup(has_error_state=err_state)
+        return ret
+
+    def run_simulation_omnet_vadere(self):
         ret = 255
-        self.build_opp_runer()
+        self.build_opp_runner()
 
         try:
             if self.ns["create_vadere_container"]:
@@ -703,7 +838,7 @@ class BaseRunner:
         )
 
         ret = 255
-        self.build_opp_runer()
+        self.build_opp_runner()
 
         try:
             if self.ns["create_vadere_container"]:
@@ -764,7 +899,7 @@ class BaseRunner:
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
-    def run_simulation_vadere_ctl_only(self):
+    def run_simulation_vadere_ctl(self):
 
         ret = 255
         logger.info(
