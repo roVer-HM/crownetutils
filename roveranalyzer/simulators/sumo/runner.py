@@ -73,6 +73,7 @@ class SumoRunner(DockerRunner):
     def single_launcher(
         self,
         traci_port=9999,
+        bind="0.0.0.0",
         message_log=os.devnull,
         run_args_override=None,
     ):
@@ -82,7 +83,7 @@ class SumoRunner(DockerRunner):
             "--port",
             str(traci_port),
             "--bind",
-            "0.0.0.0",
+            bind,
             "--logfile",
             message_log,
             "--single-run",
