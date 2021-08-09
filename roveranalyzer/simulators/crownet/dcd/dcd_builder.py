@@ -1,7 +1,9 @@
+import glob
 import json
 import multiprocessing
 import os
 import pickle
+from typing import Union
 
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
 from roveranalyzer.simulators.crownet.dcd.util import *
@@ -16,9 +18,70 @@ from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import FrameConsumer
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
 
+def _hdf_job(args):
+    input = args[0:-2]
+    override_existing = args[-1]
+    _filter = args[-2]
+    _builder = DcdHdfBuilder.get(*input)
+    _builder.single_df_filters.extend(_filter)
+    if override_existing or not _builder.hdf_exist:
+        _builder.remove_hdf()
+        # append filters before processing
+        _builder.dcd_map_provider.csv_filters.extend(_builder.single_df_filters)
+        _builder.create_hdf_fast()
+    else:
+        print(f"{_builder.hdf_path} already exist and override_existing is false")
+
+
 class DcdHdfBuilder(FrameConsumer):
+
+    F_selected_only = remove_not_selected_cells
+
     def consume(self, df: pd.DataFrame):
         self.create_count_map(df)
+
+    @classmethod
+    def get(
+        cls, hdf_path, source_path, map_glob="dcdMap_*.csv", global_name="global.csv"
+    ):
+        if not os.path.isabs(hdf_path):
+            hdf_path = os.path.join(source_path, hdf_path)
+        return cls(
+            hdf_path=hdf_path,
+            map_paths=glob.glob(os.path.join(source_path, map_glob)),
+            global_path=os.path.join(source_path, global_name),
+        )
+
+    @classmethod
+    def create(
+        cls,
+        job_list,
+        n_jobs: Union[int, float] = 0.6,
+        override_existing=False,
+        _filter=None,
+    ):
+        """
+        job_list:  [[hdf_name, source_path, map_glob, global_name], ..., []]
+        n_jobs:    number of parallel jobs or percentage of number of cpus to use
+        override_existing: if true delete hdf_name and recreate it.
+        """
+        if isinstance(n_jobs, int):
+            if n_jobs <= 0:
+                n_jobs = multiprocessing.cpu_count()
+            else:
+                n_jobs = min(n_jobs, multiprocessing.cpu_count())
+        elif isinstance(n_jobs, float):
+            n_jobs = min(
+                int(multiprocessing.cpu_count() * n_jobs), multiprocessing.cpu_count()
+            )
+        else:
+            n_jobs = 1
+
+        pool = multiprocessing.Pool(processes=n_jobs)
+        if _filter is None:
+            _filter = []
+        job_list = [[*i, _filter, override_existing] for i in job_list]
+        pool.map(_hdf_job, job_list)
 
     def __init__(self, hdf_path, map_paths, global_path):
         super().__init__()
@@ -38,7 +101,7 @@ class DcdHdfBuilder(FrameConsumer):
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
     ):
-        if not os.path.exists(self.hdf_path):
+        if not self.hdf_exist:
             print(f"create HDF {self.hdf_path}")
             # append filters before processing
             self.dcd_map_provider.csv_filters.extend(self.single_df_filters)
@@ -51,19 +114,30 @@ class DcdHdfBuilder(FrameConsumer):
             node_id=0,  # global object
         )
         global_df = self.glb_map[Idx[time_slice, x_slice, y_slice]]
-        map_df = self.dcd_map_provider[Idx[time_slice, x_slice, y_slice, :, id_slice] :]
+        map_slice = Idx[time_slice, x_slice, y_slice, :, id_slice]
+        # map_df = self.dcd_map_provider[map_slice :]
         location_df = self.pos_provider[Idx[time_slice, id_slice] :]
         count_slice = Idx[time_slice, x_slice, y_slice, id_slice]
 
         ret = DcdMap2D(
-            glb_meta,
-            global_df,
-            map_df,
-            location_df,
-            self.count_map_provider,
-            count_slice,
+            glb_meta=glb_meta,
+            global_df=global_df,
+            map_df=None,
+            location_df=location_df,
+            count_p=self.count_map_provider,
+            count_slice=count_slice,
+            map_p=self.dcd_map_provider,
+            map_slice=map_slice,
         )
         return ret
+
+    @property
+    def hdf_exist(self):
+        return os.path.exists(self.hdf_path)
+
+    def remove_hdf(self):
+        if self.hdf_exist:
+            os.remove(self.hdf_path)
 
     def create_hdf_fast(self):
         t = Timer.create_and_start("create_hdf", label="")
@@ -160,16 +234,15 @@ class DcdHdfBuilder(FrameConsumer):
         _df = _df.drop(columns=["glb_count", "x_owner", "y_owner"])
         _df["ID"] = id
         _df = _df.set_index(["ID"], drop=True, append=True)
-        _df["count"] = _df["count"].astype(int)
-        _df["err"] = _df["err"].astype(int)
+        # _df["count"] = _df["count"].astype(int)
+        # _df["err"] = _df["err"].astype(int)
         self.append_to_provider(self.count_map_provider, _df)
-        self.append_global_count()
 
     def append_global_count(self):
         _df = self.global_df.copy()
         _df["ID"] = 0  # global id set to 0
         _df["ID"].convert_dtypes(int)
-        _df["err"] = 0
+        _df["err"] = 0.0
         _df["sqerr"] = 0.0
         _df["owner_dist"] = 0.0
         _df = _df.set_index(["ID"], drop=True, append=True)

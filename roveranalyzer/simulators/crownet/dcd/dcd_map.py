@@ -1,6 +1,7 @@
 import os
 from functools import wraps
 from itertools import combinations
+from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,6 +13,7 @@ from pandas import IndexSlice as Idx
 
 from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
 from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
@@ -65,12 +67,12 @@ class DcdMap:
     #     hdf_path = os.path.join(self.hdf_base_path, pickle_name)
     #     if os.path.exists(hdf_path):
     #         print(f"load from hdf {hdf_path}")
-    #         return self.count_map_provider.get_dataframe()
+    #         return self.count_p.get_dataframe()
     #     else:
     #         print("create from scratch ...", end=" ")
     #         data = create_f(*create_args)
     #         print(f"write to hdf {hdf_path}")
-    #         self.count_map_provider.write_dataframe(data)
+    #         self.count_p.write_dataframe(data)
     #         return data
 
     def get_location(self, simtime, node_id, cell_id=False):
@@ -104,10 +106,12 @@ class DcdMap2D(DcdMap):
         self,
         glb_meta: DcdMetaData,
         global_df: pd.DataFrame,
-        map_df: pd.DataFrame,
+        map_df: Union[pd.DataFrame, None],
         location_df: pd.DataFrame,
         count_p: CountMapProvider = None,
         count_slice: pd.IndexSlice = None,
+        map_p: DcdMapProvider = None,
+        map_slice: pd.IndexSlice = None,
         plotter=None,
         **kwargs,
     ):
@@ -117,6 +121,9 @@ class DcdMap2D(DcdMap):
         self._count_map = None
         self._count_p = count_p
         self._count_slice = count_slice
+
+        self._map_p = map_p
+        self._map_slice = map_slice
 
     def iter_nodes_d2d(self, first=0):
         _i = pd.IndexSlice
@@ -131,6 +138,9 @@ class DcdMap2D(DcdMap):
 
     @property
     def map(self):
+        if self._map is None:
+            logger.info("load map")
+            self._map = self._map_p[self._map_slice, :]
         return self._map
 
     @property
@@ -148,12 +158,8 @@ class DcdMap2D(DcdMap):
         return self._count_map
 
     def all_ids(self, with_ground_truth=True):
-        ids = (
-            self.location_df.index.get_level_values("node_id")
-            .unique()
-            .to_numpy()
-            .sort()
-        )
+        ids = self.location_df.index.get_level_values("node_id").unique().to_numpy()
+        ids.sort()
         # ids = np.array(list(self.id_to_node.keys()))
         if with_ground_truth:
             np.insert(ids, 0, 0)
@@ -181,41 +187,31 @@ class DcdMap2D(DcdMap):
         return idx
 
     def age_mask(self, age_column, threshold):
-        _mask = self._map[age_column] <= threshold
+        _mask = self.map[age_column] <= threshold
         return _mask
 
-    def count_diff(self, diff_metric="diff"):
-        metric = {
-            "diff": lambda loc, glb: glb - loc,
-            "abs_diff": lambda loc, glb: (glb - loc).abs(),
-            "sqr_diff": lambda loc, glb: (glb - loc) ** 2,
-        }
-        _df = pd.DataFrame(self.map.groupby(["ID", "simtime"]).sum()["count"])
-        _df = _df.combine(self.glb_map, metric[diff_metric])
-        _df = _df.rename(columns={"count": "count_diff"})
-        return _df
-
-    def create_2d_map(self, time_step, node_id, value_name):
+    def update_area(self, time_step, node_id, value_name):
         """
         create 2d matrix of density map for one instance in
         time and for one node. The returned data frame as a shape of
          (N, M) where N,M is the number of cells in X respectively Y axis
         """
         data = pd.DataFrame(
-            self.count_map_provider.select_simtime_and_node_id_exact(
-                time_step, node_id
-            )[value_name]
+            self.count_p.select_simtime_and_node_id_exact(time_step, node_id)[
+                value_name
+            ]
         )
         data = data.set_index(data.index.droplevel([0, 3]))  # (x,y) as new index
         full_index = self.meta.grid_index_2d(real_coords=True)
         df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
         df = df.set_index(full_index)
+        print(f"sum: {data.sum()}")
         df.update(data)
         df = df.unstack().T
         return df
 
     def update_color_mesh(self, qmesh: QuadMesh, time_step, node_id, value_name):
-        df = self.create_2d_map(time_step, node_id, value_name)
+        df = self.update_area(time_step, node_id, value_name)
         data = np.array(df)
         qmesh.set_array(data.ravel())
         return qmesh
@@ -252,9 +248,9 @@ class DcdMap2D(DcdMap):
         return _data_dict
 
     def own_cell(self):
-        own_cell_mask = self._map["own_cell"] == 1
+        own_cell_mask = self.map["own_cell"] == 1
         places = (
-            self._map[own_cell_mask]  # only own cells (cells where one node is located)
+            self.map[own_cell_mask]  # only own cells (cells where one node is located)
             .index.to_frame()  # make the index to the dataframe
             .reset_index(["x", "y"], drop=True)  # remove not needed index
             .drop(
@@ -317,7 +313,7 @@ class DcdMap2D(DcdMap):
             data = self.glb_map  # only global data
             data_str = "Global"
         else:
-            data = self._map
+            data = self.map
             data_str = "Local"
 
         desc = data.describe().T
@@ -340,7 +336,7 @@ class DcdMap2D(DcdMap):
         f, ax = plt.subplots(2, 2, **kwargs)
         ax = ax.flatten()
         f.suptitle(f"Node {node_id} for time {simtime} {title}")
-        self.area_plot(simtime, node_id, ax=ax[0])
+        self.plot_area(simtime, node_id, ax=ax[0])
         self.plot_location_map(simtime, ax=ax[1])
         self.plot_count(ax=ax[2])
         ax[3].clear()
@@ -433,9 +429,9 @@ class DcdMap2D(DcdMap):
         bins_width=2.5,
     ):
 
-        df = self.count_map_provider.select_simtime_and_node_id_exact(
-            time_step, node_id
-        )[["owner_dist", value]]
+        df = self.count_p.select_simtime_and_node_id_exact(time_step, node_id)[
+            ["owner_dist", value]
+        ]
         df = df.reset_index(drop=True)
 
         # average over distance (ignore node_id)
@@ -537,7 +533,7 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @plot_decorator
-    def area_plot(
+    def plot_area(
         self,
         time_step,
         node_id,
@@ -555,7 +551,7 @@ class DcdMap2D(DcdMap):
 
         Default data view: per node / per time / all cells
         """
-        df = self.create_2d_map(time_step, node_id, value)
+        df = self.update_area(time_step, node_id, value)
         f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
 
         cell = self.get_location(time_step, node_id, cell_id=False)
@@ -571,8 +567,8 @@ class DcdMap2D(DcdMap):
         ax.tick_params(axis="x", labelsize=self.font_dict["tick_size"])
         ax.tick_params(axis="y", labelsize=self.font_dict["tick_size"])
 
-        if self.scenario_plotter is not None:
-            self.scenario_plotter.add_obstacles(ax)
+        # if self.scenario_plotter is not None:
+        #     self.scenario_plotter.add_obstacles(ax)
 
         _d = update_dict(pcolormesh_dict, shading="flat")
 
@@ -609,21 +605,21 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @plot_decorator
-    def plot_count_diff(self, *, ax=None, **kwargs):
+    def plot_count_diff(self, *, ax=None, save_fig=None, **kwargs):
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Node Count over Time", **self.font_dict["title"])
         ax.set_xlabel("Time [s]", **self.font_dict["xlabel"])
         ax.set_ylabel("Pedestrian Count", **self.font_dict["ylabel"])
         _i = pd.IndexSlice
         nodes = (
-            self._map.loc[_i[:], _i["count"]]
+            self.map.loc[_i[:], _i["count"]]
             .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
             .sum()
             .groupby(level="simtime")
             .mean()
         )
         nodes_std = (
-            self._map.loc[_i[:], _i["count"]]
+            self.map.loc[_i[:], _i["count"]]
             .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
             .sum()
             .groupby(level="simtime")
@@ -641,6 +637,8 @@ class DcdMap2D(DcdMap):
         )
         ax.plot(glb.index, glb, label="Actual count")
         f.legend()
+        if save_fig is not None:
+            f.savefig(save_fig)
         return f, ax
 
 

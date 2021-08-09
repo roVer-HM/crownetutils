@@ -18,7 +18,7 @@ def intersect(line1, line2):
 
 
 class ProgressCmd:
-    def __init__(self, cycle_count, prefix="", print_interval=0.1):
+    def __init__(self, cycle_count, prefix="", print_interval=0.05):
         self.cycle_count = cycle_count
         self.print_interval = print_interval
         self.prefix = prefix

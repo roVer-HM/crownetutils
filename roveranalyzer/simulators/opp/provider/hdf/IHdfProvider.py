@@ -197,7 +197,11 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         condition, columns = self.dispatch(self.default_index_key(), item)
         # remove conditions containing 'None' values
         condition = [i for i in condition if not "None" in i]
-        dataframe = self._select_where(condition, columns)
+        if len(condition) == 0 and columns is None:
+            # empty condition -> return full frame
+            dataframe = self.get_dataframe()
+        else:
+            dataframe = self._select_where(condition, columns)
         if dataframe.empty:
             raise ValueError(
                 f"Returned dataframe was empty. Please check your index names.{condition=}"

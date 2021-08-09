@@ -2,6 +2,7 @@ import os
 import re
 from typing import List
 
+import numpy as np
 import pandas as pd
 
 from roveranalyzer.simulators.crownet.dcd.util import (
@@ -47,7 +48,7 @@ class DcdMapKey:
     }
 
     types_csv_columns = {
-        COUNT: int,
+        COUNT: float,
         MEASURE_TIME: float,
         RECEIVED_TIME: float,
         SELECTION: str,
@@ -75,7 +76,13 @@ class DcdMapKey:
 class DcdMapProvider(IHdfProvider):
     def __init__(self, hdf_path):
         super().__init__(hdf_path)
-        self.selection_mapping = {"NaN": 0, "ymf": 1}
+        self.selection_mapping = {
+            "NaN": 0,
+            "ymf": 1,
+            "invSourceDist": 2,
+            "mean": 3,
+            "median": 4,
+        }
         self.node_regex = re.compile(r"dcdMap_(?P<node>\d+)\.csv")
         # some filter callbacks to apply to parsed csv before any further processing
         self.csv_filters = []
@@ -151,6 +158,9 @@ class DcdMapProvider(IHdfProvider):
         index = list(self.index_order().values())
         df = df.set_index(keys=index, verify_integrity=True, drop=True)
         # cleanup string based column
+        # ensure all keys in df are mapped to integer. Add new ones if needed.
+        self.update_selection_map(df[DcdMapKey.SELECTION].unique().tolist())
+
         df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].fillna(
             self.selection_mapping["NaN"]
         )
@@ -162,6 +172,17 @@ class DcdMapProvider(IHdfProvider):
         # apply delay_feature
         df = delay_feature(df)
         return df
+
+    def update_selection_map(self, keys):
+        next_idx = max(self.selection_mapping.values()) + 1
+        for k in keys:
+            if isinstance(k, float) and np.isnan(k):
+                # ignore nan
+                continue
+            if k not in self.selection_mapping:
+                self.selection_mapping[k] = next_idx
+                print(f"found new selection algorithm. Map {k} -> {next_idx}")
+                next_idx += 1
 
     def get_dcd_file_paths(self, base_path: str) -> List[str]:
         dcd_files = []

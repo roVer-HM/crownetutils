@@ -171,7 +171,7 @@ class HdfTest(unittest.TestCase):
         # print(type(data))
         time = 2
         id = 0
-        fig, ax = dcd.area_plot(
+        fig, ax = dcd.plot_area(
             time_step=time,
             node_id=id,
             value="count",

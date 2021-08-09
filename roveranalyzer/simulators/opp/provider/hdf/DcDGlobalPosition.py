@@ -21,7 +21,7 @@ class DcdGlobalMapKey:
         Y: float,
     }
     types_global_raw_csv_col = {
-        COUNT: int,
+        COUNT: float,
         NODE_ID: str,  # contains comma separated list will later be parsed to int list
     }
 
