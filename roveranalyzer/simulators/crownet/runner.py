@@ -760,7 +760,7 @@ class BaseRunner:
 
             if self.vadere_runner is not None:
                 try:
-                    self.vadere_runner.container.wait(timeout=60)
+                    self.vadere_runner.container.wait(timeout=600)
                 except ReadTimeout:
                     logger.error(
                         f"Timeout (60s) reached while waiting for sumo container to finished"

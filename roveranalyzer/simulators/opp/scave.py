@@ -3,6 +3,7 @@ import io
 import os
 import pprint as pp
 import signal
+import sqlite3 as sq
 import subprocess
 import time
 from typing import List, Union
@@ -232,6 +233,101 @@ class ScaveFilter:
 
     def str(self):
         return " ".join(self._filter)
+
+
+class OppSql:
+    def __init__(self, vec_path=None, sca_path=None):
+        self._vec_path = vec_path
+        self._vec_con = None
+        self._sca_path = sca_path
+        self._sca_con = None
+        self._file = {
+            "vec": lambda: self.vec_con,
+            "sca": lambda: self.sca_con,
+        }
+
+    @property
+    def vec_path(self):
+        if self._vec_path is None:
+            raise RuntimeError("vector path not set")
+        return self._vec_path
+
+    @property
+    def sca_path(self):
+        if self._sca_path is None:
+            raise RuntimeError("scalar path not set")
+        return self._sca_path
+
+    @property
+    def vec_con(self):
+        if self._vec_con is None:
+            self._vec_con = sq.connect(self.vec_path)
+        return self._vec_con
+
+    @property
+    def sca_con(self):
+        if self._sca_con is None:
+            self._sca_con = sq.connect(self.sca_path)
+        return self._sca_con
+
+    def _query(
+        self, sql_str, file="vec", type="df", **kwargs
+    ) -> Union[pd.DataFrame, sq.Cursor]:
+        _con = self._file[file]()
+        if type == "df":
+            return pd.read_sql_query(sql_str, _con, **kwargs)
+        elif type == "cursor":
+            return _con.execute(sql_str, **kwargs)
+        else:
+            raise RuntimeError("Expected df or cursor as type")
+
+    def query_vec(self, sql_str, type="df", **kwargs):
+        return self._query(sql_str, file="vec", type=type, **kwargs)
+
+    def query_sca(self, sql_str, type="df", **kwargs):
+        return self._query(sql_str, file="sca", type=type, **kwargs)
+
+    def vec_info(
+        self, moduleName=None, vectorName=None, runId=1, cols=("vectorId",), **kwargs
+    ):
+        cols = ", ".join([f"v.{c}" for c in cols])
+        _sql = f"select {cols} from vector v where v.runId = '{runId}'"
+        if moduleName is not None and "%" in moduleName:
+            _sql += f" and v.moduleName like '{moduleName}'"
+        elif moduleName is not None:
+            _sql += f" and v.moduleName = '{moduleName}'"
+
+        if vectorName is not None and "%" in vectorName:
+            _sql += f" and v.vectorName like '{vectorName}'"
+        elif vectorName is not None:
+            _sql += f" and v.vectorName = '{vectorName}'"
+
+        df = self.query_vec(_sql, type="df", **kwargs)
+        return df
+
+    def vec_ids(self, moduleName=None, vectorName=None, runId=1, **kwargs) -> List[int]:
+        return self.vec_info(moduleName, vectorName, runId, **kwargs)[
+            "vectorId"
+        ].to_list()
+
+    def vec_data(
+        self,
+        moduleName=None,
+        vectorName=None,
+        runId=1,
+        cols=("vectorId", "simtimeRaw", "value"),
+        time_resolution=1e12,
+        **kwargs,
+    ):
+        _ids = self.vec_ids(moduleName, vectorName, runId, **kwargs)
+        _ids = ", ".join([str(i) for i in _ids])
+        cols = ", ".join([f"v_data.{c}" for c in cols])
+        _sql = f"select {cols} from vectorData v_data where v_data.vectorId in ({_ids})"
+        df = self.query_vec(_sql, type="df", **kwargs)
+        if time_resolution is not None and "simtimeRaw" in cols:
+            df["simtimeRaw"] = df["simtimeRaw"] / time_resolution
+            df = df.rename(columns={"simtimeRaw": "time"})
+        return df
 
 
 class ScaveTool:
