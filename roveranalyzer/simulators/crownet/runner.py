@@ -115,8 +115,8 @@ def parse_args_as_dict(args=None):
         dest="opp_exec",
         default="",
         help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
-        "Use --opp. prefix to specify arguments to pass to the "
-        "given executable.",
+             "Use --opp. prefix to specify arguments to pass to the "
+             "given executable.",
     )
     parser.add_argument(
         "--opp.xxx",
@@ -128,14 +128,14 @@ def parse_args_as_dict(args=None):
         action=SimulationArgAction,
         prefix="--opp.",
         help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable. "
-        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
-        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
-        "executable. Defaults: ",
+             "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+             "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+             "executable. Defaults: ",
     )
     parser.add_argument(
         "--sumo-exec",
         dest="sumo_exec",
-        default=None,
+        default="sumo",
         required=False,
         help="Specify Sumo executable. (sumo or sumo-gui) Default=sumo",
     )
@@ -145,9 +145,8 @@ def parse_args_as_dict(args=None):
         dest="sumo_args",
         default=ArgList.from_list(
             [
-                ["--no-step-log", None],
-                ["--quit-on-end", None],
-                ["--remote-port", "9999"],
+                ["--port", "9999"],
+                ["--bind", "0.0.0.0"],
             ]
         ),
         action=SimulationArgAction,
@@ -162,9 +161,9 @@ def parse_args_as_dict(args=None):
         action=SubstituteAction,
         do_on=["timestamp"],
         sub_action=lambda x: datetime.now()
-        .isoformat()
-        .replace("-", "")
-        .replace(":", ""),
+            .isoformat()
+            .replace("-", "")
+            .replace(":", ""),
         required=False,
         help="experiment-label used in the result path. Use 'timestamp' to get current sanitized ISO-Format timestamp.",
     )
@@ -339,7 +338,7 @@ def parse_args_as_dict(args=None):
         default="",
         required=False,
         help="Set log file name of Vadere. If not set '', log file will not be created. "
-        "This setting has no effect on --log-journald. (Default: '') ",
+             "This setting has no effect on --log-journald. (Default: '') ",
     )
     if args is None:
         ns = vars(parser.parse_args())
@@ -389,7 +388,6 @@ def parse_simulation_setup(ns: dict):
     if ns["vadere_only"]:
         # only vadere
         return SimSetup(SimSetup.VADER)
-
     if ns["sumo_exec"] is None:
         # we will use vadere
         _setup.add(SimSetup.VADER)
@@ -441,7 +439,6 @@ class process_as:
 
 class BaseRunner:
     def __init__(self, working_dir, args=None):
-
         self.ns = parse_args_as_dict(args)
         self.docker_client = docker.from_env()
         self.working_dir = working_dir
@@ -758,9 +755,9 @@ class BaseRunner:
             if ret != 0:
                 raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
 
-            if self.vadere_runner is not None:
+            if self.sumo_runner is not None:
                 try:
-                    self.vadere_runner.container.wait(timeout=600)
+                    self.sumo_runner.container.wait(timeout=600)
                 except ReadTimeout:
                     logger.error(
                         f"Timeout (60s) reached while waiting for sumo container to finished"
