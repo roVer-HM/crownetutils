@@ -115,8 +115,8 @@ def parse_args_as_dict(args=None):
         dest="opp_exec",
         default="",
         help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
-             "Use --opp. prefix to specify arguments to pass to the "
-             "given executable.",
+        "Use --opp. prefix to specify arguments to pass to the "
+        "given executable.",
     )
     parser.add_argument(
         "--opp.xxx",
@@ -128,9 +128,9 @@ def parse_args_as_dict(args=None):
         action=SimulationArgAction,
         prefix="--opp.",
         help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable. "
-             "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
-             "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
-             "executable. Defaults: ",
+        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
     )
     parser.add_argument(
         "--sumo-exec",
@@ -161,9 +161,9 @@ def parse_args_as_dict(args=None):
         action=SubstituteAction,
         do_on=["timestamp"],
         sub_action=lambda x: datetime.now()
-            .isoformat()
-            .replace("-", "")
-            .replace(":", ""),
+        .isoformat()
+        .replace("-", "")
+        .replace(":", ""),
         required=False,
         help="experiment-label used in the result path. Use 'timestamp' to get current sanitized ISO-Format timestamp.",
     )
@@ -338,7 +338,7 @@ def parse_args_as_dict(args=None):
         default="",
         required=False,
         help="Set log file name of Vadere. If not set '', log file will not be created. "
-             "This setting has no effect on --log-journald. (Default: '') ",
+        "This setting has no effect on --log-journald. (Default: '') ",
     )
     if args is None:
         ns = vars(parser.parse_args())
