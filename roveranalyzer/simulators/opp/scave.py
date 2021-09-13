@@ -235,6 +235,33 @@ class ScaveFilter:
         return " ".join(self._filter)
 
 
+class SqlOp:
+    def __init__(self, operator, group):
+        self._operator = operator
+        self._group = group if type(group) == list else [group]
+
+    @classmethod
+    def OR(cls, items):
+        return cls("or", items)
+
+    @classmethod
+    def AND(cls, items):
+        return cls("and", items)
+
+    def apply(self, table, column):
+        ret = []
+        for i in self._group:
+            if "%" in i:
+                ret.append(f"{table}.{column} like '{i}'")
+            else:
+                ret.append(f"{table}.{column} = '{i}'")
+        if len(ret) == 1:
+            return ret[0]
+        else:
+            ret = f" {self._operator} ".join(ret)
+            return f"({ret})"
+
+
 class OppSql:
     def __init__(self, vec_path=None, sca_path=None):
         self._vec_path = vec_path
@@ -291,12 +318,16 @@ class OppSql:
         self, moduleName=None, vectorName=None, runId=1, cols=("vectorId",), **kwargs
     ):
         cols = ", ".join([f"v.{c}" for c in cols])
-        _sql = f"select {cols} from vector v where v.runId = '{runId}'"
-        if moduleName is not None and "%" in moduleName:
+        _sql = f"select {cols} from vector v where v.runId = '{runId}' and "
+        if type(moduleName) == SqlOp:
+            _sql += moduleName.apply("v", "moduleName")
+        elif moduleName is not None and "%" in moduleName:
             _sql += f" and v.moduleName like '{moduleName}'"
         elif moduleName is not None:
             _sql += f" and v.moduleName = '{moduleName}'"
 
+        if type(vectorName) == SqlOp:
+            _sql += vectorName.apply("v", "vectorName")
         if vectorName is not None and "%" in vectorName:
             _sql += f" and v.vectorName like '{vectorName}'"
         elif vectorName is not None:
@@ -314,12 +345,17 @@ class OppSql:
         self,
         moduleName=None,
         vectorName=None,
+        ids=None,
         runId=1,
         cols=("vectorId", "simtimeRaw", "value"),
         time_resolution=1e12,
         **kwargs,
     ):
-        _ids = self.vec_ids(moduleName, vectorName, runId, **kwargs)
+        _ids = (
+            self.vec_ids(moduleName, vectorName, runId, **kwargs)
+            if ids is None
+            else ids
+        )
         _ids = ", ".join([str(i) for i in _ids])
         cols = ", ".join([f"v_data.{c}" for c in cols])
         _sql = f"select {cols} from vectorData v_data where v_data.vectorId in ({_ids})"
