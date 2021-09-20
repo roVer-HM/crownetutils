@@ -71,7 +71,7 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
         ),
         action=SimulationArgAction,
         prefix="--opp.",
-        help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable. "
+        help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable."
         "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
         "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
         "executable. Defaults: ",
@@ -231,9 +231,9 @@ def add_vadere_control_parser(parser: argparse.ArgumentParser, runner: Any):
         "-wc",
         "--with-control",
         dest="control",
-        default=None,
-        required=False,
-        help="Choose file that contains control strategy. (Default: '')",
+        default="control.py",
+        required=True,
+        help="Choose file that contains control strategy. (Default: 'control.py')",
     )
     parser.add_argument(
         "--control-vadere-only",
