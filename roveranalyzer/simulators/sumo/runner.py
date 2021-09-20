@@ -50,6 +50,9 @@ class SumoRunner(DockerRunner):
         message_log=os.devnull,
         run_args_override=None,
     ):
+        """
+        TODO: DEPRECATED
+        """
         cmd = [
             "sumo",
             "-v",
@@ -77,6 +80,7 @@ class SumoRunner(DockerRunner):
         message_log=os.devnull,
         run_args_override=None,
     ):
+        # todo: implement how opp/runner.py in line 78
         cmd = [
             "/veins_launchd",
             "-vvv",

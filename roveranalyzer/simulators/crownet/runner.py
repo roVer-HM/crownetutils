@@ -4,6 +4,7 @@ import signal
 import sys
 import time
 from datetime import datetime
+from typing import Any, Dict, List
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -27,56 +28,7 @@ from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
 
-class SimSetup:
-    # (OMNeT, Vadere, Sumo, Control)
-    OMNET = 1 << 3  # 1000
-    VADER = 1 << 2  # 0100
-    SUMO = 1 << 1  # 0010
-    CONTROL = 1  # 0001
-
-    OmnetSumo = OMNET | SUMO
-    OmnetVadere = OMNET | VADER
-    OmnetVadereControl = OMNET | VADER | CONTROL
-    VadereControl = VADER | CONTROL
-
-    def __init__(self, id=0):
-        self.id = id
-
-    def add(self, val):
-        self.id = self.id | val
-        return self
-
-    def remove(self, val):
-        self.id = self.id & (0b1111 ^ val)
-
-    @property
-    def is_controlled(self):
-        return (self.id & self.CONTROL) == self.CONTROL
-
-    def has_simulator(self, other):
-        return (self.id & other) == other
-
-    def __str__(self):
-        ret = "{SimSetup: "
-        ret += "Omnet-" if self.has_simulator(self.OMNET) else ""
-        ret += "Vadere-" if self.has_simulator(self.VADER) else ""
-        ret += "Sumo-" if self.has_simulator(self.SUMO) else ""
-        ret += "Control-" if self.has_simulator(self.CONTROL) else ""
-        ret = ret[0:-1]
-        ret += "}"
-        ret = ret.replace("-*", "-")
-        return ret
-
-    def __eq__(self, other):
-        return self.id == other
-
-
-# todo: split in default and simulator specific arguments
-def parse_args_as_dict(args=None):
-    _args = sys.argv[1:] if args is None else args
-
-    # parse arguments
-    parser = argparse.ArgumentParser()
+def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
@@ -86,14 +38,6 @@ def parse_args_as_dict(args=None):
         nargs="+",
         help="specify preprocessing methods",
         type=str,
-    )
-    parser.add_argument(
-        "-sf",
-        "--scenario-file",
-        dest="scenario_file",
-        default="",
-        required=False,
-        help="Scenario-file *.scenario for Vadere simulation.",
     )
     parser.add_argument(
         "--resultdir",
@@ -120,7 +64,7 @@ def parse_args_as_dict(args=None):
     )
     parser.add_argument(
         "--opp.xxx",
-        *filter_options(_args, "--opp."),
+        *filter_options(args, "--opp."),
         dest="opp_args",
         default=ArgList.from_list(
             [["-f", "omnetpp.ini"], ["-u", "Cmdenv"], ["-c", "final"]]
@@ -132,28 +76,6 @@ def parse_args_as_dict(args=None):
         "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
         "executable. Defaults: ",
     )
-    parser.add_argument(
-        "--sumo-exec",
-        dest="sumo_exec",
-        default="sumo",
-        required=False,
-        help="Specify Sumo executable. (sumo or sumo-gui) Default=sumo",
-    )
-    parser.add_argument(
-        "--sumo.xxx",
-        *filter_options(_args, "--sumo."),
-        dest="sumo_args",
-        default=ArgList.from_list(
-            [
-                ["--port", "9999"],
-                ["--bind", "0.0.0.0"],
-            ]
-        ),
-        action=SimulationArgAction,
-        prefix="--sumo.",
-        help="Sumo Arguments",
-    )
-
     parser.add_argument(
         "--experiment-label",
         dest="experiment_label",
@@ -202,38 +124,6 @@ def parse_args_as_dict(args=None):
         help="select policy to reuse or remove existing running or stopped containers.",
     )
     parser.add_argument(
-        "--create-log-file",
-        dest="create_log_file",
-        action="store_true",
-        default=False,
-        required=False,
-        help="Redirect log messages to Logfile at script location (this script not containers).",
-    )
-    parser.add_argument(
-        "--create-vadere-container",
-        dest="create_vadere_container",
-        action="store_true",
-        default=False,
-        required=False,
-        help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
-    )
-    parser.add_argument(
-        "--create-sumo-container",
-        dest="create_sumo_container",
-        action="store_true",
-        default=False,
-        required=False,
-        help="If set a sumo container with name sumo_<run-name> is created matching to opp_<run-name> container.",
-    )
-    parser.add_argument(
-        "--delete-existing-containers",
-        dest="delete_existing_containers",
-        action="store_true",
-        default=False,
-        required=False,
-        help="Delete existing (stopped) containers with the same name.",
-    )
-    parser.add_argument(
         "--verbose",
         "-v",
         dest="verbose",
@@ -249,6 +139,25 @@ def parse_args_as_dict(args=None):
         default=False,
         required=False,
         help="No output is generated. Only fatal errors leading to non zero exit codes.",
+    )
+    parser.add_argument(
+        "--omnet-tag",
+        dest="omnet_tag",
+        default="latest",
+        required=False,
+        help="Choose Omnet container. (Default: latest)",
+    )
+    return parser
+
+
+def add_shared_vadere_control_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--create-vadere-container",
+        dest="create_vadere_container",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
     )
     parser.add_argument(
         "--v.wait-timeout",
@@ -272,12 +181,45 @@ def parse_args_as_dict(args=None):
         help="Choose Vadere container. (Default: latest)",
     )
     parser.add_argument(
-        "--omnet-tag",
-        dest="omnet_tag",
-        default="latest",
+        "--v.loglevel",
+        dest="v_loglevel",
+        default="INFO",
         required=False,
-        help="Choose Omnet container. (Default: latest)",
+        help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
     )
+    parser.add_argument(
+        "--v.logfile",
+        dest="v_logfile",
+        default="",
+        required=False,
+        help="Set log file name of Vadere. If not set '', log file will not be created. "
+        "This setting has no effect on --log-journald. (Default: '') ",
+    )
+
+
+def add_vadere_parser(parser: argparse.ArgumentParser, runner: Any):
+    parser.add_argument(
+        "-sf",
+        "--scenario-file",
+        dest="scenario_file",
+        default="",
+        required=False,
+        help="Scenario-file *.scenario for Vadere simulation.",
+    )
+    parser.add_argument(
+        "--vadere-only",
+        dest="vadere_only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set run Vadere in container without omnetpp or control.",
+    )
+    # parser.set_defaults(func=vadere_command_func) #run_simulation_omnet_vadere()
+    parser.set_defaults(main_func=runner.run_simulation_omnet_vadere)
+    parser.set_defaults(result_dir_callback=result_dir_with_opp)
+
+
+def add_vadere_control_parser(parser: argparse.ArgumentParser, runner: Any):
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
@@ -285,14 +227,6 @@ def parse_args_as_dict(args=None):
         required=False,
         help="Choose Control container. (Default: latest)",
     )
-    parser.add_argument(
-        "--sumo-tag",
-        dest="sumo_tag",
-        default="latest",
-        required=False,
-        help="Choose Sumo container. (Default: latest)",
-    )
-
     parser.add_argument(
         "-wc",
         "--with-control",
@@ -317,87 +251,138 @@ def parse_args_as_dict(args=None):
         required=False,
         help="If true container uses currently checkout code instead of installed coded during container creation.",
     )
+    parser.set_defaults(main_func=runner.run_simulation_vadere_omnet_ctl)
+    parser.set_defaults(result_dir_callback=result_dir_vadere_only)
+    return parser
+
+
+def add_vadere_only_arguments(parser: argparse.ArgumentParser, runner: Any):
     parser.add_argument(
-        "--vadere-only",
-        dest="vadere_only",
+        "-sf",
+        "--scenario-file",
+        dest="scenario_file",
+        default="",
+        required=False,
+        help="Scenario-file *.scenario for Vadere simulation.",
+    )
+    parser.set_defaults(main_func=runner.run_vadere)
+    parser.set_defaults(result_dir_callback=result_dir_vadere_only)
+    return parser
+
+
+def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str], runner: Any):
+    parser.add_argument(
+        "--sumo-exec",
+        dest="sumo_exec",
+        default="sumo",
+        required=False,
+        help="Specify Sumo executable. (sumo or sumo-gui) Default=sumo",
+    )
+    parser.add_argument(
+        "--sumo.xxx",
+        *filter_options(args, "--sumo."),
+        dest="sumo_args",
+        default=ArgList.from_list(
+            [
+                ["--port", "9999"],
+                ["--bind", "0.0.0.0"],
+            ]
+        ),
+        action=SimulationArgAction,
+        prefix="--sumo.",
+        help="Sumo Arguments",
+    )
+    parser.add_argument(
+        "--create-sumo-container",
+        dest="create_sumo_container",
         action="store_true",
         default=False,
         required=False,
-        help="If set run Vadere in container without omnetpp or control.",
+        help="If set a sumo container with name sumo_<run-name> is created matching to opp_<run-name> container.",
     )
     parser.add_argument(
-        "--v.loglevel",
-        dest="v_loglevel",
-        default="INFO",
+        "--sumo-tag",
+        dest="sumo_tag",
+        default="latest",
         required=False,
-        help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
+        help="Choose Sumo container. (Default: latest)",
     )
-    parser.add_argument(
-        "--v.logfile",
-        dest="v_logfile",
-        default="",
-        required=False,
-        help="Set log file name of Vadere. If not set '', log file will not be created. "
-        "This setting has no effect on --log-journald. (Default: '') ",
+    # parser.set_defaults(func=sumo_command_func)
+    # result_dir_with_opp
+    parser.set_defaults(main_func=runner.run_simulation_omnet_sumo)
+    parser.set_defaults(result_dir_callback=result_dir_with_opp)
+    return parser
+
+
+# todo: split in default and simulator specific arguments
+def parse_args_as_dict(runner: Any, args=None):
+    _args: List[str] = sys.argv[1:] if args is None else args
+
+    # parse arguments
+    main: argparse.ArgumentParser = argparse.ArgumentParser(
+        prog="BaseRunner", description="Any description"
     )
-    if args is None:
-        ns = vars(parser.parse_args())
-    else:
-        ns = vars(parser.parse_args(args))
+    parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
+    # arguments used by all sub-commands
+    add_base_arguments(parser=parent, args=_args)
+
+    # subparsers
+    sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
+
+    # base class for arguments shared between vadere and control-vadere
+    vadere_and_control_base: argparse.ArgumentParser = argparse.ArgumentParser(
+        add_help=False
+    )
+    add_shared_vadere_control_arguments(parser=vadere_and_control_base)
+
+    # vadere
+    vadere_parser: argparse.ArgumentParser = sub.add_parser(
+        "vadere", help="vadere subparser", parents=[parent, vadere_and_control_base]
+    )
+    add_vadere_parser(parser=vadere_parser, runner=runner)
+
+    # vadere-control
+    vadere_control_parser: argparse.ArgumentParser = sub.add_parser(
+        "vadere-control",
+        help="vadere-control subparser",
+        parents=[parent, vadere_and_control_base],
+    )
+    add_vadere_control_parser(parser=vadere_control_parser, runner=runner)
+
+    # vadere only
+    vadere_only_parser: argparse.ArgumentParser = sub.add_parser(
+        "vadere-only",
+        help="vadere-only subparser",
+        parents=[parent, vadere_and_control_base],
+    )
+    add_vadere_only_arguments(parser=vadere_only_parser, runner=runner)
+
+    # sumo
+    sumo_parser: argparse.ArgumentParser = sub.add_parser(
+        "sumo", help="sumo parser", parents=[parent]
+    )
+    add_sumo_arguments(parser=sumo_parser, args=_args, runner=runner)
+
+    parsed_args = main.parse_args(_args)
+    ns = vars(parsed_args)
 
     # set default executable based on $CRWNET_HOME variable
     if ns["opp_exec"] == "":
         ns["opp_exec"] = CrowNetConfig.join_home(f"crownet/src/run_crownet")
 
-    # set result dir callback based on execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
-    ns["result_dir_callback"] = (
-        result_dir_vadere_only if ns["vadere_only"] else result_dir_with_opp
-    )
-
-    if ns["silent"]:
-        level_idx = 0
-    else:
-        level_idx = ns["verbose"]
-    if ns["create_log_file"]:
-        # TODO set filename=f"{os.getcwd()}/runner.log"
-        pass
+    level_idx = ns["verbose"]
     set_level(levels[level_idx])
     set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
-
-    _setup = parse_simulation_setup(ns)
-    ns["simulationSetup"] = _setup
 
     return ns
 
 
-def parse_simulation_setup(ns: dict):
-    _setup = SimSetup()
-    # assume omnet is used by default
-    _setup.add(SimSetup.OMNET)
-
-    if ns["control"] is not None:
-        _setup.add(SimSetup.CONTROL)
-
-    if ns["control"] and ns["control_vadere_only"]:
-        # no omnet only vadere and control
-        _setup.add(SimSetup.CONTROL)
-        _setup.add(SimSetup.VADER)
-        _setup.remove(SimSetup.OMNET)
-        return _setup
-
-    if ns["vadere_only"]:
-        # only vadere
-        return SimSetup(SimSetup.VADER)
-    if ns["sumo_exec"] is None:
-        # we will use vadere
-        _setup.add(SimSetup.VADER)
-    else:
-        _setup.add(SimSetup.SUMO)
-
-    return _setup
+def get_key_value_if_exist(key: str, _dict: Dict[str, Any]):
+    if key in _dict:
+        return _dict[key]
 
 
-def result_dir_with_opp(ns, working_dir):
+def result_dir_with_opp(ns, working_dir) -> str:
     """
     set result dir based on OMNeT++
     """
@@ -439,7 +424,7 @@ class process_as:
 
 class BaseRunner:
     def __init__(self, working_dir, args=None):
-        self.ns = parse_args_as_dict(args)
+        self.ns = parse_args_as_dict(self, args)
         self.docker_client = docker.from_env()
         self.working_dir = working_dir
         self.vadere_runner = None
@@ -676,22 +661,8 @@ class BaseRunner:
         return filepath
 
     def dispatch_run(self):
-
-        _setup = self.ns["simulationSetup"]
-
-        if _setup == SimSetup.OmnetVadereControl:
-            ret = self.run_simulation_vadere_omnet_ctl()
-        elif _setup == SimSetup.VadereControl:
-            ret = self.run_simulation_vadere_ctl()
-        elif _setup == SimSetup.VADER:
-            ret = self.run_vadere()
-        elif _setup == SimSetup.OmnetVadere:
-            ret = self.run_simulation_omnet_vadere()
-        elif _setup == SimSetup.OmnetSumo:
-            ret = self.run_simulation_omnet_sumo()
-        else:
-            raise RuntimeError(f"unexpected simulation setup. {str(_setup)}")
-
+        main_func = self.ns["main_func"]
+        ret = main_func()
         return ret
 
     def run_vadere(self):
@@ -739,7 +710,7 @@ class BaseRunner:
                 )
 
             if self.ns["override-host-config"]:
-                self.ns["opp_args"].add(
+                self.ns["opp_args"].add_override(
                     f"--sumo-host={self.sumo_runner.name}:{sumo_args.get_value('--port')}"
                 )
 
@@ -842,7 +813,6 @@ class BaseRunner:
                 self.build_and_start_vadere_runner()
 
             self.build_and_start_control_runner()
-
             if self.ns["override-host-config"]:
                 self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
                 self.ns["opp_args"].add(f"--flow-host={self.control_runner.name}")
