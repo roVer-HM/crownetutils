@@ -152,6 +152,14 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
 
 def add_shared_vadere_control_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
+        "-sf",
+        "--scenario-file",
+        dest="scenario_file",
+        default="",
+        required=False,
+        help="Scenario-file *.scenario for Vadere simulation.",
+    )
+    parser.add_argument(
         "--create-vadere-container",
         dest="create_vadere_container",
         action="store_true",
@@ -198,14 +206,6 @@ def add_shared_vadere_control_arguments(parser: argparse.ArgumentParser):
 
 
 def add_vadere_parser(parser: argparse.ArgumentParser, runner: Any):
-    parser.add_argument(
-        "-sf",
-        "--scenario-file",
-        dest="scenario_file",
-        default="",
-        required=False,
-        help="Scenario-file *.scenario for Vadere simulation.",
-    )
     parser.add_argument(
         "--vadere-only",
         dest="vadere_only",
@@ -257,14 +257,6 @@ def add_vadere_control_parser(parser: argparse.ArgumentParser, runner: Any):
 
 
 def add_vadere_only_arguments(parser: argparse.ArgumentParser, runner: Any):
-    parser.add_argument(
-        "-sf",
-        "--scenario-file",
-        dest="scenario_file",
-        default="",
-        required=False,
-        help="Scenario-file *.scenario for Vadere simulation.",
-    )
     parser.set_defaults(main_func=runner.run_vadere)
     parser.set_defaults(result_dir_callback=result_dir_vadere_only)
     return parser
