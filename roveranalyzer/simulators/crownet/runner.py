@@ -109,15 +109,6 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
         default=0,
         help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
     )
-    parser.add_argument(
-        "--silent",
-        "-s",
-        dest="silent",
-        action="store_true",
-        default=False,
-        required=False,
-        help="No output is generated. Only fatal errors leading to non zero exit codes.",
-    )
 
 
 def add_control_arguments(parser: argparse.ArgumentParser):
