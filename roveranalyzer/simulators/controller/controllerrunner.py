@@ -91,7 +91,9 @@ class ControlRunner(DockerRunner):
         ]
 
         if connection_mode == "client":
-            cmd.extend(["--client-mode"])
+            cmd.extend(["--client-mode",
+                        "--scenario-file",
+                        scenario])
 
         logger.debug(f"start controller container(start_controller)")
         logger.debug(f"cmd: {' '.join(cmd)}")

@@ -567,6 +567,7 @@ class BaseRunner:
                 connection_mode="client",
                 traci_port=9999,
                 use_local=self.ns["ctl_local"],
+                scenario=self.ns['scenario_file']
             )
         else:
 
