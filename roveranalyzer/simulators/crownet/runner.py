@@ -256,7 +256,6 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     )
 
 
-# todo: split in default and simulator specific arguments
 def parse_args_as_dict(runner: Any, args=None):
     _args: List[str] = sys.argv[1:] if args is None else args
 
@@ -453,7 +452,6 @@ class BaseRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
-            # run_cmd=self.ns["opp_exec"],
             run_cmd=opp_exec,
         )
         self.opp_runner.apply_reuse_policy()
