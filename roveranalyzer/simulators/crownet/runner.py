@@ -55,37 +55,15 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
         help="If true save output of containers in result dir <result>/container_<name>.out ",
     )
     parser.add_argument(
-        "--opp-exec",
-        dest="opp_exec",
-        default="",
-        help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
-        "Use --opp. prefix to specify arguments to pass to the "
-        "given executable.",
-    )
-    parser.add_argument(
-        "--opp.xxx",
-        *filter_options(args, "--opp."),
-        dest="opp_args",
-        default=ArgList.from_list(
-            [["-f", "omnetpp.ini"], ["-u", "Cmdenv"], ["-c", "final"]]
-        ),
-        action=SimulationArgAction,
-        prefix="--opp.",
-        help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable."
-        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
-        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
-        "executable. Defaults: ",
-    )
-    parser.add_argument(
         "--experiment-label",
         dest="experiment_label",
         default="timestamp",
         action=SubstituteAction,
         do_on=["timestamp"],
         sub_action=lambda x: datetime.now()
-        .isoformat()
-        .replace("-", "")
-        .replace(":", ""),
+            .isoformat()
+            .replace("-", "")
+            .replace(":", ""),
         required=False,
         help="experiment-label used in the result path. Use 'timestamp' to get current sanitized ISO-Format timestamp.",
     )
@@ -140,17 +118,35 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
         required=False,
         help="No output is generated. Only fatal errors leading to non zero exit codes.",
     )
+
+
+def add_control_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
-        "--omnet-tag",
-        dest="omnet_tag",
+        "--control-tag",
+        dest="control_tag",
         default="latest",
         required=False,
-        help="Choose Omnet container. (Default: latest)",
+        help="Choose Control container. (Default: latest)",
     )
-    return parser
+    parser.add_argument(
+        "-wc",
+        "--with-control",
+        dest="control",
+        default="control.py",
+        required=True,
+        help="Choose file that contains control strategy. (Default: 'control.py')",
+    )
+    parser.add_argument(
+        "--control-use-local",
+        dest="ctl_local",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If true container uses currently checkout code instead of installed coded during container creation.",
+    )
 
 
-def add_shared_vadere_control_arguments(parser: argparse.ArgumentParser):
+def add_vadere_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "-sf",
         "--scenario-file",
@@ -201,68 +197,43 @@ def add_shared_vadere_control_arguments(parser: argparse.ArgumentParser):
         default="",
         required=False,
         help="Set log file name of Vadere. If not set '', log file will not be created. "
-        "This setting has no effect on --log-journald. (Default: '') ",
+             "This setting has no effect on --log-journald. (Default: '') ",
     )
 
 
-def add_vadere_parser(parser: argparse.ArgumentParser, runner: Any):
+def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
-        "--vadere-only",
-        dest="vadere_only",
-        action="store_true",
-        default=False,
-        required=False,
-        help="If set run Vadere in container without omnetpp or control.",
+        "--opp-exec",
+        dest="opp_exec",
+        default="",
+        help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
+             "Use --opp. prefix to specify arguments to pass to the "
+             "given executable.",
     )
-    # parser.set_defaults(func=vadere_command_func) #run_simulation_omnet_vadere()
-    parser.set_defaults(main_func=runner.run_simulation_omnet_vadere)
-    parser.set_defaults(result_dir_callback=result_dir_with_opp)
-
-
-def add_vadere_control_parser(parser: argparse.ArgumentParser, runner: Any):
     parser.add_argument(
-        "--control-tag",
-        dest="control_tag",
+        "--opp.xxx",
+        *filter_options(args, "--opp."),
+        dest="opp_args",
+        default=ArgList.from_list(
+            [["-f", "omnetpp.ini"], ["-u", "Cmdenv"], ["-c", "final"]]
+        ),
+        action=SimulationArgAction,
+        prefix="--opp.",
+        help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable."
+             "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+             "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+             "executable. Defaults: ",
+    )
+    parser.add_argument(
+        "--omnet-tag",
+        dest="omnet_tag",
         default="latest",
         required=False,
-        help="Choose Control container. (Default: latest)",
+        help="Choose Omnet container. (Default: latest)",
     )
-    parser.add_argument(
-        "-wc",
-        "--with-control",
-        dest="control",
-        default="control.py",
-        required=True,
-        help="Choose file that contains control strategy. (Default: 'control.py')",
-    )
-    parser.add_argument(
-        "--control-vadere-only",
-        dest="control_vadere_only",
-        action="store_true",
-        default=False,
-        required=False,
-        help="If set the control action is applied without omnetpp. Direct information dissemination without delay.",
-    )
-    parser.add_argument(
-        "--control-use-local",
-        dest="ctl_local",
-        action="store_true",
-        default=False,
-        required=False,
-        help="If true container uses currently checkout code instead of installed coded during container creation.",
-    )
-    parser.set_defaults(main_func=runner.run_simulation_vadere_omnet_ctl)
-    parser.set_defaults(result_dir_callback=result_dir_vadere_only)
-    return parser
 
 
-def add_vadere_only_arguments(parser: argparse.ArgumentParser, runner: Any):
-    parser.set_defaults(main_func=runner.run_vadere)
-    parser.set_defaults(result_dir_callback=result_dir_vadere_only)
-    return parser
-
-
-def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str], runner: Any):
+def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--sumo-exec",
         dest="sumo_exec",
@@ -299,11 +270,6 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str], runner:
         required=False,
         help="Choose Sumo container. (Default: latest)",
     )
-    # parser.set_defaults(func=sumo_command_func)
-    # result_dir_with_opp
-    parser.set_defaults(main_func=runner.run_simulation_omnet_sumo)
-    parser.set_defaults(result_dir_callback=result_dir_with_opp)
-    return parser
 
 
 # todo: split in default and simulator specific arguments
@@ -321,57 +287,59 @@ def parse_args_as_dict(runner: Any, args=None):
     # subparsers
     sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
 
-    # base class for arguments shared between vadere and control-vadere
-    vadere_and_control_base: argparse.ArgumentParser = argparse.ArgumentParser(
-        add_help=False
-    )
-    add_shared_vadere_control_arguments(parser=vadere_and_control_base)
-
     # vadere
     vadere_parser: argparse.ArgumentParser = sub.add_parser(
-        "vadere", help="vadere subparser", parents=[parent, vadere_and_control_base]
+        "vadere", help="vadere subparser", parents=[parent]
     )
-    add_vadere_parser(parser=vadere_parser, runner=runner)
+    add_vadere_arguments(parser=vadere_parser)
+    vadere_parser.set_defaults(main_func=runner.run_vadere)
+    vadere_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
 
-    # vadere-control
+    # vadere control
     vadere_control_parser: argparse.ArgumentParser = sub.add_parser(
-        "vadere-control",
-        help="vadere-control subparser",
-        parents=[parent, vadere_and_control_base],
+        "vadere-control", help="vadere control subparser", parents=[parent]
     )
-    add_vadere_control_parser(parser=vadere_control_parser, runner=runner)
+    add_vadere_arguments(parser=vadere_control_parser)
+    add_control_arguments(parser=vadere_control_parser)
+    vadere_control_parser.set_defaults(main_func=runner.run_simulation_vadere_ctl)
+    vadere_control_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
 
-    # vadere only
-    vadere_only_parser: argparse.ArgumentParser = sub.add_parser(
-        "vadere-only",
-        help="vadere-only subparser",
-        parents=[parent, vadere_and_control_base],
+    # vadere omnet
+    vadere_opp_parser: argparse.ArgumentParser = sub.add_parser(
+        "vadere-opp", help="vadere omnet subparser", parents=[parent]
     )
-    add_vadere_only_arguments(parser=vadere_only_parser, runner=runner)
+    add_vadere_arguments(parser=vadere_opp_parser)
+    add_omnet_arguments(parser=vadere_opp_parser, args=_args)
+    vadere_opp_parser.set_defaults(main_func=runner.run_simulation_omnet_vadere)
+    vadere_opp_parser.set_defaults(result_dir_callback=result_dir_with_opp)
+
+    # vadere omnet control
+    vadere_opp_control_parser: argparse.ArgumentParser = sub.add_parser(
+        "vadere-opp-control", help="vadere omnet control subparser", parents=[parent]
+    )
+    add_omnet_arguments(parser=vadere_opp_control_parser, args=_args)
+    add_vadere_arguments(parser=vadere_opp_control_parser)
+    add_control_arguments(parser=vadere_opp_control_parser)
+    vadere_opp_control_parser.set_defaults(main_func=runner.run_simulation_vadere_omnet_ctl)
+    vadere_opp_control_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
     # sumo
     sumo_parser: argparse.ArgumentParser = sub.add_parser(
-        "sumo", help="sumo parser", parents=[parent]
+        "sumo", help="sumo subparser", parents=[parent]
     )
-    add_sumo_arguments(parser=sumo_parser, args=_args, runner=runner)
+    add_sumo_arguments(parser=sumo_parser, args=_args)
+    add_omnet_arguments(sumo_parser, args=_args)
+    sumo_parser.set_defaults(main_func=runner.run_simulation_omnet_sumo)
+    sumo_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
-
-    # set default executable based on $CRWNET_HOME variable
-    if ns["opp_exec"] == "":
-        ns["opp_exec"] = CrowNetConfig.join_home(f"crownet/src/run_crownet")
 
     level_idx = ns["verbose"]
     set_level(levels[level_idx])
     set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
 
     return ns
-
-
-def get_key_value_if_exist(key: str, _dict: Dict[str, Any]):
-    if key in _dict:
-        return _dict[key]
 
 
 def result_dir_with_opp(ns, working_dir) -> str:
@@ -485,6 +453,9 @@ class BaseRunner:
 
     def build_opp_runner(self):
         run_name = self.ns["run_name"]
+        # set default executable based on $CRWNET_HOME variable
+        opp_exec = self.ns["opp_exec"] if bool(self.ns["opp_exec"]) else CrowNetConfig.join_home(
+            f"crownet/src/run_crownet")
         self.opp_runner = OppRunner(
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",
@@ -493,7 +464,8 @@ class BaseRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
-            run_cmd=self.ns["opp_exec"],
+            # run_cmd=self.ns["opp_exec"],
+            run_cmd=opp_exec,
         )
         self.opp_runner.apply_reuse_policy()
         self.opp_runner.set_working_dir(self.working_dir)
@@ -753,7 +725,6 @@ class BaseRunner:
 
             if self.ns["override-host-config"]:
                 self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
-
             # start OMNeT++ container and attach to it.
             logger.info(f"start simulation {self.ns['run_name']} ...")
             opp_ret = self.opp_runner.exec_opp_run(
@@ -762,6 +733,7 @@ class BaseRunner:
                 experiment_label=self.ns["experiment_label"],
                 run_args_override={},
             )
+
             ret = opp_ret["StatusCode"]
             if ret != 0:
                 raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
@@ -774,6 +746,7 @@ class BaseRunner:
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
                     )
                     ret = 255
+
 
         except RuntimeError as cErr:
             logger.error(cErr)
