@@ -61,9 +61,9 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
         action=SubstituteAction,
         do_on=["timestamp"],
         sub_action=lambda x: datetime.now()
-            .isoformat()
-            .replace("-", "")
-            .replace(":", ""),
+        .isoformat()
+        .replace("-", "")
+        .replace(":", ""),
         required=False,
         help="experiment-label used in the result path. Use 'timestamp' to get current sanitized ISO-Format timestamp.",
     )
@@ -197,7 +197,7 @@ def add_vadere_arguments(parser: argparse.ArgumentParser):
         default="",
         required=False,
         help="Set log file name of Vadere. If not set '', log file will not be created. "
-             "This setting has no effect on --log-journald. (Default: '') ",
+        "This setting has no effect on --log-journald. (Default: '') ",
     )
 
 
@@ -207,8 +207,8 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
         dest="opp_exec",
         default="",
         help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
-             "Use --opp. prefix to specify arguments to pass to the "
-             "given executable.",
+        "Use --opp. prefix to specify arguments to pass to the "
+        "given executable.",
     )
     parser.add_argument(
         "--opp.xxx",
@@ -220,9 +220,9 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
         action=SimulationArgAction,
         prefix="--opp.",
         help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable."
-             "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
-             "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
-             "executable. Defaults: ",
+        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
     )
     parser.add_argument(
         "--omnet-tag",
@@ -320,7 +320,9 @@ def parse_args_as_dict(runner: Any, args=None):
     add_omnet_arguments(parser=vadere_opp_control_parser, args=_args)
     add_vadere_arguments(parser=vadere_opp_control_parser)
     add_control_arguments(parser=vadere_opp_control_parser)
-    vadere_opp_control_parser.set_defaults(main_func=runner.run_simulation_vadere_omnet_ctl)
+    vadere_opp_control_parser.set_defaults(
+        main_func=runner.run_simulation_vadere_omnet_ctl
+    )
     vadere_opp_control_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
     # sumo
@@ -454,8 +456,11 @@ class BaseRunner:
     def build_opp_runner(self):
         run_name = self.ns["run_name"]
         # set default executable based on $CRWNET_HOME variable
-        opp_exec = self.ns["opp_exec"] if bool(self.ns["opp_exec"]) else CrowNetConfig.join_home(
-            f"crownet/src/run_crownet")
+        opp_exec = (
+            self.ns["opp_exec"]
+            if bool(self.ns["opp_exec"])
+            else CrowNetConfig.join_home(f"crownet/src/run_crownet")
+        )
         self.opp_runner = OppRunner(
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",
@@ -567,7 +572,7 @@ class BaseRunner:
                 connection_mode="client",
                 traci_port=9999,
                 use_local=self.ns["ctl_local"],
-                scenario=self.ns['scenario_file']
+                scenario=self.ns["scenario_file"],
             )
         else:
 
@@ -747,7 +752,6 @@ class BaseRunner:
                         f"Timeout ({self.ns['v_wait_timeout']}) reached while waiting for vadere container to finished"
                     )
                     ret = 255
-
 
         except RuntimeError as cErr:
             logger.error(cErr)
