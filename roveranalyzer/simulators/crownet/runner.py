@@ -235,13 +235,6 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
 
 def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
-        "--sumo-exec",
-        dest="sumo_exec",
-        default="sumo",
-        required=False,
-        help="Specify Sumo executable. (sumo or sumo-gui) Default=sumo",
-    )
-    parser.add_argument(
         "--sumo.xxx",
         *filter_options(args, "--sumo."),
         dest="sumo_args",
@@ -673,7 +666,6 @@ class BaseRunner:
             sumo_args = self.ns["sumo_args"]
             if self.ns["create_sumo_container"]:
                 self.build_sumo_runner()
-                # todo: check sumo_exec namespace which lauchner to use.
                 self.sumo_runner.single_launcher(
                     traci_port=sumo_args.get_value("--port"),
                     bind=sumo_args.get_value("--bind"),
