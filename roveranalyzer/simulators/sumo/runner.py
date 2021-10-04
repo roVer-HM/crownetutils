@@ -1,4 +1,5 @@
 import os
+import warnings
 
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
@@ -51,8 +52,9 @@ class SumoRunner(DockerRunner):
         run_args_override=None,
     ):
         """
-        TODO: DEPRECATED
+        This function is deprecated, please use the single_launcher
         """
+        warnings.warn("SumoRunner.exec_single_server is a deprecated function.")
         cmd = [
             "sumo",
             "-v",
