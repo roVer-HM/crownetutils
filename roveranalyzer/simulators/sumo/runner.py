@@ -1,4 +1,5 @@
 import os
+import warnings
 
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
@@ -50,6 +51,10 @@ class SumoRunner(DockerRunner):
         message_log=os.devnull,
         run_args_override=None,
     ):
+        """
+        This function is deprecated, please use the single_launcher
+        """
+        warnings.warn("SumoRunner.exec_single_server is a deprecated function.")
         cmd = [
             "sumo",
             "-v",
@@ -77,6 +82,7 @@ class SumoRunner(DockerRunner):
         message_log=os.devnull,
         run_args_override=None,
     ):
+        # todo: implement how opp/runner.py in line 78
         cmd = [
             "/veins_launchd",
             "-vvv",
