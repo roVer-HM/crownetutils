@@ -202,10 +202,7 @@ class DcdMap2D(DcdMap):
             ]
         )
         data = data.set_index(data.index.droplevel([0, 3]))  # (x,y) as new index
-        full_index = self.meta.grid_index_2d(real_coords=True)
-        df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
-        df = df.set_index(full_index)
-        print(f"sum: {data.sum()}")
+        df = self.meta.update_missing(data, real_coords=True)
         df.update(data)
         df = df.unstack().T
         return df

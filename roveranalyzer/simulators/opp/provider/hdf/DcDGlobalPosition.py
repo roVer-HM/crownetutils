@@ -1,7 +1,9 @@
 from abc import ABC
 from typing import List
 
-from roveranalyzer.simulators.crownet.dcd.util import read_csv
+import pandas as pd
+
+from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, read_csv
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
 
@@ -71,6 +73,7 @@ def build_location_df(glb_df):
     glb_loc_df = glb_loc_df.assign(
         node_id=glb_loc_df["node_id"].str.split(r",\s*")
     ).explode("node_id")
+    glb_loc_df["node_id"] = pd.to_numeric(glb_loc_df["node_id"], downcast="integer")
     # remove node_id column from global
     glb_df = glb_df.drop(labels=["node_id"], axis="columns")
     return glb_loc_df, glb_df
@@ -92,6 +95,12 @@ class DcDGlobalPosition(IHdfProvider):
     def default_index_key(self) -> str:
         return self.index_order()[0]
 
+    def get_meta_object(self) -> DcdMetaData:
+        cell_size = self.get_attribute("cell_size")
+        cell_count = self.get_attribute("cell_count")
+        cell_bound = self.get_attribute("cell_bound")
+        return DcdMetaData(cell_size, cell_count, cell_bound, "global")
+
 
 class DcDGlobalDensity(IHdfProvider):
     def __init__(self, hdf_path):
@@ -108,3 +117,9 @@ class DcDGlobalDensity(IHdfProvider):
 
     def default_index_key(self) -> str:
         return self.index_order()[0]
+
+    def get_meta_object(self) -> DcdMetaData:
+        cell_size = self.get_attribute("cell_size")
+        cell_count = self.get_attribute("cell_count")
+        cell_bound = self.get_attribute("cell_bound")
+        return DcdMetaData(cell_size, cell_count, cell_bound, "global")

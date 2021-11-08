@@ -106,13 +106,14 @@ class DcdMapProvider(IHdfProvider):
         return DcdMapKey.SIMTIME
 
     def create_from_csv(
-        self, csv_paths: List[str], frame_consumer: List[FrameConsumer] = []
+        self, csv_paths: List[str], frame_consumer: List[FrameConsumer] = [], **kwargs
     ) -> None:
         progress = ProgressCmd(prefix="read csv: ", cycle_count=len(csv_paths))
         for file_path in csv_paths:
             progress.incr()
             # build data frame from csv
-            dcd_df = self.build_dcd_dataframe(file_path)
+            dcd_df = self.build_dcd_dataframe(file_path, **kwargs)
+
             # append to table but do not index (will be done at the end)
             with self.ctx() as store:
                 store.append(
@@ -143,7 +144,7 @@ class DcdMapProvider(IHdfProvider):
         node_id = int(grps.pop()["node"])
         return node_id
 
-    def build_dcd_dataframe(self, path: str) -> pd.DataFrame:
+    def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
         df, meta = read_csv(
             csv_path=path,
             _index_types=DcdMapKey.types_csv_index,
@@ -167,10 +168,28 @@ class DcdMapProvider(IHdfProvider):
         df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].replace(
             self.selection_mapping
         )
+
+        # #####
+        # apply features
+        # #####
+
+        num_rows = df.shape[0]
+
         # apply owner_dist_feature
-        df = owner_dist_feature(df)
+        df = owner_dist_feature(df, **kwargs)
+        if df.shape[0] != num_rows:
+            raise RuntimeError(
+                "Inconsistency detected in owner_dist_feature. "
+                f"Number of rows were affected. actual: {df.shape[0]} expected: {num_rows} "
+            )  # shape = df.shape
         # apply delay_feature
-        df = delay_feature(df)
+        df = delay_feature(df, **kwargs)
+        if df.shape[0] != num_rows:
+            raise RuntimeError(
+                "Inconsistency detected in delay_feature. "
+                f"Number of rows were affected. actual: {df.shape[0]} expected: {num_rows} "
+            )
+
         return df
 
     def update_selection_map(self, keys):

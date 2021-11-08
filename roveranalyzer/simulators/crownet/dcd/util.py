@@ -46,6 +46,10 @@ class DcdMetaData:
         return self.cell_size == other.cell_size and self.bound == other.bound
 
     def grid_index_2d(self, real_coords=False):
+        """
+        crate full (cartesian) index based on map dimension.
+        If real_coords is set use lower left corner of cell as value
+        """
         if real_coords:
             _idx = [
                 np.arange(self.x_count) * self.cell_size,  # numXCell
@@ -72,6 +76,37 @@ class DcdMetaData:
                 np.arange(self.y_count),  # numYCell
             ]
         return pd.MultiIndex.from_product(_idx, names=("simtime", "x", "y"))
+
+    def empty_df(self, value_name, real_coords=True):
+        """
+        Crate an empty dataframe containing all cells of the map.
+        Returns df with shape(N,1), and index [x, y]
+        """
+        full_index = self.grid_index_2d(real_coords)
+        df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
+        df = df.set_index(full_index)
+        return df
+
+    def update_missing(self, df, real_coords=True):
+        """
+        Creates
+        """
+        index_names = list(df.index.names)
+        if index_names == ["x", "y"]:
+            full_index = self.grid_index_2d(real_coords)
+        else:
+            wrong_index = ",".join([f"'{i}'" for i in index_names])
+            raise ValueError(
+                f"Unsupported index. Expected ['x', 'y'] but got [{wrong_index}]"
+            )
+
+        columns = list(df.columns)
+        full_df = pd.DataFrame(
+            np.zeros((len(full_index), len(columns))), columns=columns
+        )
+        full_df = full_df.set_index(full_index)
+        full_df.update(df)
+        return full_df
 
     def create_full_index_from_df(self, df, real_coords=False):
         return self.create_full_index(
@@ -211,6 +246,41 @@ def delay_feature(_df_ret, **kwargs):
 
 
 def owner_dist_feature(_df_ret, **kwargs):
+    if "global_position" not in kwargs:
+        # Warning: may lead to error if not all owner locations are part of the data frame
+        return owner_dist_feature_old(_df_ret, **kwargs)
+
+    # access global position map and extract positions of the current node.
+    glb_pos = kwargs["global_position"]
+    node_id = _df_ret.index.get_level_values("ID").unique()[0]
+    node_positions = glb_pos.loc[Idx[:, node_id], :]  # .reset_index()
+    node_positions = node_positions.rename(columns={"x": "x_owner", "y": "y_owner"})
+    node_positions.index.set_names("ID", level=1, inplace=True)
+
+    index_names = _df_ret.index.names
+    # merge extracted node_positions with _df_ret
+    _df_ret = pd.merge(
+        _df_ret.reset_index(),
+        node_positions,
+        on=["ID", "simtime"],
+        how="left",
+    ).reset_index(drop=True)
+
+    # compute distance between cells (row) and the owner's location at the given time
+    _df_ret["owner_dist"] = np.sqrt(
+        (_df_ret["x"] - _df_ret["x_owner"]) ** 2
+        + (_df_ret["y"] - _df_ret["y_owner"]) ** 2
+    )
+    _df_ret = _df_ret.set_index(index_names, drop=True, verify_integrity=True)
+
+    return _df_ret
+
+
+def owner_dist_feature_old(_df_ret, **kwargs):
+    """
+    Assume each node logs its own position in the DCD map thus the location
+    of each node can be extracted for each time stamp solely from the data frame
+    """
     index_names = _df_ret.index.names
 
     # Distance to owner location.
@@ -248,6 +318,13 @@ def owner_dist_feature(_df_ret, **kwargs):
     _df_ret = _df_ret.set_index(index_names, drop=True, verify_integrity=True)
 
     return _df_ret
+
+
+def check_has_own_cell(_df):
+    """
+    Ensure at ;east
+    """
+    return _df.loc[_df["own_cell"] == 0, []].shape[0] > 0
 
 
 def read_csv(

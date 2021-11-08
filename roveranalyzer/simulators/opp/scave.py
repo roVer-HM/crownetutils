@@ -11,6 +11,7 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 
+from build.lib.roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.configuration import Config
 from roveranalyzer.utils import Timer, logger
 
@@ -248,6 +249,9 @@ class SqlOp:
     def AND(cls, items):
         return cls("and", items)
 
+    def get_names(self):
+        return self._group
+
     def apply(self, table, column):
         ret = []
         for i in self._group:
@@ -263,6 +267,10 @@ class SqlOp:
 
 
 class OppSql:
+
+    OR = SqlOp.OR
+    AND = SqlOp.AND
+
     def __init__(self, vec_path=None, sca_path=None):
         self._vec_path = vec_path
         self._vec_con = None
@@ -318,8 +326,9 @@ class OppSql:
         self, moduleName=None, vectorName=None, runId=1, cols=("vectorId",), **kwargs
     ):
         cols = ", ".join([f"v.{c}" for c in cols])
-        _sql = f"select {cols} from vector v where v.runId = '{runId}' and "
+        _sql = f"select {cols} from vector v where v.runId = '{runId}' "
         if type(moduleName) == SqlOp:
+            _sql += "and "
             _sql += moduleName.apply("v", "moduleName")
         elif moduleName is not None and "%" in moduleName:
             _sql += f" and v.moduleName like '{moduleName}'"
@@ -327,8 +336,9 @@ class OppSql:
             _sql += f" and v.moduleName = '{moduleName}'"
 
         if type(vectorName) == SqlOp:
+            _sql += " and "
             _sql += vectorName.apply("v", "vectorName")
-        if vectorName is not None and "%" in vectorName:
+        elif vectorName is not None and "%" in vectorName:
             _sql += f" and v.vectorName like '{vectorName}'"
         elif vectorName is not None:
             _sql += f" and v.vectorName = '{vectorName}'"
@@ -340,6 +350,43 @@ class OppSql:
         return self.vec_info(moduleName, vectorName, runId, **kwargs)[
             "vectorId"
         ].to_list()
+
+    def vec_merge_on(
+        self,
+        moduleName=None,
+        vectorName=None,
+        col_map=None,  # {id1: column name1, ...}
+        runId=1,
+        time_resolution=1e12,
+        **kwargs,
+    ):
+
+        if col_map is None:
+            _info = self.vec_info(
+                moduleName, vectorName, runId, cols=("vectorId", "vectorName"), **kwargs
+            )
+            _ids = _info["vectorId"].to_list()
+            _id_map = (
+                _info.reset_index(drop=True)
+                .set_index(keys=["vectorId"])
+                .to_dict()["vectorName"]
+            )
+        else:
+            _ids = list(_id_map.keys())
+            _id_map = col_map
+
+        v_str = ", ".join([f'v{id}.value as "{name}"' for id, name in _id_map.items()])
+        sub_q = f"(select * from vectorData as v where v.vectorId = {_ids[0]}) as v{_ids[0]}"
+        joins = "\n".join(
+            f"    inner join (select * from vectorData as v where v.vectorId = {id}) as v{id} on v{_ids[0]}.simtimeRaw = v{id}.simtimeRaw"
+            for id in _ids[1:]
+        )
+        _sql = f"select v{_ids[0]}.simtimeRaw, v{_ids[0]}.eventNumber, {v_str} \n  from {sub_q} \n{joins}"
+        df = self.query_vec(_sql, type="df", **kwargs)
+        if time_resolution is not None and "simtimeRaw" in df.columns:
+            df["simtimeRaw"] = df["simtimeRaw"] / time_resolution
+            df = df.rename(columns={"simtimeRaw": "time"})
+        return df
 
     def vec_data(
         self,
@@ -364,6 +411,51 @@ class OppSql:
             df["simtimeRaw"] = df["simtimeRaw"] / time_resolution
             df = df.rename(columns={"simtimeRaw": "time"})
         return df
+
+
+class CrownetSql(OppSql):
+
+    v_app_receiving = OppSql.OR(
+        [
+            "rcvdPkLifetime:vector",
+            "rcvdPkSeqNo:vector",
+            "rcvdPkHostId:vector",
+            "packetReceived:vector(packetBytes)",
+        ]
+    )
+    v_app_sending = OppSql.OR(
+        ["packetSent:vector(packetBytes)", "packetCreated:vector(packetBytes)"]
+    )
+
+    _misc = "%s.misc[%d]"
+    _misc_app = "%s.misc[%d].app[%d]"
+
+    _ped = "%s.misc[%d]"
+    _ped_app = "%s.misc[%d].app[%d]"
+
+    _vehicle = "%s.misc[%d]"
+    _vehicle_app = "%s.misc[%d].app[%d]"
+
+    def __init__(self, vec_path=None, sca_path=None, network="World"):
+        super().__init__(vec_path=vec_path, sca_path=sca_path)
+        self._network = network
+
+    def host_ids(self):
+        """
+        Return hostIds of all vector nodes present in simulation (misc, pNode, vNode)
+        """
+        _module_names = self.OR(
+            [
+                f"{self._network}.misc[%]",
+                f"{self._network}.pNode[%]",
+                f"{self._network}.vNode[%]",
+            ]
+        )
+        _sql: pd.DataFrame = f"select s.moduleName, s.scalarValue from scalar as s where \n  {_module_names.apply('s', 'moduleName')} \n  AND s.scalarName = 'hostId:last'"
+        _df = self.query_sca(sql_str=_sql)
+        _df["scalarValue"] = pd.to_numeric(_df["scalarValue"], downcast="integer")
+        _df = _df.reset_index(drop=True).set_index(keys="scalarValue")
+        return _df.to_dict()["moduleName"]
 
 
 class ScaveTool:
