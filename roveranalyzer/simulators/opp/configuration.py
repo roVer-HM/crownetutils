@@ -34,7 +34,6 @@ def check_setup(_cls):
     return _cls
 
 
-@check_setup
 class CrowNetConfig:
     NAME_PACKAGE = "roveranalyzer"
     NAME_ROVER_CONFIG_FILE = "roveranalyzer.conf"
@@ -45,6 +44,8 @@ class CrowNetConfig:
 
     @classmethod
     def path_crownet_home(cls):
+        if "CROWNET_HOME" not in os.environ:
+            raise ValueError("CROWNET_HOME not set.")
         return os.environ.get("CROWNET_HOME")
 
     @classmethod
