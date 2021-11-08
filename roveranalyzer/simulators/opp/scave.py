@@ -11,7 +11,7 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 
-from build.lib.roveranalyzer.simulators.opp.accessor import Opp
+from roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.configuration import Config
 from roveranalyzer.utils import Timer, logger
 
