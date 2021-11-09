@@ -56,7 +56,7 @@ def stop_containers(names):
 
 class DockerClient:
     @classmethod
-    def get(timeout=120, max_pool_size=10):
+    def get(cls, timeout=120, max_pool_size=10):
         return docker.from_env(timeout=timeout, max_pool_size=max_pool_size)
 
 
