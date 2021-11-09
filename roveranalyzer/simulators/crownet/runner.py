@@ -12,6 +12,7 @@ from requests.exceptions import ReadTimeout
 from roveranalyzer.dockerrunner.dockerrunner import (
     ContainerLogWriter,
     DockerCleanup,
+    DockerClient,
     DockerReuse,
 )
 from roveranalyzer.entrypoint.parser import (
@@ -111,13 +112,25 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     )
 
 
-def add_control_arguments(parser: argparse.ArgumentParser):
+def add_control_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
         default="latest",
         required=False,
         help="Choose Control container. (Default: latest)",
+    )
+    parser.add_argument(
+        "--ctrl.xxx",
+        *filter_options(args, "--ctrl."),
+        dest="ctrl_args",
+        default=ArgList(),
+        action=SimulationArgAction,
+        prefix="--ctrl.",
+        help="Specify arguments for the control script. Use --ctrl. prefix to specify arguments to pass to the control executable."
+        "`--ctrl.foo bar` --> `--foo bar`. If single '-' is needed use `--ctrl.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
     )
     parser.add_argument(
         "-wc",
@@ -283,7 +296,7 @@ def parse_args_as_dict(runner: Any, args=None):
         "vadere-control", help="vadere control subparser", parents=[parent]
     )
     add_vadere_arguments(parser=vadere_control_parser)
-    add_control_arguments(parser=vadere_control_parser)
+    add_control_arguments(parser=vadere_control_parser, args=_args)
     vadere_control_parser.set_defaults(main_func=runner.run_simulation_vadere_ctl)
     vadere_control_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
 
@@ -302,7 +315,7 @@ def parse_args_as_dict(runner: Any, args=None):
     )
     add_omnet_arguments(parser=vadere_opp_control_parser, args=_args)
     add_vadere_arguments(parser=vadere_opp_control_parser)
-    add_control_arguments(parser=vadere_opp_control_parser)
+    add_control_arguments(parser=vadere_opp_control_parser, args=_args)
     vadere_opp_control_parser.set_defaults(
         main_func=runner.run_simulation_vadere_omnet_ctl
     )
@@ -370,7 +383,7 @@ class process_as:
 class BaseRunner:
     def __init__(self, working_dir, args=None):
         self.ns = parse_args_as_dict(self, args)
-        self.docker_client = docker.from_env()
+        self.docker_client = DockerClient.get()  # increased timeout
         self.working_dir = working_dir
         self.vadere_runner = None
         self.opp_runner = None
@@ -555,6 +568,7 @@ class BaseRunner:
                 traci_port=9999,
                 use_local=self.ns["ctl_local"],
                 scenario=self.ns["scenario_file"],
+                ctrl_args=self.ns["ctrl_args"],
             )
         else:
 
@@ -566,6 +580,7 @@ class BaseRunner:
                 connection_mode="server",
                 traci_port=9997,
                 use_local=self.ns["ctl_local"],
+                ctrl_args=self.ns["ctrl_args"],
             )
 
     def build_and_start_vadere_only(self, port=None):
