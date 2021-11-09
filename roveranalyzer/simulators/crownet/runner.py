@@ -12,6 +12,7 @@ from requests.exceptions import ReadTimeout
 from roveranalyzer.dockerrunner.dockerrunner import (
     ContainerLogWriter,
     DockerCleanup,
+    DockerClient,
     DockerReuse,
 )
 from roveranalyzer.entrypoint.parser import (
@@ -370,7 +371,7 @@ class process_as:
 class BaseRunner:
     def __init__(self, working_dir, args=None):
         self.ns = parse_args_as_dict(self, args)
-        self.docker_client = docker.from_env()
+        self.docker_client = DockerClient.get()  # increased timeout
         self.working_dir = working_dir
         self.vadere_runner = None
         self.opp_runner = None
