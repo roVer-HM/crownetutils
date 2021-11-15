@@ -75,7 +75,7 @@ class DockerRunner:
             journal_tag="",
     ):
         if docker_client is None:
-            self.client: docker.DockerClient = docker.from_env()
+            self.client: docker.DockerClient = DockerClient.get()
         else:
             self.client: docker.DockerClient = docker_client
         self.image = f"{image}:{tag}"

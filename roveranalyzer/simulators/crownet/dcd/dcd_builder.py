@@ -94,13 +94,18 @@ class DcdHdfBuilder(FrameConsumer):
         self.glb_map = DcDGlobalDensity(self.hdf_path)
         self.single_df_filters = []
 
-    def build_dcd_map(
+        # set later on
+        self.global_df = None
+        self.global_pos_df = None
+        self._all_times = None
+
+    def build(
         self,
         time_slice: slice = slice(None),
         id_slice: slice = slice(None),
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
-    ):
+    ) -> DcdMap2D:
         if not self.hdf_exist:
             print(f"create HDF {self.hdf_path}")
             # append filters before processing
@@ -113,23 +118,40 @@ class DcdHdfBuilder(FrameConsumer):
             self.pos_provider.get_attribute("cell_bound"),
             node_id=0,  # global object
         )
-        global_df = self.glb_map[Idx[time_slice, x_slice, y_slice]]
-        map_slice = Idx[time_slice, x_slice, y_slice, :, id_slice]
-        # map_df = self.dcd_map_provider[map_slice :]
-        location_df = self.pos_provider[Idx[time_slice, id_slice] :]
-        count_slice = Idx[time_slice, x_slice, y_slice, id_slice]
-
-        ret = DcdMap2D(
+        return dict(
             glb_meta=glb_meta,
-            global_df=global_df,
-            map_df=None,
-            location_df=location_df,
-            count_p=self.count_map_provider,
-            count_slice=count_slice,
+            global_df=self.glb_map[Idx[time_slice, x_slice, y_slice]],
+            # map_df = self.dcd_map_provider[map_slice :]
+            location_df=self.pos_provider[Idx[time_slice, id_slice] :],
+            count_slice=Idx[time_slice, x_slice, y_slice, id_slice],
+            map_slice=Idx[time_slice, x_slice, y_slice, :, id_slice],
             map_p=self.dcd_map_provider,
-            map_slice=map_slice,
         )
-        return ret
+
+    def build_dcdMap(
+        self,
+        time_slice: slice = slice(None),
+        id_slice: slice = slice(None),
+        x_slice: slice = slice(None),
+        y_slice: slice = slice(None),
+    ):
+        self.add_df_filter(remove_not_selected_cells)
+        args = self.build(time_slice, id_slice, x_slice, y_slice)
+        args.setdefault("map_df", None)
+
+        return DcdMap2D(**args)
+
+    def build_dcdMapMulti(
+        self,
+        time_slice: slice = slice(None),
+        id_slice: slice = slice(None),
+        x_slice: slice = slice(None),
+        y_slice: slice = slice(None),
+    ):
+        raise NotImplemented("")
+
+    def add_df_filter(self, filter):
+        self.single_df_filters.append(filter)
 
     @property
     def hdf_exist(self):
@@ -148,13 +170,16 @@ class DcdHdfBuilder(FrameConsumer):
         # 2) access global_df and setup helpers for parsing map_*.csv to create
         #    map and count provider together
         self.global_df = self.glb_map.get_dataframe()
+        self.global_pos_df = self.pos_provider.get_dataframe()
         self._all_times = (
             self.global_df.index.get_level_values("simtime")
             .unique()
             .sort_values()
             .to_numpy()
         )
-        self.dcd_map_provider.create_from_csv(self.map_paths, [self])
+        self.dcd_map_provider.create_from_csv(
+            self.map_paths, [self], global_position=self.global_pos_df
+        )
         # 3) append global count to count provider
         self.append_global_count()
         # 4) create index on count_map_provider
@@ -196,18 +221,29 @@ class DcdHdfBuilder(FrameConsumer):
         }
 
     def create_count_map(self, df: pd.DataFrame):
-        id = df.index.get_level_values("ID").unique()[0]
+        """
+        Creates dataframe of the form:
+          index: [simtime, x, y, ID]
+          columns: [count, err, sqerr, owner_dist]
+        df: Input data frame of one node containing count values seen by this node. It is possible
+            that the node didn't see all occupied cells. To fill the gaps the data frame is concatednated
+            with the ground truth to fill the missing cell values with zero (i.e. maximal error!)
+        """
+        # only use selected values
+        _df = df[df["selection"] != 0].copy(deep=True)
+        # extract id, times and positions from data frame
+        id = _df.index.get_level_values("ID").unique()[0]
         present_at_times = (
-            df.index.get_level_values("simtime").unique().sort_values().to_numpy()
+            _df.index.get_level_values("simtime").unique().sort_values().to_numpy()
         )
         not_present_at_times = np.setdiff1d(self._all_times, present_at_times)
-        positions = df.loc[:, ["x_owner", "y_owner"]].droplevel(
+        positions = _df.loc[:, ["x_owner", "y_owner"]].droplevel(
             ["x", "y", "ID", "source"]
         )
         positions = positions[np.invert(positions.index.duplicated(keep="first"))]
 
         # get count and node position
-        _df = df.loc[:, ["count", "x_owner", "y_owner"]].droplevel(["source", "ID"])
+        _df = _df.loc[:, ["count", "x_owner", "y_owner"]].droplevel(["source", "ID"])
         # merge with global, rename columns and fill glb_count nan with '0'
         # fill only global. The index where this happens are values where
         # the global map does not have any values -> thus count=0
