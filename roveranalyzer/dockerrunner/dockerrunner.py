@@ -45,7 +45,7 @@ class DockerReuse(Enum):
 
 
 def stop_containers(names):
-    c = docker.DockerClient = docker.from_env()
+    c = DockerClient.get()
     for container in names:
         try:
             c = c.containers.get(container)
@@ -54,19 +54,25 @@ def stop_containers(names):
             pass
 
 
+class DockerClient:
+    @classmethod
+    def get(cls, timeout=120, max_pool_size=10):
+        return docker.from_env(timeout=timeout, max_pool_size=max_pool_size)
+
+
 class DockerRunner:
     NET = "rovernet"
 
     def __init__(
-        self,
-        image,
-        tag="latest",
-        docker_client=None,
-        name="",
-        cleanup_policy=DockerCleanup.KEEP_FAILED,
-        reuse_policy=DockerReuse.NEW_ONLY,
-        detach=False,
-        journal_tag="",
+            self,
+            image,
+            tag="latest",
+            docker_client=None,
+            name="",
+            cleanup_policy=DockerCleanup.KEEP_FAILED,
+            reuse_policy=DockerReuse.NEW_ONLY,
+            detach=False,
+            journal_tag="",
     ):
         if docker_client is None:
             self.client: docker.DockerClient = docker.from_env()
@@ -130,8 +136,8 @@ class DockerRunner:
                 _container.remove()
                 logger.info(f"remove existing container with name '{self.name}'")
             elif (
-                reuse_policy == DockerReuse.REUSE_STOPPED
-                or reuse_policy == DockerReuse.REUSE_RUNNING
+                    reuse_policy == DockerReuse.REUSE_STOPPED
+                    or reuse_policy == DockerReuse.REUSE_RUNNING
             ):
                 if _container.status == "running":
                     _container.stop()
@@ -253,14 +259,14 @@ class DockerRunner:
         """
         self.build_run_args(**run_args)  # set name if given
         command = self.wrap_command(cmd)
-        logger.info(f"{'#'*10} create container [image:{self.image}]")
+        logger.info(f"{'#' * 10} create container [image:{self.image}]")
         logger.debug(f"cmd: \n{pprint.pformat(command, indent=2)}")
         logger.debug(f"runargs: \n{pprint.pformat(self.run_args, indent=2)}")
 
         c: Container = self.client.containers.create(
             image=self.image, command=command, **self.run_args
         )
-        logger.info(f"{'#'*10} container created {c.name} [image:{self.image}]")
+        logger.info(f"{'#' * 10} container created {c.name} [image:{self.image}]")
         return c
 
     def wait(self, timeout=-1):
@@ -273,8 +279,8 @@ class DockerRunner:
             logger.error(f"{'#' * 80}")
             logger.error(f"Command returned {ret['StatusCode']}")
             if (
-                "log_config" in self.run_args
-                and self.run_args["log_config"].type == LogConfig.types.JOURNALD
+                    "log_config" in self.run_args
+                    and self.run_args["log_config"].type == LogConfig.types.JOURNALD
             ):
                 logger.error(
                     f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
@@ -337,7 +343,7 @@ class DockerRunner:
         logger.debug(f"Stop container {self._container.name} ...")
         self._container.stop()
         if self.cleanupPolicy == DockerCleanup.REMOVE or (
-            self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state
+                self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state
         ):
             logger.debug(f"remove container {self._container.name} ...")
             self._container.remove()
