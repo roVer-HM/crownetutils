@@ -729,23 +729,18 @@ class BaseRunner:
         self.build_opp_runner()
 
         try:
-            debug_print("aaa")
             if self.ns["create_vadere_container"]:
                 self.build_and_start_vadere_runner()
-                debug_print("bbb")
-            debug_print("ccc")
             if self.ns["override-host-config"]:
                 self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
             # start OMNeT++ container and attach to it.
             logger.info(f"start simulation {self.ns['run_name']} ...")
-            debug_print("ddd")
             opp_ret = self.opp_runner.exec_opp_run(
                 arg_list=self.ns["opp_args"],
                 result_dir=self.ns["result_dir"],
                 experiment_label=self.ns["experiment_label"],
                 run_args_override={},
             )
-            debug_print("eee")
 
             ret = opp_ret["StatusCode"]
             if ret != 0:
