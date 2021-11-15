@@ -28,6 +28,12 @@ from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
+def debug_print(message:str) -> None:
+    file = "/home/mweidner/log.txt"
+    with open(file, "a") as myfile:
+        myfile.write(f"{message}\n")
+
+
 
 def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
@@ -717,28 +723,29 @@ class BaseRunner:
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
+
     def run_simulation_omnet_vadere(self):
         ret = 255
         self.build_opp_runner()
 
         try:
-            print("aaa")
+            debug_print("aaa")
             if self.ns["create_vadere_container"]:
                 self.build_and_start_vadere_runner()
-                print("bbb")
-            print("ccc")
+                debug_print("bbb")
+            debug_print("ccc")
             if self.ns["override-host-config"]:
                 self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
             # start OMNeT++ container and attach to it.
             logger.info(f"start simulation {self.ns['run_name']} ...")
-            print("ddd")
+            debug_print("ddd")
             opp_ret = self.opp_runner.exec_opp_run(
                 arg_list=self.ns["opp_args"],
                 result_dir=self.ns["result_dir"],
                 experiment_label=self.ns["experiment_label"],
                 run_args_override={},
             )
-            print("eee")
+            debug_print("eee")
 
             ret = opp_ret["StatusCode"]
             if ret != 0:
