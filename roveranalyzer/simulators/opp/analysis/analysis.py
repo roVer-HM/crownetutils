@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import roveranalyzer.simulators.opp as OMNeT
-from roveranalyzer.utils import PlotUtil
+import roveranalyzer.simulators.opp.scave as Scave
+import roveranalyzer.utils.plot as _Plot
+
+PlotUtil = _Plot.PlotUtil
 
 
 class _OppAnalysis:
@@ -15,7 +17,7 @@ class _OppAnalysis:
         pass
 
     def get_packet_source_distribution(
-        self, sql: OMNeT.CrownetSql, app_path: str, normalize: bool = True
+        self, sql: Scave.CrownetSql, app_path: str, normalize: bool = True
     ) -> pd.DataFrame:
         """
         Create square matrix of [hostId X hostId] showing the source hostId of received packets for the given application path.
