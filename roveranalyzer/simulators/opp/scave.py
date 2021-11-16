@@ -296,12 +296,16 @@ class OppSql:
     @property
     def vec_con(self):
         if self._vec_con is None:
+            if not os.path.exists(self.vec_path):
+                raise FileNotFoundError(self.vec_path)
             self._vec_con = sq.connect(self.vec_path)
         return self._vec_con
 
     @property
     def sca_con(self):
         if self._sca_con is None:
+            if not os.path.exists(self.sca_path):
+                raise FileNotFoundError(self.sca_path)
             self._sca_con = sq.connect(self.sca_path)
         return self._sca_con
 

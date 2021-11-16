@@ -1,5 +1,27 @@
+import itertools
+import random
+
 import matplotlib.pyplot as plt
 import pandas as pd
+
+
+class _PlotUtil:
+    hatch_patterns = ("||", "--", "++", "x", "\\", "*", "|", "-", "+")
+    plot_markers = ["o", "x", "*", ".", "v", "1", "2", "3", "4"]
+    plot_colors = ["b", "g", "r", "c", "m", "k", "w"]
+    line_type = [":", "-.", "--", "/"]
+    plot_color_markers = [
+        f"{c}{m}" for c, m in itertools.product(plot_colors, plot_markers)
+    ]
+
+    def __init__(self) -> None:
+        random.Random(13).shuffle(self.plot_color_markers)
+
+    def color_marker_lines(self, line_type="--"):
+        return [f"{m}{line_type}" for m in self.plot_color_markers]
+
+
+PlotUtil = _PlotUtil()
 
 
 def check_ax(ax=None, **kwargs):
@@ -101,3 +123,7 @@ class PlotAttrs:
     def reset(self):
         self.idx_c = 0
         self.idx_m = 0
+
+
+if __name__ == "__main__":
+    print(list(PlotUtil.color_marker_lines()))

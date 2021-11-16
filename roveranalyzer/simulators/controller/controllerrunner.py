@@ -1,5 +1,7 @@
 import os
 
+from pandas import IndexSlice
+
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
