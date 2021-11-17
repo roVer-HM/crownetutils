@@ -2,6 +2,7 @@ import glob
 import io
 import os
 import pprint as pp
+import re
 import signal
 import sqlite3 as sq
 import subprocess
@@ -440,26 +441,74 @@ class CrownetSql(OppSql):
     _vehicle = "%s.misc[%d]"
     _vehicle_app = "%s.misc[%d].app[%d]"
 
+    module_vectors = ["misc", "pNode", "vNode"]
+
+    _host_id_regex = re.compile(
+        r"(?P<host>^World\.(?P<type>misc|pNode|vNode)\[\d+\]).*"
+    )
+    _host_index_regex = re.compile(
+        r"^World\.(?P<type>misc|pNode|vNode)\[(?P<hostIdx>\d+)\].*"
+    )
+
     def __init__(self, vec_path=None, sca_path=None, network="World"):
         super().__init__(vec_path=vec_path, sca_path=sca_path)
-        self._network = network
+        self.network = network
+        self.module_names = self.OR(
+            [f"{self.network}.{i}[%]" for i in self.module_vectors]
+        )
 
     def host_ids(self):
         """
         Return hostIds of all vector nodes present in simulation (misc, pNode, vNode)
         """
-        _module_names = self.OR(
-            [
-                f"{self._network}.misc[%]",
-                f"{self._network}.pNode[%]",
-                f"{self._network}.vNode[%]",
-            ]
-        )
-        _sql: pd.DataFrame = f"select s.moduleName, s.scalarValue from scalar as s where \n  {_module_names.apply('s', 'moduleName')} \n  AND s.scalarName = 'hostId:last'"
+        _sql: pd.DataFrame = f"select s.moduleName, s.scalarValue from scalar as s where \n  {self.module_names.apply('s', 'moduleName')} \n  AND s.scalarName = 'hostId:last'"
         _df = self.query_sca(sql_str=_sql)
         _df["scalarValue"] = pd.to_numeric(_df["scalarValue"], downcast="integer")
         _df = _df.reset_index(drop=True).set_index(keys="scalarValue")
         return _df.to_dict()["moduleName"]
+
+    def module_to_host_ids(self):
+        return {v: k for k, v in self.host_ids().items()}
+
+    def vector_ids_to_host(
+        self, vec_ids: List[int], columns=("vectorId", "host", "hostId", "vecIdx")
+    ) -> pd.DataFrame:
+        module_map = self.module_to_host_ids()
+
+        def _match_host(x):
+            if _m := self._host_index_regex.match(x):
+                return f'{_m.groupdict()["type"]}[{_m.groupdict()["hostIdx"]}]'
+            raise ValueError(
+                f"given moduelName does not match vector index regex {self._host_index_regex}"
+            )
+
+        def _match_host_id(x):
+            if _m := self._host_id_regex.match(x):
+                if _m.groupdict()["host"] in module_map:
+                    return module_map[_m.groupdict()["host"]]
+                else:
+                    ValueError(f"Module {_m} not found in module map")
+            raise ValueError(
+                f"given moduleName does match module regex {self._host_id_regex}"
+            )
+
+        def _match_vector_idx(x):
+            if _m := self._host_index_regex.match(x):
+                return int(_m.groupdict()["hostIdx"])
+            raise ValueError(
+                f"given moduelName does not match vector index regex {self._host_index_regex}"
+            )
+
+        _sql = f"select v.vectorId, v.moduleName from vector as v where v.vectorId in ({vec_ids})"
+        _df = self.query_vec(_sql)
+        if "host" in columns:
+            _df["host"] = _df["moduleName"].apply(lambda x: _match_host(x))
+        if "hostId" in columns:
+            _df["hostId"] = _df["moduleName"].apply(lambda x: _match_host_id(x))
+        if "vecIdx" in columns:
+            _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
+
+        return _df[list(columns)]
 
 
 class ScaveTool:
