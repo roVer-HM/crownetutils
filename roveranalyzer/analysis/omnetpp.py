@@ -1,10 +1,11 @@
 import itertools
-from typing import List
+from typing import List, Tuple, Union
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pandas.core.frame import DataFrame
 
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
@@ -74,6 +75,7 @@ class _OppAnalysis:
         ax: plt.Axes,
         data: pd.DataFrame,
         hatch_patterns: List[str] = PlotUtil.hatch_patterns,
+        **kwargs,
     ) -> plt.Axes:
         patterns = itertools.cycle(hatch_patterns)
 
@@ -86,6 +88,54 @@ class _OppAnalysis:
             for patch in bar:
                 patch.set_hatch(_h)
         ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
+        return ax
+
+    def get_neighborhood_table_size(
+        self,
+        sql: Scave.CrownetSql,
+        moduleName: Union[Scave.SqlOp, str, None] = None,
+        indexList: str = "host",
+        **kwargs,
+    ) -> Tuple[pd.DataFrame, np.ndarray]:
+        """
+        Extract neighborhood table size vectors from given moduleName. Use the sql Operator for multiple selections.
+        and None to default to all module vectors (misc, pNode, vNode)
+        """
+        if moduleName is None:
+            moduleName = self.OR(
+                [f"{self.network}.{i}[%].nTable" for i in self.module_vectors]
+            )
+
+        tbl = sql.vec_data(
+            moduleName=moduleName,  # "World.misc[%].nTable",
+            vectorName="tableSize:vector",
+        )
+
+        ids = ",".join([str(i) for i in tbl["vectorId"].unique()])
+        ids = sql.vector_ids_to_host(ids)
+        tbl = pd.merge(tbl, ids, how="inner", on=["vectorId"]).drop(
+            columns=["vectorId"]
+        )
+        tbl_idx = tbl[indexList].unique()
+        tbl_idx.sort()
+        return tbl, tbl_idx
+
+    def plot_neighborhood_table_size_over_time(
+        self, ax, tbl: pd.DataFrame, tbl_idx: np.ndarray
+    ) -> plt.Axes:
+        """
+        x-axis: time
+        y-axis: number of entries in neighborhood table
+        data: selected hosts
+        """
+        _c = PlotUtil.color_lines(line_type=None)
+        for i in tbl_idx:
+            _df = tbl.loc[tbl["host"] == i]
+            ax.plot(_df["time"], _df["value"], next(_c), label=i)
+
+        ax.set_ylabel("Neighboor count")
+        ax.set_xlabel("time [s]")
+        ax.set_title("Size of neighborhood table over time for each node")
         return ax
 
 
