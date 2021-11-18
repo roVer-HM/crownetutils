@@ -18,6 +18,8 @@ class Project:
 
     EPSG4326 = "EPSG:4326"
     EPSG3857 = "EPSG:3857"
+    EPSG32632 = "EPSG:32632"
+    UTM_32N = EPSG32632
     WSG84_lat_lon = EPSG4326
     WSG84_pseudo_mercator = EPSG3857
     OpenStreetMaps = WSG84_pseudo_mercator
