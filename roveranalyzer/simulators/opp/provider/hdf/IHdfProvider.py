@@ -5,7 +5,9 @@ import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
+from geopandas.geodataframe import GeoDataFrame
 
+from roveranalyzer.simulators.opp.provider.hdf.IHdfGeoProvider import GeoProvider
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 
 
@@ -111,6 +113,11 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     def default_index_key(self) -> str:
         return "None"
 
+    def _to_geo(
+        self, df: pd.DataFrame, to_crs: Union[str, None] = None
+    ) -> GeoDataFrame:
+        raise NotImplementedError("not supported operation")
+
     @property
     def hdf_path(self):
         return self._hdf_path
@@ -118,6 +125,9 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     @property
     def dispatcher(self):
         return self._dispatcher
+
+    def geo(self, to_crs=None) -> GeoProvider:
+        return GeoProvider(self, to_crs)
 
     @staticmethod
     def cast_to_set(value: Any):
