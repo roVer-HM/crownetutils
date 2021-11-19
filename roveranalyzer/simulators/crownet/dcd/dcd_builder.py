@@ -122,7 +122,7 @@ class DcdHdfBuilder(FrameConsumer):
             metadata=metadata,
             global_df=self.glb_map[Idx[time_slice, x_slice, y_slice]],
             # map_df = self.dcd_map_provider[map_slice :]
-            location_df=self.pos_provider[Idx[time_slice, id_slice] :],
+            position_df=self.pos_provider[Idx[time_slice, id_slice] :],
             count_slice=Idx[time_slice, x_slice, y_slice, id_slice],
             map_slice=Idx[time_slice, x_slice, y_slice, :, id_slice],
             map_p=self.dcd_map_provider,
@@ -292,8 +292,8 @@ class DcdHdfBuilder(FrameConsumer):
 
 class PickleState:
     DEACTIVATED = 0  # do not use pickle
-    CSV_ONLY = 1  # only dataframe of given csv files (no location_df, no id mapping, no merging, no features)
-    MERGED = 2  # merged frame, location_df, id maping done (no features)
+    CSV_ONLY = 1  # only dataframe of given csv files (no position_df, no id mapping, no merging, no features)
+    MERGED = 2  # merged frame, position_df, id maping done (no features)
     FULL = 3  # all data needed to build DcDMap
 
 
@@ -461,7 +461,7 @@ class DcdBuilder:
         if (
             _state == PickleState.CSV_ONLY
         ):  # no location table, features only csv, (delay gets calulated afterwards)
-            # location_df, no id mapping, no merging, no features
+            # position_df, no id mapping, no merging, no features
             _data = self.do_merge(**_data)
             _data = self.do_feature(**_data)
         elif _state == PickleState.MERGED:
@@ -573,7 +573,7 @@ class DcdBuilder:
 
         # create location df [x, y] -> nodeId (long string)
         print("create location df [x, y] -> nodeId")
-        location_df, global_df = self.build_location_df(global_df)
+        position_df, global_df = self.build_position_df(global_df)
 
         # merge node frames and set index
         print("merge dataframes")
@@ -583,7 +583,7 @@ class DcdBuilder:
             "metadata": meta_data,
             "global_df": global_df,
             "map_df": map_df,  # may be full map based on self._type!
-            "location_df": location_df,
+            "position_df": position_df,
         }
         return _ret
 
@@ -610,7 +610,7 @@ class DcdBuilder:
         return data
 
     @staticmethod
-    def build_location_df(glb_df):
+    def build_position_df(glb_df):
         # global position map for all node_ids
         glb_loc_df = glb_df["node_id"].copy().reset_index()
         glb_loc_df = glb_loc_df.assign(

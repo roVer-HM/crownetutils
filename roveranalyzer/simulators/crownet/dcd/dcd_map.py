@@ -36,12 +36,12 @@ class DcdMap:
     def __init__(
         self,
         metadata: DcdMetaData,
-        location_df: pd.DataFrame,
+        position_df: pd.DataFrame,
         plotter=None,
         data_base_dir=None,
     ):
         self.metadata = metadata
-        self.location_df = location_df
+        self.position_df = position_df
         self.scenario_plotter = plotter
         self.plot_wrapper = None
         self.font_dict = {
@@ -77,7 +77,7 @@ class DcdMap:
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
-            ret = self.location_df.loc[simtime, node_id]
+            ret = self.position_df.loc[simtime, node_id]
             if ret.shape == (2,):
                 ret = ret.to_numpy()
                 if cell_id:
@@ -107,7 +107,7 @@ class DcdMap2D(DcdMap):
         metadata: DcdMetaData,
         global_df: pd.DataFrame,
         map_df: Union[pd.DataFrame, None],
-        location_df: pd.DataFrame,
+        position_df: pd.DataFrame,
         count_p: DcdMapCount = None,
         count_slice: pd.IndexSlice = None,
         map_p: DcdMapProvider = None,
@@ -115,7 +115,7 @@ class DcdMap2D(DcdMap):
         plotter=None,
         **kwargs,
     ):
-        super().__init__(metadata, location_df, plotter, **kwargs)
+        super().__init__(metadata, position_df, plotter, **kwargs)
         self._map = map_df
         self._global_df = global_df
         self._count_map = None
@@ -158,7 +158,7 @@ class DcdMap2D(DcdMap):
         return self._count_map
 
     def all_ids(self, with_ground_truth=True):
-        ids = self.location_df.index.get_level_values("node_id").unique().to_numpy()
+        ids = self.position_df.index.get_level_values("node_id").unique().to_numpy()
         ids.sort()
         # ids = np.array(list(self.id_to_node.keys()))
         if with_ground_truth:
@@ -647,7 +647,7 @@ class DcdMap2DMulti(DcdMap2D):
         metadata: DcdMetaData,
         global_df: pd.DataFrame,
         map_df: pd.DataFrame,
-        location_df: pd.DataFrame,
+        position_df: pd.DataFrame,
         map_all_df: pd.DataFrame,
         **kwargs,
     ):
@@ -657,7 +657,7 @@ class DcdMap2DMulti(DcdMap2D):
         metadata: Meta data instance for current map. cell size, map size
         node_id_map: Mapping between node
         """
-        super().__init__(metadata, global_df, map_df, location_df, **kwargs)
+        super().__init__(metadata, global_df, map_df, position_df, **kwargs)
         self.map_all_df = map_all_df
 
     def info_dict(self, x, y, time_step, node_id):

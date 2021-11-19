@@ -49,11 +49,11 @@ def pos_density_from_csv(csv_path: str, hdf_path: str):
         _col_types=DcdGlobalMapKey.types_global_raw_csv_col,
         real_coords=True,
     )
-    location_df, global_df = build_location_df(global_df)
-    location_df.set_index(
+    position_df, global_df = build_position_df(global_df)
+    position_df.set_index(
         keys=list(pos.index_order().values()), inplace=True, verify_integrity=True
     )
-    pos.write_dataframe(location_df)
+    pos.write_dataframe(position_df)
     density.write_dataframe(global_df)
 
     pos.set_attribute("cell_size", meta.cell_size)
@@ -67,7 +67,7 @@ def pos_density_from_csv(csv_path: str, hdf_path: str):
     return pos, density
 
 
-def build_location_df(glb_df):
+def build_position_df(glb_df):
     # global position map for all node_ids
     glb_loc_df = glb_df["node_id"].copy().reset_index()
     glb_loc_df = glb_loc_df.assign(
