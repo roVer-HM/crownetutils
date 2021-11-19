@@ -1,7 +1,9 @@
 from abc import ABC
-from typing import Dict, List
+from typing import Dict, List, Tuple, Union
 
+import geopandas as gpd
 import pandas as pd
+from shapely.geometry import Point, box
 
 from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, read_csv
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
@@ -40,33 +42,6 @@ class DcdGlobalMapKey:
         return {i[0]: i[1] for i in enumerate(list(cls.types_global_density.keys()))}
 
 
-def pos_density_from_csv(csv_path: str, hdf_path: str):
-    pos = DcdGlobalPosition(hdf_path)
-    density = DcdGlobalDensity(hdf_path)
-    global_df, meta = read_csv(
-        csv_path=csv_path,
-        _index_types=DcdGlobalMapKey.types_global_raw_csv_index,
-        _col_types=DcdGlobalMapKey.types_global_raw_csv_col,
-        real_coords=True,
-    )
-    position_df, global_df = build_position_df(global_df)
-    position_df.set_index(
-        keys=list(pos.index_order().values()), inplace=True, verify_integrity=True
-    )
-    pos.write_dataframe(position_df)
-    density.write_dataframe(global_df)
-
-    pos.set_attribute("cell_size", meta.cell_size)
-    pos.set_attribute("cell_count", meta.cell_count)
-    pos.set_attribute("cell_bound", meta.bound)
-
-    density.set_attribute("cell_size", meta.cell_size)
-    density.set_attribute("cell_count", meta.cell_count)
-    density.set_attribute("cell_bound", meta.bound)
-
-    return pos, density
-
-
 def build_position_df(glb_df):
     # global position map for all node_ids
     glb_loc_df = glb_df["node_id"].copy().reset_index()
@@ -101,6 +76,25 @@ class DcdGlobalPosition(IHdfProvider):
         cell_bound = self.get_attribute("cell_bound")
         return DcdMetaData(cell_size, cell_count, cell_bound, "global")
 
+    def _to_geo(
+        self, df: pd.DataFrame, to_crs: Union[str, None] = None
+    ) -> gpd.GeoDataFrame:
+        offset = self.get_attribute("offset")
+        epsg_code = self.get_attribute("epsg")
+        cell_size_half = 0.5 * self.get_attribute("cell_size")
+
+        df["x"] = df["x"] - offset[0]
+        df["y"] = df["y"] - offset[1]
+
+        g = [
+            Point(x + cell_size_half, y + cell_size_half)
+            for x, y in zip(df["x"], df["y"])
+        ]
+        gdf = gpd.GeoDataFrame(df, geometry=g, crs=str(epsg_code))
+        if to_crs is not None:
+            gdf = gdf.to_crs(epsg=to_crs.replace("EPSG:", ""))
+        return gdf
+
 
 class DcdGlobalDensity(IHdfProvider):
     def __init__(self, hdf_path):
@@ -123,3 +117,47 @@ class DcdGlobalDensity(IHdfProvider):
         cell_count = self.get_attribute("cell_count")
         cell_bound = self.get_attribute("cell_bound")
         return DcdMetaData(cell_size, cell_count, cell_bound, "global")
+
+    def _to_geo(
+        self, df: pd.DataFrame, to_crs: Union[str, None] = None
+    ) -> gpd.GeoDataFrame:
+        offset = self.get_attribute("offset")
+        epsg_code = self.get_attribute("epsg")
+        cell_size = self.get_attribute("cell_size")
+
+        _index = df.index.to_frame().reset_index(drop=True)
+
+        _index["x"] = _index["x"] - offset[0]
+        _index["y"] = _index["y"] - offset[1]
+        df.index = pd.MultiIndex.from_frame(_index)
+
+        g = [
+            box(x, y, x + cell_size, y + cell_size)
+            for x, y in zip(_index["x"], _index["y"])
+        ]
+        gdf = gpd.GeoDataFrame(df, geometry=g, crs=str(epsg_code))
+        if to_crs is not None:
+            gdf = gdf.to_crs(epsg=to_crs.replace("EPSG:", ""))
+        return gdf
+
+
+def pos_density_from_csv(
+    csv_path: str,
+    hdf_path: str,
+) -> Tuple[DcdGlobalPosition, DcdGlobalDensity, DcdMetaData]:
+    pos = DcdGlobalPosition(hdf_path)
+    density = DcdGlobalDensity(hdf_path)
+    global_df, meta = read_csv(
+        csv_path=csv_path,
+        _index_types=DcdGlobalMapKey.types_global_raw_csv_index,
+        _col_types=DcdGlobalMapKey.types_global_raw_csv_col,
+        real_coords=True,
+    )
+    position_df, global_df = build_position_df(global_df)
+    position_df.set_index(
+        keys=list(pos.index_order().values()), inplace=True, verify_integrity=True
+    )
+    pos.write_dataframe(position_df)
+    density.write_dataframe(global_df)
+
+    return pos, density, meta

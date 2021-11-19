@@ -33,6 +33,43 @@ def _hdf_job(args):
         print(f"{_builder.hdf_path} already exist and override_existing is false")
 
 
+class DcdProviders:
+    def __init__(
+        self,
+        metadata,
+        global_p,
+        position_p,
+        map_p,
+        count_p,
+        time_slice,
+        id_slice,
+        x_slice,
+        y_slice,
+    ):
+        self.metadata: DcdMetaData = metadata
+        self.global_p: DcdGlobalDensity = global_p
+        self.position_p: DcdGlobalPosition = position_p
+        self.map_p: DcdMapProvider = map_p
+        self.count_p: DcdMapCount = count_p
+
+        self.id_slice: slice = id_slice
+        self.x_slice: slice = x_slice
+        self.y_slice: slice = y_slice
+        self.time_slice: slice = time_slice
+        self.count_slice: Idx = Idx[time_slice, x_slice, y_slice, id_slice]
+        self.map_slice: Idx = Idx[time_slice, x_slice, y_slice, :, id_slice]
+        self.global_slice: Idx = Idx[time_slice, x_slice, y_slice]
+        self.postion_slice: Idx = Idx[time_slice, id_slice]
+
+    @property
+    def global_df(self):
+        return self.global_p[self.global_slice]
+
+    @property
+    def postion_df(self):
+        return self.position_p[self.postion_slice]
+
+
 class DcdHdfBuilder(FrameConsumer):
 
     F_selected_only = remove_not_selected_cells
@@ -83,21 +120,29 @@ class DcdHdfBuilder(FrameConsumer):
         job_list = [[*i, _filter, override_existing] for i in job_list]
         pool.map(_hdf_job, job_list)
 
-    def __init__(self, hdf_path, map_paths, global_path):
+    def __init__(self, hdf_path, map_paths, global_path, epsg=""):
         super().__init__()
+        # paths
         self.hdf_path = hdf_path
         self.map_paths = map_paths
         self.global_path = global_path
-        self.count_map_provider = DcdMapCount(self.hdf_path)
-        self.dcd_map_provider = DcdMapProvider(self.hdf_path)
-        self.pos_provider = DcdGlobalPosition(self.hdf_path)
-        self.glb_map = DcdGlobalDensity(self.hdf_path)
+        self._epsg = epsg
+        # providers
+        self.count_p = DcdMapCount(self.hdf_path)
+        self.map_p = DcdMapProvider(self.hdf_path)
+        self.position_p = DcdGlobalPosition(self.hdf_path)
+        self.global_p = DcdGlobalDensity(self.hdf_path)
+        # filters used during csv processing
         self.single_df_filters = []
 
         # set later on
         self.global_df = None
-        self.global_pos_df = None
+        self.position_df = None
         self._all_times = None
+
+    def epsg(self, epsg):
+        self._epsg = epsg
+        return self
 
     def build(
         self,
@@ -105,27 +150,36 @@ class DcdHdfBuilder(FrameConsumer):
         id_slice: slice = slice(None),
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
-    ) -> DcdMap2D:
-        if not self.hdf_exist:
+        override_hdf=False,
+    ) -> DcdProviders:
+        if not self.hdf_exist or override_hdf:
+            try:
+                os.remove(self.hdf_path)
+            except FileNotFoundError:
+                pass
             print(f"create HDF {self.hdf_path}")
             # append filters before processing
-            self.dcd_map_provider.csv_filters.extend(self.single_df_filters)
+            self.map_p.csv_filters.extend(self.single_df_filters)
             self.create_hdf_fast()
 
         metadata = DcdMetaData(
-            self.pos_provider.get_attribute("cell_size"),
-            self.pos_provider.get_attribute("cell_count"),
-            self.pos_provider.get_attribute("cell_bound"),
-            node_id=0,  # global object
+            cell_size=self.position_p.get_attribute("cell_size"),
+            cell_count=self.position_p.get_attribute("cell_count"),
+            bound=self.position_p.get_attribute("cell_bound"),
+            offset=self.position_p.get_attribute("offset"),
+            epsg=self.position_p.get_attribute("epsg", default=""),
+            node_id=0,
         )
-        return dict(
+        return DcdProviders(
             metadata=metadata,
-            global_df=self.glb_map[Idx[time_slice, x_slice, y_slice]],
-            # map_df = self.dcd_map_provider[map_slice :]
-            position_df=self.pos_provider[Idx[time_slice, id_slice] :],
-            count_slice=Idx[time_slice, x_slice, y_slice, id_slice],
-            map_slice=Idx[time_slice, x_slice, y_slice, :, id_slice],
-            map_p=self.dcd_map_provider,
+            global_p=self.global_p,
+            position_p=self.position_p,
+            map_p=self.map_p,
+            count_p=self.count_p,
+            time_slice=time_slice,
+            id_slice=id_slice,
+            x_slice=x_slice,
+            y_slice=y_slice,
         )
 
     def build_dcdMap(
@@ -136,10 +190,18 @@ class DcdHdfBuilder(FrameConsumer):
         y_slice: slice = slice(None),
     ):
         self.add_df_filter(remove_not_selected_cells)
-        args = self.build(time_slice, id_slice, x_slice, y_slice)
-        args.setdefault("map_df", None)
+        providers = self.build(time_slice, id_slice, x_slice, y_slice)
 
-        return DcdMap2D(**args)
+        return DcdMap2D(
+            metadata=providers.metadata,
+            global_df=providers.global_df,
+            map_df=None,  # lazy loading with provider
+            position_df=providers.position_df,
+            count_p=providers.count_p,
+            count_slice=providers.count_slice,
+            map_p=providers.map_p,
+            map_slice=providers.map_slice,
+        )
 
     def build_dcdMapMulti(
         self,
@@ -164,60 +226,69 @@ class DcdHdfBuilder(FrameConsumer):
     def create_hdf_fast(self):
         t = Timer.create_and_start("create_hdf", label="")
         # 1) parse global.csv in position and global provider
-        self.pos_provider, self.glb_map = pos_density_from_csv(
+        self.position_p, self.global_p, meta = pos_density_from_csv(
             self.global_path, self.hdf_path
         )
         # 2) access global_df and setup helpers for parsing map_*.csv to create
         #    map and count provider together
-        self.global_df = self.glb_map.get_dataframe()
-        self.global_pos_df = self.pos_provider.get_dataframe()
+        self.global_df = self.global_p.get_dataframe()
+        self.position_df = self.position_p.get_dataframe()
         self._all_times = (
             self.global_df.index.get_level_values("simtime")
             .unique()
             .sort_values()
             .to_numpy()
         )
-        self.dcd_map_provider.create_from_csv(
-            self.map_paths, [self], global_position=self.global_pos_df
+        self.map_p.create_from_csv(
+            self.map_paths, [self], global_position=self.position_df
         )
         # 3) append global count to count provider
         self.append_global_count()
         # 4) create index on count_map_provider
-        with self.count_map_provider.ctx() as store:
+        with self.count_p.ctx() as store:
             store.create_table_index(
-                key=self.count_map_provider.group,
-                columns=list(self.count_map_provider.index_order().values()),
+                key=self.count_p.group,
+                columns=list(self.count_p.index_order().values()),
                 optlevel=9,
                 kind="full",
             )
+
+        # 5) set attributes
+        for p in [self.position_p, self.global_p, self.map_p, self.count_p]:
+            p.set_attribute("cell_size", meta.cell_size)
+            p.set_attribute("cell_count", meta.cell_count)
+            p.set_attribute("cell_bound", meta.bound)
+            p.set_attribute("offset", meta.offset)
+            p.set_attribute("epsg", self._epsg)
+
         t.stop()
         return {
-            "glb": self.glb_map,
-            "pos": self.pos_provider,
-            "map": self.dcd_map_provider,
-            "count": self.count_map_provider,
+            "glb": self.global_p,
+            "pos": self.position_p,
+            "map": self.map_p,
+            "count": self.count_p,
         }
 
     def create_hdf(self):
         t = Timer.create_and_start("create_hdf", label="")
         print("build global")
-        self.pos_provider, self.glb_map = pos_density_from_csv(
+        self.position_p, self.global_p = pos_density_from_csv(
             self.global_path, self.hdf_path
         )
         print("build dcd map")
-        self.dcd_map_provider.create_from_csv(self.map_paths)
+        self.map_p.create_from_csv(self.map_paths)
         print("build count map")
         count_df = create_error_df(
-            self.dcd_map_provider.get_dataframe(), self.glb_map.get_dataframe()
+            self.map_p.get_dataframe(), self.global_p.get_dataframe()
         )
-        self.count_map_provider.write_dataframe(count_df)
+        self.count_p.write_dataframe(count_df)
         t.stop()
         print("done")
         return {
-            "glb": self.glb_map,
-            "pos": self.pos_provider,
-            "map": self.dcd_map_provider,
-            "count": self.count_map_provider,
+            "glb": self.global_p,
+            "pos": self.position_p,
+            "map": self.map_p,
+            "count": self.count_p,
         }
 
     def create_count_map(self, df: pd.DataFrame):
@@ -272,7 +343,7 @@ class DcdHdfBuilder(FrameConsumer):
         _df = _df.set_index(["ID"], drop=True, append=True)
         # _df["count"] = _df["count"].astype(int)
         # _df["err"] = _df["err"].astype(int)
-        self.append_to_provider(self.count_map_provider, _df)
+        self.append_to_provider(self.count_p, _df)
 
     def append_global_count(self):
         _df = self.global_df.copy()
@@ -282,7 +353,7 @@ class DcdHdfBuilder(FrameConsumer):
         _df["sqerr"] = 0.0
         _df["owner_dist"] = 0.0
         _df = _df.set_index(["ID"], drop=True, append=True)
-        self.append_to_provider(self.count_map_provider, _df)
+        self.append_to_provider(self.count_p, _df)
 
     @staticmethod
     def append_to_provider(provider, df: pd.DataFrame):

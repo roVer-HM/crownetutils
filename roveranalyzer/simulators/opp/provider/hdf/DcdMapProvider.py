@@ -2,8 +2,10 @@ import os
 import re
 from typing import Dict, List, Union
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely.geometry.geo import box
 
 from roveranalyzer.simulators.crownet.dcd.util import (
     delay_feature,
@@ -216,3 +218,25 @@ class DcdMapProvider(IHdfProvider):
 
     def set_selection_mapping_attribute(self):
         self.set_attribute("selection_mapping", self.selection_mapping)
+
+    def _to_geo(
+        self, df: pd.DataFrame, to_crs: Union[str, None] = None
+    ) -> gpd.GeoDataFrame:
+        offset = self.get_attribute("offset")
+        epsg_code = self.get_attribute("epsg")
+        cell_size = self.get_attribute("cell_size")
+
+        _index = df.index.to_frame().reset_index(drop=True)
+
+        _index["x"] = _index["x"] - offset[0]
+        _index["y"] = _index["y"] - offset[1]
+        df.index = pd.MultiIndex.from_frame(_index)
+
+        g = [
+            box(x, y, x + cell_size, y + cell_size)
+            for x, y in zip(_index["x"], _index["y"])
+        ]
+        gdf = gpd.GeoDataFrame(df, geometry=g, crs=str(epsg_code))
+        if to_crs is not None:
+            gdf = gdf.to_crs(epsg=to_crs.replace("EPSG:", ""))
+        return gdf
