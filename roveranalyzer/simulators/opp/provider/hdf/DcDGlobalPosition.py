@@ -41,8 +41,8 @@ class DcdGlobalMapKey:
 
 
 def pos_density_from_csv(csv_path: str, hdf_path: str):
-    pos = DcDGlobalPosition(hdf_path)
-    density = DcDGlobalDensity(hdf_path)
+    pos = DcdGlobalPosition(hdf_path)
+    density = DcdGlobalDensity(hdf_path)
     global_df, meta = read_csv(
         csv_path=csv_path,
         _index_types=DcdGlobalMapKey.types_global_raw_csv_index,
@@ -79,7 +79,7 @@ def build_location_df(glb_df):
     return glb_loc_df, glb_df
 
 
-class DcDGlobalPosition(IHdfProvider):
+class DcdGlobalPosition(IHdfProvider):
     def __init__(self, hdf_path):
         super().__init__(hdf_path)
 
@@ -102,7 +102,7 @@ class DcDGlobalPosition(IHdfProvider):
         return DcdMetaData(cell_size, cell_count, cell_bound, "global")
 
 
-class DcDGlobalDensity(IHdfProvider):
+class DcdGlobalDensity(IHdfProvider):
     def __init__(self, hdf_path):
         super().__init__(hdf_path)
 

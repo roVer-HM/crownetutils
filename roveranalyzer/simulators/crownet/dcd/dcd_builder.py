@@ -8,8 +8,8 @@ from typing import Union
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
 from roveranalyzer.simulators.crownet.dcd.util import *
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
-    DcDGlobalDensity,
-    DcDGlobalPosition,
+    DcdGlobalDensity,
+    DcdGlobalPosition,
     pos_density_from_csv,
 )
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
@@ -90,8 +90,8 @@ class DcdHdfBuilder(FrameConsumer):
         self.global_path = global_path
         self.count_map_provider = DcdMapCount(self.hdf_path)
         self.dcd_map_provider = DcdMapProvider(self.hdf_path)
-        self.pos_provider = DcDGlobalPosition(self.hdf_path)
-        self.glb_map = DcDGlobalDensity(self.hdf_path)
+        self.pos_provider = DcdGlobalPosition(self.hdf_path)
+        self.glb_map = DcdGlobalDensity(self.hdf_path)
         self.single_df_filters = []
 
         # set later on
