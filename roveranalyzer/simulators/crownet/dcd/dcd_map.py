@@ -35,12 +35,12 @@ class DcdMap:
 
     def __init__(
         self,
-        m_glb: DcdMetaData,
+        metadata: DcdMetaData,
         location_df: pd.DataFrame,
         plotter=None,
         data_base_dir=None,
     ):
-        self.meta = m_glb
+        self.metadata = metadata
         self.location_df = location_df
         self.scenario_plotter = plotter
         self.plot_wrapper = None
@@ -81,7 +81,7 @@ class DcdMap:
             if ret.shape == (2,):
                 ret = ret.to_numpy()
                 if cell_id:
-                    ret = np.floor(ret / self.meta.cell_size)
+                    ret = np.floor(ret / self.metadata.cell_size)
             else:
                 raise TypeError()
         except (TypeError, KeyError):
@@ -104,7 +104,7 @@ class DcdMap2D(DcdMap):
 
     def __init__(
         self,
-        glb_meta: DcdMetaData,
+        metadata: DcdMetaData,
         global_df: pd.DataFrame,
         map_df: Union[pd.DataFrame, None],
         location_df: pd.DataFrame,
@@ -115,7 +115,7 @@ class DcdMap2D(DcdMap):
         plotter=None,
         **kwargs,
     ):
-        super().__init__(glb_meta, location_df, plotter, **kwargs)
+        super().__init__(metadata, location_df, plotter, **kwargs)
         self._map = map_df
         self._global_df = global_df
         self._count_map = None
@@ -202,7 +202,7 @@ class DcdMap2D(DcdMap):
             ]
         )
         data = data.set_index(data.index.droplevel([0, 3]))  # (x,y) as new index
-        df = self.meta.update_missing(data, real_coords=True)
+        df = self.metadata.update_missing(data, real_coords=True)
         df.update(data)
         df = df.unstack().T
         return df
@@ -266,8 +266,8 @@ class DcdMap2D(DcdMap):
         ]
 
         places = df.copy()
-        places["x_center"] = places["x"] + 0.5 * self.meta.cell_size
-        places["y_center"] = places["y"] + 0.5 * self.meta.cell_size
+        places["x_center"] = places["x"] + 0.5 * self.metadata.cell_size
+        places["y_center"] = places["y"] + 0.5 * self.metadata.cell_size
         places["x_text"] = places["x_center"]
         places["y_text"] = places["y_center"]
         for idx, row in places.iterrows():
@@ -349,14 +349,14 @@ class DcdMap2D(DcdMap):
 
         ax.set_title(f"Node Placement at time {time_step}s")
         ax.set_aspect("equal")
-        ax.set_xlim([0, self.meta.x_dim])
-        ax.set_ylim([0, self.meta.y_dim])
+        ax.set_xlim([0, self.metadata.x_dim])
+        ax.set_ylim([0, self.metadata.y_dim])
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
 
         for _id, df in places.groupby(level=self.tsc_id_idx_name):
             # move coordinate for node :id: to center of cell.
-            df = df + 0.5 * self.meta.cell_size
+            df = df + 0.5 * self.metadata.cell_size
             ax.scatter(df["x"], df["y"], label=f"{_id}")
 
         if add_legend:
@@ -569,7 +569,7 @@ class DcdMap2D(DcdMap):
 
         _d = update_dict(pcolormesh_dict, shading="flat")
 
-        pcm = ax.pcolormesh(self.meta.X_flat, self.meta.Y_flat, df, **_d)
+        pcm = ax.pcolormesh(self.metadata.X_flat, self.metadata.Y_flat, df, **_d)
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -644,7 +644,7 @@ class DcdMap2DMulti(DcdMap2D):
 
     def __init__(
         self,
-        glb_meta: DcdMetaData,
+        metadata: DcdMetaData,
         global_df: pd.DataFrame,
         map_df: pd.DataFrame,
         location_df: pd.DataFrame,
@@ -654,10 +654,10 @@ class DcdMap2DMulti(DcdMap2D):
         """
         Parameters
         ----------
-        glb_meta: Meta data instance for current map. cell size, map size
+        metadata: Meta data instance for current map. cell size, map size
         node_id_map: Mapping between node
         """
-        super().__init__(glb_meta, global_df, map_df, location_df, **kwargs)
+        super().__init__(metadata, global_df, map_df, location_df, **kwargs)
         self.map_all_df = map_all_df
 
     def info_dict(self, x, y, time_step, node_id):

@@ -112,14 +112,14 @@ class DcdHdfBuilder(FrameConsumer):
             self.dcd_map_provider.csv_filters.extend(self.single_df_filters)
             self.create_hdf_fast()
 
-        glb_meta = DcdMetaData(
+        metadata = DcdMetaData(
             self.pos_provider.get_attribute("cell_size"),
             self.pos_provider.get_attribute("cell_count"),
             self.pos_provider.get_attribute("cell_bound"),
             node_id=0,  # global object
         )
         return dict(
-            glb_meta=glb_meta,
+            metadata=metadata,
             global_df=self.glb_map[Idx[time_slice, x_slice, y_slice]],
             # map_df = self.dcd_map_provider[map_slice :]
             location_df=self.pos_provider[Idx[time_slice, id_slice] :],
@@ -580,7 +580,7 @@ class DcdBuilder:
         map_df = self.merge_frames(node_data, self._map_idx)
 
         _ret = {
-            "glb_meta": meta_data,
+            "metadata": meta_data,
             "global_df": global_df,
             "map_df": map_df,  # may be full map based on self._type!
             "location_df": location_df,
