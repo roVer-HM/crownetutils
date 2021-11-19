@@ -9,6 +9,7 @@ from pandas.core.frame import DataFrame
 
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
+from build.lib.roveranalyzer.simulators.opp.scave import SqlOp
 
 PlotUtil = _Plot.PlotUtil
 
@@ -18,15 +19,19 @@ class _OppAnalysis:
         pass
 
     def get_packet_source_distribution(
-        self, sql: Scave.CrownetSql, app_path: str, normalize: bool = True
+        self,
+        sql: Scave.CrownetSql,
+        app_path: str,
+        host_name: Union[None, str, SqlOp] = None,
+        normalize: bool = True,
     ) -> pd.DataFrame:
         """
         Create square matrix of [hostId X hostId] showing the source hostId of received packets for the given application path.
         Example:
         hostId/hostId |  1  |  2  |  3  |
-            1       |  0  |  4  |  8  |
-            2       |  1  |  0  |  1  |
-            3       |  6  |  6  |  0  |
+            1         |  0  |  4  |  8  |
+            2         |  1  |  0  |  1  |
+            3         |  6  |  6  |  0  |
         host_1 received 4 packets from host_2
         host_1 received 8 packets from host_3
         host_2 received 1 packet  from host_1
@@ -34,7 +39,10 @@ class _OppAnalysis:
         host_3 received 6 packets from host_1
         host_3 received 6 packets from host_2
         """
-        id_map = sql.host_ids()
+        id_map = sql.host_ids(host_name)
+        if not app_path.startswith("."):
+            app_path = f".{app_path}"
+
         df = None
         for _id, host in id_map.items():
             _df = sql.vec_merge_on(
