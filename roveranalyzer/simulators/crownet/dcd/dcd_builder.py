@@ -27,7 +27,7 @@ def _hdf_job(args):
     if override_existing or not _builder.hdf_exist:
         _builder.remove_hdf()
         # append filters before processing
-        _builder.dcd_map_provider.csv_filters.extend(_builder.single_df_filters)
+        _builder.map_p.csv_filters.extend(_builder.single_df_filters)
         _builder.create_hdf_fast()
     else:
         print(f"{_builder.hdf_path} already exist and override_existing is false")
