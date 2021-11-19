@@ -7,12 +7,12 @@ from typing import Union
 
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
 from roveranalyzer.simulators.crownet.dcd.util import *
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
     DcDGlobalDensity,
     DcDGlobalPosition,
     pos_density_from_csv,
 )
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import FrameConsumer
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
@@ -88,7 +88,7 @@ class DcdHdfBuilder(FrameConsumer):
         self.hdf_path = hdf_path
         self.map_paths = map_paths
         self.global_path = global_path
-        self.count_map_provider = CountMapProvider(self.hdf_path)
+        self.count_map_provider = DcdMapCount(self.hdf_path)
         self.dcd_map_provider = DcdMapProvider(self.hdf_path)
         self.pos_provider = DcDGlobalPosition(self.hdf_path)
         self.glb_map = DcDGlobalDensity(self.hdf_path)

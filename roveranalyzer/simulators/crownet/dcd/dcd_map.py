@@ -12,7 +12,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
@@ -108,7 +108,7 @@ class DcdMap2D(DcdMap):
         global_df: pd.DataFrame,
         map_df: Union[pd.DataFrame, None],
         location_df: pd.DataFrame,
-        count_p: CountMapProvider = None,
+        count_p: DcdMapCount = None,
         count_slice: pd.IndexSlice = None,
         map_p: DcdMapProvider = None,
         map_slice: pd.IndexSlice = None,

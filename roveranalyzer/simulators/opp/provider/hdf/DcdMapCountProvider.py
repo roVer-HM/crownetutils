@@ -18,7 +18,7 @@ class CountMapKey:
     SQERR = "sqerr"
 
 
-class CountMapProvider(IHdfProvider):
+class DcdMapCount(IHdfProvider):
     def __init__(self, hdf_path):
         super().__init__(hdf_path)
 

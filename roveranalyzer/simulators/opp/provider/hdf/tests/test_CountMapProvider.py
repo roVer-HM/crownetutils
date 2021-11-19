@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import (
     CountMapKey,
-    CountMapProvider,
+    DcdMapCount,
 )
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
@@ -19,12 +19,12 @@ from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
 )
 
 
-class CountMapProviderTest(unittest.TestCase):
+class DcdMapCountProviderTest(unittest.TestCase):
     # create tmp fs. (use fs.root_path to access as normal path)
-    fs: TempFS = create_tmp_fs("CountMapProviderTest")
+    fs: TempFS = create_tmp_fs("DcdMapCountProviderTest")
     test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
-    provider: CountMapProvider = CountMapProvider(sample_file_dir)
+    provider: DcdMapCount = DcdMapCount(sample_file_dir)
     sample_dataframe: pd.DataFrame = create_count_map_dataframe()
     index_range = 5
     simtime: int = 1
