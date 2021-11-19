@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Union
 
 import pandas as pd
 
@@ -25,7 +25,7 @@ class DcdMapCount(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.COUNT_MAP
 
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {
             0: CountMapKey.SIMTIME,
             1: CountMapKey.X,

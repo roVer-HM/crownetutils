@@ -1,12 +1,14 @@
 import os
 from functools import wraps
 from itertools import combinations
-from typing import Union
+from typing import Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.collections import QuadMesh
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
@@ -532,16 +534,16 @@ class DcdMap2D(DcdMap):
     @plot_decorator
     def plot_area(
         self,
-        time_step,
-        node_id,
-        value,
+        time_step: float,
+        node_id: int,
+        value: str,
         *,
         ax=None,
         pcolormesh_dict: dict = None,
         fig_dict: dict = None,
         ax_prop: dict = None,
         **kwargs,
-    ):
+    ) -> Tuple[Figure, Axes]:
         """
         Birds eyes view of density in a 2D color mesh with X/Y spanning the
         area under observation. Z axis (density) is shown with given color grading.
@@ -582,7 +584,7 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @plot_decorator
-    def plot_count(self, *, ax=None, **kwargs):
+    def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Total node count over time", **self.font_dict["title"])
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
@@ -602,7 +604,9 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @plot_decorator
-    def plot_count_diff(self, *, ax=None, save_fig=None, **kwargs):
+    def plot_count_diff(
+        self, *, ax=None, save_fig=None, **kwargs
+    ) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Node Count over Time", **self.font_dict["title"])
         ax.set_xlabel("Time [s]", **self.font_dict["xlabel"])

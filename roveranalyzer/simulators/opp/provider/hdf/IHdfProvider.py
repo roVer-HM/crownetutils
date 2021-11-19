@@ -2,7 +2,7 @@ import abc
 import contextlib
 import os
 import warnings
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
@@ -85,7 +85,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         # self._hdf_path: str = hdf_path
         # self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
         # self.group: str = self.group_key()
-        self.idx_order: {} = self.index_order()
+        self.idx_order: Dict = self.index_order()
         self._dispatcher = {
             int: self._handle_primitive,
             float: self._handle_primitive,
@@ -100,7 +100,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         return "None"
 
     @abc.abstractmethod
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {}
 
     @abc.abstractmethod
@@ -193,7 +193,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         condition, columns = f(key, item)
         return condition, columns
 
-    def __getitem__(self, item: any):
+    def __getitem__(self, item: any) -> pd.DataFrame:
         condition, columns = self.dispatch(self.default_index_key(), item)
         # remove conditions containing 'None' values
         condition = [i for i in condition if not "None" in i]

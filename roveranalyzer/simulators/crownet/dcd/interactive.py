@@ -434,7 +434,7 @@ class InteractiveAreaPlot(InteractiveTableTimeNodeSlider):
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value):
+    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value: str):
         super().__init__(dcd, ax)
 
         self.quadMesh = None

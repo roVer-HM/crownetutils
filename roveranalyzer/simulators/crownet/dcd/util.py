@@ -1,4 +1,5 @@
 from itertools import repeat
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -333,7 +334,7 @@ def read_csv(
     _col_types: dict,
     real_coords=True,
     df_filter=None,
-):
+) -> Tuple[pd.DataFrame, DcdMetaData]:
     """
     read csv and set index
     """

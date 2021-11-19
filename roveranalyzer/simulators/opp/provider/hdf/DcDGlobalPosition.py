@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List
+from typing import Dict, List
 
 import pandas as pd
 
@@ -86,7 +86,7 @@ class DcdGlobalPosition(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.DCD_GLOBAL_POS
 
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {0: DcdGlobalMapKey.SIMTIME, 1: DcdGlobalMapKey.NODE_ID}
 
     def columns(self) -> List[str]:
@@ -109,7 +109,7 @@ class DcdGlobalDensity(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.DCD_GLOBAL_DENSITY
 
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {0: DcdGlobalMapKey.SIMTIME, 1: DcdGlobalMapKey.X, 2: DcdGlobalMapKey.Y}
 
     def columns(self) -> List[str]:

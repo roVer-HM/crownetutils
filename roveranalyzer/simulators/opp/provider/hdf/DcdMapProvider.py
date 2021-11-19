@@ -1,6 +1,6 @@
 import os
 import re
-from typing import List
+from typing import Dict, List, Union
 
 import numpy as np
 import pandas as pd
@@ -90,7 +90,7 @@ class DcdMapProvider(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.DCD_MAP
 
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {
             0: DcdMapKey.SIMTIME,
             1: DcdMapKey.X,
