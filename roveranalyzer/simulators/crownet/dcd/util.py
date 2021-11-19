@@ -1,9 +1,11 @@
 from itertools import repeat
 from typing import Tuple
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 from pandas import IndexSlice as Idx
+from shapely.geometry import Point
 
 from roveranalyzer.utils import LazyDataFrame, Timer
 
@@ -26,13 +28,20 @@ class DcdMetaData:
         cell_size = float(meta["CELLSIZE"])
         cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
         node_id = meta["NODE_ID"]
-        return cls(cell_size, cell_count, bound, node_id)
+        _meta = cls(cell_size, cell_count, bound, node_id)
+        if all([k in meta for k in ["XOFFSET", "YOFFSET"]]):
+            _meta.offset = [float(meta["XOFFSET"]), float(meta["YOFFSET"])]
+        return _meta
 
-    def __init__(self, cell_size, cell_count, bound, node_id):
+    def __init__(
+        self, cell_size, cell_count, bound, node_id=0, offset=[0.0, 0.0], epsg=""
+    ):
         self.cell_size = cell_size
         self.cell_count = cell_count
         self.bound = bound
         self.node_id = node_id
+        self.offset = offset
+        self.epsg = epsg
 
     def is_global(self):
         return self.node_id == "global"
