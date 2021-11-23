@@ -13,7 +13,7 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
-from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
+from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
@@ -127,10 +127,13 @@ class DcdMap2D(DcdMap):
         self._map_p = map_p
         self._map_slice = map_slice
 
-    def iter_nodes_d2d(self, first=0):
+    def iter_nodes_d2d(self, first_node_id=0):
+        # index order: [time, x, y, source, node]
         _i = pd.IndexSlice
 
-        data = self._map.loc[_i[first:], :].groupby(level=self.tsc_id_idx_name)
+        data = self.map.loc[_i[:, :, :, :, first_node_id:], :].groupby(
+            level=self.tsc_id_idx_name
+        )
         for i, ts_2d in data:
             yield i, ts_2d
 
@@ -143,6 +146,7 @@ class DcdMap2D(DcdMap):
         if self._map is None:
             logger.info("load map")
             self._map = self._map_p[self._map_slice, :]
+            self._map = self._map.sort_index()
         return self._map
 
     @property
@@ -590,7 +594,7 @@ class DcdMap2D(DcdMap):
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
         ax.set_ylabel("total node count", **self.font_dict["ylabel"])
 
-        for _id, df in self.iter_nodes_d2d(first=1):
+        for _id, df in self.iter_nodes_d2d(first_node_id=1):
             df_time = df.groupby(level=self.tsc_time_idx_name).sum()
             ax.plot(df_time.index, df_time["count"], label=f"{_id}")
 

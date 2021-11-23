@@ -1,11 +1,13 @@
-from abc import ABC
+from __future__ import annotations
+
 from typing import Dict, List, Tuple, Union
 
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, box
 
-from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, read_csv
+from roveranalyzer.simulators.crownet.common import DcdMetaData
+from roveranalyzer.simulators.crownet.common.dcd_util import read_csv
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
 
@@ -43,7 +45,7 @@ class DcdGlobalMapKey:
 
 
 def build_position_df(glb_df):
-    # global position map for all node_ids
+    # global df map for all node_ids
     glb_loc_df = glb_df["node_id"].copy().reset_index()
     glb_loc_df = glb_loc_df.assign(
         node_id=glb_loc_df["node_id"].str.split(r",\s*")
@@ -70,11 +72,41 @@ class DcdGlobalPosition(IHdfProvider):
     def default_index_key(self) -> str:
         return self.index_order()[0]
 
+    @staticmethod
+    def as_geo(
+        df: Union[DcdGlobalPosition, pd.DataFrame, gpd.GeoDataFrame],
+        crs: str,
+        slice_: slice = slice(None),
+    ) -> gpd.GeoDataFrame:
+        if type(df) == DcdGlobalPosition:
+            df = df.geo(crs)[slice_]
+        elif type(df) == pd.DataFrame:
+            geo = [Point(x, y) for x, y in zip(df["x"], df["y"])]
+            df = gpd.GeoDataFrame(df, geometry=geo, crs=crs)
+        else:
+            pass
+
+        return df
+
     def get_meta_object(self) -> DcdMetaData:
         cell_size = self.get_attribute("cell_size")
         cell_count = self.get_attribute("cell_count")
         cell_bound = self.get_attribute("cell_bound")
-        return DcdMetaData(cell_size, cell_count, cell_bound, "global")
+        epsg = self.get_attribute("epsg")
+        offset = self.get_attribute("offset")
+        map_extend_x = self.get_attribute("map_extend_x")
+        map_extend_y = self.get_attribute("map_extend_y")
+
+        return DcdMetaData(
+            cell_size,
+            cell_count,
+            cell_bound,
+            "global",
+            offset=offset,
+            epsg=str(epsg),
+            map_extend_x=map_extend_x,
+            map_extend_y=map_extend_y,
+        )
 
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None
@@ -94,6 +126,9 @@ class DcdGlobalPosition(IHdfProvider):
         if to_crs is not None:
             gdf = gdf.to_crs(epsg=to_crs.replace("EPSG:", ""))
         return gdf
+
+    def geo_bound(self):
+        bound = self.get_attribute("cell_bound")
 
 
 class DcdGlobalDensity(IHdfProvider):
@@ -116,7 +151,21 @@ class DcdGlobalDensity(IHdfProvider):
         cell_size = self.get_attribute("cell_size")
         cell_count = self.get_attribute("cell_count")
         cell_bound = self.get_attribute("cell_bound")
-        return DcdMetaData(cell_size, cell_count, cell_bound, "global")
+        epsg = self.get_attribute("epsg")
+        offset = self.get_attribute("offset")
+        map_extend_x = self.get_attribute("map_extend_x")
+        map_extend_y = self.get_attribute("map_extend_y")
+
+        return DcdMetaData(
+            cell_size,
+            cell_count,
+            cell_bound,
+            "global",
+            offset=offset,
+            epsg=str(epsg),
+            map_extend_x=map_extend_x,
+            map_extend_y=map_extend_y,
+        )
 
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None

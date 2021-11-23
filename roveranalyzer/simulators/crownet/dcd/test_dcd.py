@@ -1,6 +1,5 @@
 import importlib
 import os
-import sys
 import unittest
 
 import matplotlib
@@ -9,11 +8,11 @@ import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 
-# from roveranalyzer.entrypoint.parser import test_parser
+import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdBuilder, PickleState
-from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMetaData
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
-from roveranalyzer.simulators.crownet.dcd.util import remove_not_selected_cells
 from roveranalyzer.simulators.vadere.plots.plots import pcolormesh_dict
 from roveranalyzer.tests.utils import TestDataHandler
 from roveranalyzer.utils import PathHelper, intersect
@@ -164,7 +163,7 @@ class HdfTest(unittest.TestCase):
             # .pickle_as(PickleState.MERGED)
         )
         # strip not selected values to speed up
-        _b.add_single_filter([remove_not_selected_cells])
+        _b.add_single_filter([DcdUtil.remove_not_selected_cells])
         dcd = _b.build()
 
         # data = df.count_map_provider.select_id_exact(2)

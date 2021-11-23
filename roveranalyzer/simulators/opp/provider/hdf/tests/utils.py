@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.simulators.crownet.dcd import DcdMetaData
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 
 
 def create_tmp_fs(name, auto_clean=True) -> TempFS:

@@ -5,8 +5,13 @@ import os
 import pickle
 from typing import Union
 
+import numpy as np
+import pandas as pd
+from pandas import IndexSlice as Idx
+
+import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+from roveranalyzer.simulators.crownet.common import DcdMetaData
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
-from roveranalyzer.simulators.crownet.dcd.util import *
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
     DcdGlobalDensity,
     DcdGlobalPosition,
@@ -72,7 +77,7 @@ class DcdProviders:
 
 class DcdHdfBuilder(FrameConsumer):
 
-    F_selected_only = remove_not_selected_cells
+    F_selected_only = DcdUtil.remove_not_selected_cells
 
     def consume(self, df: pd.DataFrame):
         self.create_count_map(df)
@@ -167,7 +172,7 @@ class DcdHdfBuilder(FrameConsumer):
             cell_count=self.position_p.get_attribute("cell_count"),
             bound=self.position_p.get_attribute("cell_bound"),
             offset=self.position_p.get_attribute("offset"),
-            epsg=self.position_p.get_attribute("epsg", default=""),
+            epsg=self.position_p.get_attribute("epsg"),
             node_id=0,
         )
         return DcdProviders(
@@ -189,14 +194,14 @@ class DcdHdfBuilder(FrameConsumer):
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
     ):
-        self.add_df_filter(remove_not_selected_cells)
+        self.add_df_filter(DcdUtil.remove_not_selected_cells)
         providers = self.build(time_slice, id_slice, x_slice, y_slice)
 
         return DcdMap2D(
             metadata=providers.metadata,
             global_df=providers.global_df,
             map_df=None,  # lazy loading with provider
-            position_df=providers.position_df,
+            position_df=providers.postion_df,
             count_p=providers.count_p,
             count_slice=providers.count_slice,
             map_p=providers.map_p,
@@ -224,7 +229,7 @@ class DcdHdfBuilder(FrameConsumer):
             os.remove(self.hdf_path)
 
     def create_hdf_fast(self):
-        t = Timer.create_and_start("create_hdf", label="")
+        t = DcdUtil.Timer.create_and_start("create_hdf", label="")
         # 1) parse global.csv in position and global provider
         self.position_p, self.global_p, meta = pos_density_from_csv(
             self.global_path, self.hdf_path
@@ -260,6 +265,31 @@ class DcdHdfBuilder(FrameConsumer):
             p.set_attribute("cell_bound", meta.bound)
             p.set_attribute("offset", meta.offset)
             p.set_attribute("epsg", self._epsg)
+            p.set_attribute(
+                "time_interval", [np.min(self._all_times), np.max(self._all_times)]
+            )
+            # _cell_bound is the whole simulation area. Map_extends only gives the area of the density map
+            p.set_attribute(
+                "map_extend_x",
+                [
+                    self.global_df.index.get_level_values("x").min(),
+                    self.global_df.index.get_level_values("x").max(),
+                ],
+            )
+            p.set_attribute(
+                "map_extend_y",
+                [
+                    self.global_df.index.get_level_values("y").min(),
+                    self.global_df.index.get_level_values("y").max(),
+                ],
+            )
+            p.set_attribute(
+                "id_interval",
+                [
+                    self.position_df.index.get_level_values("node_id").min(),
+                    self.position_df.index.get_level_values("node_id").max(),
+                ],
+            )
 
         t.stop()
         return {
@@ -270,7 +300,7 @@ class DcdHdfBuilder(FrameConsumer):
         }
 
     def create_hdf(self):
-        t = Timer.create_and_start("create_hdf", label="")
+        t = DcdUtil.Timer.create_and_start("create_hdf", label="")
         print("build global")
         self.position_p, self.global_p = pos_density_from_csv(
             self.global_path, self.hdf_path
@@ -278,7 +308,7 @@ class DcdHdfBuilder(FrameConsumer):
         print("build dcd map")
         self.map_p.create_from_csv(self.map_paths)
         print("build count map")
-        count_df = create_error_df(
+        count_df = DcdUtil.create_error_df(
             self.map_p.get_dataframe(), self.global_p.get_dataframe()
         )
         self.count_p.write_dataframe(count_df)
@@ -430,7 +460,7 @@ class DcdBuilder:
         self._real_coords = True
         self._single_df_filters = []
         self._scenario_plotter = None
-        self._features = [delay_feature, owner_dist_feature]
+        self._features = [DcdUtil.delay_feature, DcdUtil.owner_dist_feature]
         self._global_csv_path = None
         self._node_csv_paths = []
         self._data_base_path = None
@@ -613,7 +643,7 @@ class DcdBuilder:
         return _ret
 
     def do_csv(self, global_data_path, node_data_paths):
-        df_global = build_density_map(
+        df_global = DcdUtil.build_density_map(
             csv_path=global_data_path,
             index=self._glb_idx,
             column_types=self._glb_cols,
@@ -636,7 +666,7 @@ class DcdBuilder:
                 }
                 for p in node_data_paths
             ]
-            df_data = run_pool(pool, build_density_map, job_args)
+            df_data = DcdUtil.run_pool(pool, DcdUtil.build_density_map, job_args)
         return {"global_data": df_global, "node_data": df_data}
 
     def do_merge(self, global_data, node_data):

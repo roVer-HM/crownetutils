@@ -130,7 +130,7 @@ class DcdMapProviderTest(unittest.TestCase):
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.parse_node_id"
     )
-    @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.read_csv")
+    @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdUtil.read_csv")
     def test_build_dcd_dataframe(
         self, mock_read_csv: MagicMock, mock_parse_node_id: MagicMock
     ):

@@ -5,13 +5,10 @@ from typing import Dict, List, Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from pandas.core.indexing import IndexSlice
 from shapely.geometry.geo import box
 
-from roveranalyzer.simulators.crownet.dcd.util import (
-    delay_feature,
-    owner_dist_feature,
-    read_csv,
-)
+import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
     FrameConsumer,
@@ -147,7 +144,7 @@ class DcdMapProvider(IHdfProvider):
         return node_id
 
     def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
-        df, meta = read_csv(
+        df, meta = DcdUtil.read_csv(
             csv_path=path,
             _index_types=DcdMapKey.types_csv_index,
             _col_types=DcdMapKey.types_csv_columns,
@@ -178,14 +175,14 @@ class DcdMapProvider(IHdfProvider):
         num_rows = df.shape[0]
 
         # apply owner_dist_feature
-        df = owner_dist_feature(df, **kwargs)
+        df = DcdUtil.owner_dist_feature(df, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in owner_dist_feature. "
                 f"Number of rows were affected. actual: {df.shape[0]} expected: {num_rows} "
             )  # shape = df.shape
         # apply delay_feature
-        df = delay_feature(df, **kwargs)
+        df = DcdUtil.delay_feature(df, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in delay_feature. "
