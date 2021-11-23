@@ -101,26 +101,26 @@ class _OppAnalysis:
     def get_neighborhood_table_size(
         self,
         sql: Scave.CrownetSql,
-        moduleName: Union[Scave.SqlOp, str, None] = None,
+        module_name: Union[Scave.SqlOp, str, None] = None,
         indexList: str = "host",
         **kwargs,
     ) -> Tuple[pd.DataFrame, np.ndarray]:
         """
-        Extract neighborhood table size vectors from given moduleName. Use the sql Operator for multiple selections.
+        Extract neighborhood table size vectors from given module_name. Use the sql Operator for multiple selections.
         and None to default to all module vectors (misc, pNode, vNode)
         """
-        if moduleName is None:
-            moduleName = self.OR(
-                [f"{self.network}.{i}[%].nTable" for i in self.module_vectors]
+        if module_name is None:
+            module_name = sql.OR(
+                [f"{sql.network}.{i}[%].nTable" for i in sql.module_vectors]
             )
 
         tbl = sql.vec_data(
-            moduleName=moduleName,  # "World.misc[%].nTable",
-            vectorName="tableSize:vector",
+            module_name=module_name,  # "World.misc[%].nTable",
+            vector_name="tableSize:vector",
         )
 
-        ids = ",".join([str(i) for i in tbl["vectorId"].unique()])
-        ids = sql.vector_ids_to_host(ids)
+        ids = [str(i) for i in tbl["vectorId"].unique()]
+        ids = sql.vector_ids_to_host(vec_ids=ids)
         tbl = pd.merge(tbl, ids, how="inner", on=["vectorId"]).drop(
             columns=["vectorId"]
         )
