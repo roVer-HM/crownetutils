@@ -9,7 +9,7 @@ from pandas.core.frame import DataFrame
 
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from build.lib.roveranalyzer.simulators.opp.scave import SqlOp
+from roveranalyzer.simulators.opp.scave import SqlOp
 
 PlotUtil = _Plot.PlotUtil
 
