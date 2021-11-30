@@ -32,6 +32,23 @@ def plot_decorator(method):
     return _impl
 
 
+def savefigure(method):
+    @wraps(method)
+    def _impl(self, *method_args, **method_kwargs):
+        savefig = None
+        if "savefig" in method_kwargs:
+            savefig = method_kwargs["savefig"]
+            del method_kwargs["savefig"]
+        fig, ax = method(self, *method_args, **method_kwargs)
+        if savefig is not None:
+            os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+            logger.info(f"save figure: {savefig}")
+            fig.savefig(savefig)
+        return fig, ax
+
+    return _impl
+
+
 class DcdMap:
     tsc_global_id = 0
 
@@ -345,6 +362,7 @@ class DcdMap2D(DcdMap):
         ax[3].clear()
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_location_map(self, time_step, *, ax=None, add_legend=True):
         places = self.own_cell()
@@ -369,6 +387,7 @@ class DcdMap2D(DcdMap):
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_location_map_annotated(self, time_step, *, ax=None):
         places = self.own_cell()
@@ -449,6 +468,7 @@ class DcdMap2D(DcdMap):
             line.set_xdata(df["owner_dist"].to_numpy())
         return df
 
+    @savefigure
     @plot_decorator
     def plot_error_over_distance(
         self,
@@ -487,6 +507,7 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_delay_over_distance(
         self,
@@ -535,6 +556,7 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_area(
         self,
@@ -587,6 +609,7 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
@@ -607,10 +630,9 @@ class DcdMap2D(DcdMap):
         ax.legend()
         return f, ax
 
+    @savefigure
     @plot_decorator
-    def plot_count_diff(
-        self, *, ax=None, save_fig=None, **kwargs
-    ) -> Tuple[Figure, Axes]:
+    def plot_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Node Count over Time", **self.font_dict["title"])
         ax.set_xlabel("Time [s]", **self.font_dict["xlabel"])
@@ -642,8 +664,6 @@ class DcdMap2D(DcdMap):
         )
         ax.plot(glb.index, glb, label="Actual count")
         f.legend()
-        if save_fig is not None:
-            f.savefig(save_fig)
         return f, ax
 
 
