@@ -34,7 +34,7 @@ def plot_decorator(method):
 
 def savefigure(method):
     @wraps(method)
-    def _impl(self, *method_args, **method_kwargs):
+    def savefigure_impl(self, *method_args, **method_kwargs):
         savefig = None
         if "savefig" in method_kwargs:
             savefig = method_kwargs["savefig"]
@@ -46,7 +46,18 @@ def savefigure(method):
             fig.savefig(savefig)
         return fig, ax
 
-    return _impl
+    return savefigure_impl
+
+
+def with_axis(method):
+    @wraps(method)
+    def with_axis_impl(self, *method_args, **method_kwargs):
+        if "ax" not in method_kwargs:
+            _, ax = check_ax(None)
+            method_kwargs.setdefault("ax", ax)
+        return method(self, *method_args, **method_kwargs)
+
+    return with_axis_impl
 
 
 class DcdMap:
