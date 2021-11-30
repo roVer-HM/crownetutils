@@ -1,7 +1,7 @@
 import os
 from functools import wraps
 from itertools import combinations
-from typing import Tuple, Union
+from typing import Callable, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -362,6 +362,8 @@ class DcdMap2D(DcdMap):
         print(desc.loc[["update_age"], ["mean", "std", "min", "max"]])
         print("=" * 79)
 
+    @savefigure
+    @plot_decorator
     def plot_summary(self, simtime, node_id, title="", **kwargs):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
@@ -374,13 +376,12 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @savefigure
+    @with_axis
     @plot_decorator
-    def plot_location_map(self, time_step, *, ax=None, add_legend=True):
+    def plot_location_map(self, time_step, *, ax: plt.Axes = None, add_legend=True):
         places = self.own_cell()
         _i = pd.IndexSlice
         places = places.loc[_i[:, time_step], :]  # select only the needed timestep
-
-        f, ax = check_ax(ax)
 
         ax.set_title(f"Node Placement at time {time_step}s")
         ax.set_aspect("equal")
@@ -396,15 +397,16 @@ class DcdMap2D(DcdMap):
 
         if add_legend:
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        return f, ax
+        return ax.get_figure(), ax
 
     @savefigure
+    @with_axis
     @plot_decorator
-    def plot_location_map_annotated(self, time_step, *, ax=None):
+    def plot_location_map_annotated(self, time_step, *, ax: plt.Axes = None):
         places = self.own_cell()
         _i = pd.IndexSlice
         places = places.loc[_i[:, time_step], :]  # select only the needed timestep
-        f, ax = self.plot_location_map(time_step, ax, add_legend=False)
+        f, ax = self.plot_location_map(time_step, ax=ax, add_legend=False)
 
         # places = places.droplevel("simtime")
         places = self.create_label_positions(places)
@@ -461,7 +463,6 @@ class DcdMap2D(DcdMap):
         line: Line2D = None,
         bins_width=2.5,
     ):
-
         df = self.count_p.select_simtime_and_node_id_exact(time_step, node_id)[
             ["owner_dist", value]
         ]
