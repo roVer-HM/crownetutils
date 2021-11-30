@@ -535,7 +535,8 @@ class CrownetSql(OppSql):
         module_name: Union[SqlOp, str, None] = None,
         ids: Union[pd.DataFrame, None] = None,
         time_slice: slice = slice(None),
-        epsg_code: Union[str, None] = None,
+        epsg_code_base: Union[str, None] = None,
+        epsg_code_to: Union[str, None] = None,
         cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
     ) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """
@@ -627,10 +628,12 @@ class CrownetSql(OppSql):
         df["x"] = df["x"] - offset[0]
         df["y"] = df["y"] - offset[1]
 
-        if epsg_code is not None:
+        if epsg_code_base is not None:
             geometry = [Point(x, y) for x, y in zip(df["x"], df["y"])]
-            df = gpd.GeoDataFrame(df, crs=epsg_code, geometry=geometry)
+            df = gpd.GeoDataFrame(df, crs=epsg_code_base, geometry=geometry)
             cols = [*cols, "geometry"]
+            if epsg_code_to is not None:
+                df = df.to_crs(epsg=epsg_code_to.replace("EPSG:", ""))
 
         return df.loc[:, cols]
 
@@ -665,14 +668,14 @@ class CrownetSql(OppSql):
                 else:
                     ValueError(f"Module {_m} not found in module map")
             raise ValueError(
-                f"given moduleName does match module regex {self._host_id_regex}"
+                f"given moduleName '{x}' does match module regex {self._host_id_regex}"
             )
 
         def _match_vector_idx(x):
             if _m := self._host_index_regex.match(x):
                 return int(_m.groupdict()["hostIdx"])
             raise ValueError(
-                f"given moduelName does not match vector index regex {self._host_index_regex}"
+                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
             )
 
         _sql = f"select v.vectorId, v.moduleName from vector as v where v.vectorId in ({_vec_id_str})"
