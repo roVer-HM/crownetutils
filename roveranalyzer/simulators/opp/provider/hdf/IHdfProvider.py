@@ -95,7 +95,10 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             list: self._handle_list,
             slice: self._handle_slice,
             tuple: self._handle_tuple,
+            Operation: self._handle_operation,
         }
+        self._filters = set()
+        self.operators = Operation
 
     @abc.abstractmethod
     def group_key(self) -> str:
@@ -129,6 +132,19 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     def geo(self, to_crs=None) -> GeoProvider:
         return GeoProvider(self, to_crs)
 
+    def add_filter(self, **kwargs):
+        keys = [*self.columns(), *(self.index_order().values())]
+        for key, value in kwargs.items():
+            if key not in keys:
+                raise ValueError("Filter key not in index or columns")
+            con, _ = self.dispatcher[type(value)](key, value)
+            for c in con:
+                self._filters.add(c)
+        return self
+
+    def clear_filter(self):
+        self._filters.clear()
+
     @staticmethod
     def cast_to_set(value: Any):
         t = type(value)
@@ -138,6 +154,14 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             return set(value)
         else:
             return value
+
+    def _handle_operation(
+        self, key: str, value: Operation
+    ) -> Tuple[List[str], Optional[List[str]]]:
+        condition = self._build_exact_condition(
+            key=key, value=value.value, operation=value.operation
+        )
+        return condition, None
 
     def _handle_primitive(
         self, key: str, value: any
@@ -205,6 +229,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
 
     def __getitem__(self, item: any) -> pd.DataFrame:
         condition, columns = self.dispatch(self.default_index_key(), item)
+        condition.extend(list(self._filters))
         # remove conditions containing 'None' values
         condition = [i for i in condition if not "None" in i]
         if len(condition) == 0 and columns is None:

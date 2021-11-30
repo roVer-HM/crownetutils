@@ -1,3 +1,4 @@
+import copy
 import glob
 import json
 import multiprocessing
@@ -176,15 +177,15 @@ class DcdHdfBuilder(FrameConsumer):
             node_id=0,
         )
         return DcdProviders(
-            metadata=metadata,
-            global_p=self.global_p,
-            position_p=self.position_p,
-            map_p=self.map_p,
-            count_p=self.count_p,
-            time_slice=time_slice,
-            id_slice=id_slice,
-            x_slice=x_slice,
-            y_slice=y_slice,
+            metadata=copy.deepcopy(metadata),
+            global_p=copy.deepcopy(self.global_p),
+            position_p=copy.deepcopy(self.position_p),
+            map_p=copy.deepcopy(self.map_p),
+            count_p=copy.deepcopy(self.count_p),
+            time_slice=copy.deepcopy(time_slice),
+            id_slice=copy.deepcopy(id_slice),
+            x_slice=copy.deepcopy(x_slice),
+            y_slice=copy.deepcopy(y_slice),
         )
 
     def build_dcdMap(
@@ -204,7 +205,9 @@ class DcdHdfBuilder(FrameConsumer):
             position_df=providers.postion_df,
             count_p=providers.count_p,
             count_slice=providers.count_slice,
-            map_p=providers.map_p,
+            map_p=providers.map_p.add_filter(
+                selection=1
+            ),  # ensure only selected cells are load
             map_slice=providers.map_slice,
         )
 
