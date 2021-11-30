@@ -61,6 +61,9 @@ class BaseHdfProvider:
         with tables.open_file(self._hdf_path, "r") as hdf_file:
             return hdf_file.root[_key].table.attrs[attr_key]
 
+    def get_time_interval(self):
+        return self.get_attribute("time_interval")
+
     def contains_group(self, group):
         with self.ctx() as ctx:
             return group in [g._v_name for g in ctx.groups()]

@@ -455,6 +455,21 @@ class DcdMap2D(DcdMap):
         for k, v in ax_prop.items():
             getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
 
+    def update_cell_error(
+        self,
+        time_slice: slice,
+        value: str = "err",
+        agg_func: Union[Callable, str, list, dict] = "mean",
+        *args,
+        **kwargs,
+    ) -> pd.DataFrame():
+        """
+        Aggregated cell error over all nodes over a given time.
+        """
+        # select time slice. Do not select ground truth (ID = 0)
+        df = self.count_p[pd.IndexSlice[time_slice, :, :, 1:], value]
+        return df.groupby(by=["x", "y"]).aggregate(func=agg_func, *args, **kwargs)
+
     def update_error_over_distance(
         self,
         time_step,
@@ -479,6 +494,87 @@ class DcdMap2D(DcdMap):
             line.set_ydata(df[value].to_numpy())
             line.set_xdata(df["owner_dist"].to_numpy())
         return df
+
+    @savefigure
+    @with_axis
+    @plot_decorator
+    def plot_error_histogram(
+        self,
+        time_slice: slice,
+        value="err",
+        agg_func="mean",
+        *,
+        density=False,
+        ax: plt.Axes = None,
+        bins: int = 20,
+        **hist_kwargs,
+    ):
+
+        ax.set_xlabel(f"{value}")
+        _t = f"Cell count Error ('{value}') for Time {time_slice.start}"
+        if time_slice.stop is not None:
+            _t += f" - {time_slice.stop}"
+        ax.set_title(_t)
+        if density:
+            ax.set_ylabel("density")
+            hist_kwargs["stacked"] = True
+        else:
+            ax.set_ylabel("count")
+
+        data = self.update_cell_error(time_slice, value, agg_func)
+        ax.hist(bins=bins, x=data, density=density, **hist_kwargs)
+        return ax.get_figure(), ax
+
+    @savefigure
+    @with_axis
+    @plot_decorator
+    def plot_error_quantil_histogram(
+        self,
+        value="err",
+        agg_func="mean",
+        *,
+        density=False,
+        ax: plt.Axes = None,
+        bins: int = 20,
+        histtype="step",
+        **hist_kwargs,
+    ):
+        tmin, tmax = self.count_p.get_time_interval()
+        time = (tmax - tmin) / 4
+        intervals = {
+            f"Time Quantil {i+1}": slice(time * i, time * i + time) for i in range(4)
+        }
+
+        if density:
+            ax.set_ylabel("density")
+            hist_kwargs["stacked"] = True
+        else:
+            ax.set_ylabel("count")
+
+        ax.set_title("Cell Error Histogram")
+        ax.set_xlabel(value)
+
+        ax.hist(
+            x=self.update_cell_error(slice(None), value, agg_func),
+            label="All",
+            bins=bins,
+            histtype=histtype,
+            density=density,
+            **hist_kwargs,
+        )
+
+        for k, v in intervals.items():
+            ax.hist(
+                x=self.update_cell_error(v, value, agg_func),
+                label=k,
+                bins=bins,
+                histtype=histtype,
+                density=density,
+                **hist_kwargs,
+            )
+
+        ax.legend(*ax.get_legend_handles_labels())
+        return ax.get_figure(), ax
 
     @savefigure
     @plot_decorator
