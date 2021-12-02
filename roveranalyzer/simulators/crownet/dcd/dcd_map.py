@@ -6,6 +6,7 @@ from typing import Callable, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.collections import QuadMesh
 from matplotlib.figure import Figure
@@ -460,6 +461,8 @@ class DcdMap2D(DcdMap):
         time_slice: slice,
         value: str = "err",
         agg_func: Union[Callable, str, list, dict] = "mean",
+        drop_index: bool = False,
+        name: Union[str, None] = None,
         *args,
         **kwargs,
     ) -> pd.DataFrame():
@@ -468,7 +471,12 @@ class DcdMap2D(DcdMap):
         """
         # select time slice. Do not select ground truth (ID = 0)
         df = self.count_p[pd.IndexSlice[time_slice, :, :, 1:], value]
-        return df.groupby(by=["x", "y"]).aggregate(func=agg_func, *args, **kwargs)
+        df = df.groupby(by=["x", "y"]).aggregate(func=agg_func, *args, **kwargs)
+        if name is not None:
+            df = df.rename(columns={value: name})
+        if drop_index:
+            df = df.reset_index(drop=True)
+        return df
 
     def update_error_over_distance(
         self,
@@ -500,29 +508,26 @@ class DcdMap2D(DcdMap):
     @plot_decorator
     def plot_error_histogram(
         self,
-        time_slice: slice,
+        time_slice: slice = slice(None),
         value="err",
         agg_func="mean",
         *,
-        density=False,
+        stat: str = "count",  # "percent"
+        fill: bool = True,
         ax: plt.Axes = None,
-        bins: int = 20,
         **hist_kwargs,
     ):
-
-        ax.set_xlabel(f"{value}")
+        if time_slice == slice(None):
+            _ts = self.count_p.get_time_interval()
+            time_slice = slice(_ts[0], _ts[1])
         _t = f"Cell count Error ('{value}') for Time {time_slice.start}"
         if time_slice.stop is not None:
             _t += f" - {time_slice.stop}"
         ax.set_title(_t)
-        if density:
-            ax.set_ylabel("density")
-            hist_kwargs["stacked"] = True
-        else:
-            ax.set_ylabel("count")
+        ax.set_xlabel(f"{value}")
 
-        data = self.update_cell_error(time_slice, value, agg_func)
-        ax.hist(bins=bins, x=data, density=density, **hist_kwargs)
+        data = self.update_cell_error(time_slice, value, agg_func, drop_index=True)
+        ax = sns.histplot(data=data, stat=stat, fill=fill, ax=ax, **hist_kwargs)
         return ax.get_figure(), ax
 
     @savefigure
@@ -533,10 +538,9 @@ class DcdMap2D(DcdMap):
         value="err",
         agg_func="mean",
         *,
-        density=False,
+        stat: str = "count",  # "percent"
+        fill: bool = False,
         ax: plt.Axes = None,
-        bins: int = 20,
-        histtype="step",
         **hist_kwargs,
     ):
         tmin, tmax = self.count_p.get_time_interval()
@@ -545,35 +549,26 @@ class DcdMap2D(DcdMap):
             f"Time Quantil {i+1}": slice(time * i, time * i + time) for i in range(4)
         }
 
-        if density:
-            ax.set_ylabel("density")
-            hist_kwargs["stacked"] = True
-        else:
-            ax.set_ylabel("count")
-
         ax.set_title("Cell Error Histogram")
         ax.set_xlabel(value)
 
-        ax.hist(
-            x=self.update_cell_error(slice(None), value, agg_func),
-            label="All",
-            bins=bins,
-            histtype=histtype,
-            density=density,
+        data = self.update_cell_error(
+            slice(None), value, agg_func, name="All", drop_index=True
+        )
+        quant = [
+            self.update_cell_error(v, value, agg_func, name=k, drop_index=True)
+            for k, v in intervals.items()
+        ]
+        data = pd.concat([data, *quant], axis=1)
+
+        sns.histplot(
+            data=data,
+            stat=stat,
+            common_norm=False,
+            fill=fill,
+            legend=True,
             **hist_kwargs,
         )
-
-        for k, v in intervals.items():
-            ax.hist(
-                x=self.update_cell_error(v, value, agg_func),
-                label=k,
-                bins=bins,
-                histtype=histtype,
-                density=density,
-                **hist_kwargs,
-            )
-
-        ax.legend(*ax.get_legend_handles_labels())
         return ax.get_figure(), ax
 
     @savefigure
