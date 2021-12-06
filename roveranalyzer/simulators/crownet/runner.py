@@ -29,6 +29,7 @@ from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
 def debug_print(message:str) -> None:
+    #TODO remove hard coded file paths
     file = "/home/mweidner/log.txt"
     with open(file, "a") as myfile:
         myfile.write(f"{message}\n")
@@ -559,6 +560,7 @@ class BaseRunner:
         if mode == "client":
 
             host_name = f"vadere_{self.ns['run_name']}"
+            experiment_label = f"vadere_controlled_{self.ns['experiment_label']}"
 
             _wait_for_vadere = True
             while _wait_for_vadere:
@@ -575,6 +577,8 @@ class BaseRunner:
                 use_local=self.ns["ctl_local"],
                 scenario=self.ns["scenario_file"],
                 ctrl_args=self.ns["ctrl_args"],
+                result_dir= self.ns["result_dir"],
+                experiment_label = experiment_label,
             )
         else:
 
@@ -845,17 +849,11 @@ class BaseRunner:
             "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
         )
 
-        output_dir = os.path.join(
-            os.getcwd(),
-            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
-        )
-        os.makedirs(output_dir, exist_ok=True)
-
         self.build_control_runner()
 
         try:
             if self.ns["create_vadere_container"]:
-                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
+                self.build_and_start_vadere_runner(port=9999)
                 logger.info(f"start simulation {self.ns['run_name']} ...")
 
             ctl_ret = self.exec_control_runner(mode="client")
