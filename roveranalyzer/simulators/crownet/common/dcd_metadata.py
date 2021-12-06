@@ -1,13 +1,13 @@
-from itertools import repeat
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
-
-from roveranalyzer.utils import LazyDataFrame
+from geopandas import GeoDataFrame
+from pandas import IndexSlice as Idx
+from shapely.geometry import Point, box
 
 
 class DcdMetaData:
-
     expected_keys = ["XSIZE", "YSIZE", "CELLSIZE", "NODE_ID"]
 
     @classmethod
@@ -25,13 +25,30 @@ class DcdMetaData:
         cell_size = float(meta["CELLSIZE"])
         cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
         node_id = meta["NODE_ID"]
-        return cls(cell_size, cell_count, bound, node_id)
+        _meta = cls(cell_size, cell_count, bound, node_id)
+        if all([k in meta for k in ["XOFFSET", "YOFFSET"]]):
+            _meta.offset = [float(meta["XOFFSET"]), float(meta["YOFFSET"])]
+        return _meta
 
-    def __init__(self, cell_size, cell_count, bound, node_id):
+    def __init__(
+        self,
+        cell_size,
+        cell_count,
+        bound,
+        node_id=0,
+        offset=[0.0, 0.0],
+        epsg="",
+        map_extend_x=[0, 0],
+        map_extend_y=[0, 0],
+    ):
         self.cell_size = cell_size
         self.cell_count = cell_count
         self.bound = bound
         self.node_id = node_id
+        self.offset = offset
+        self.epsg = epsg
+        self.map_extend_x = map_extend_x
+        self.map_extend_y = map_extend_y
 
     def is_global(self):
         return self.node_id == "global"
@@ -45,7 +62,30 @@ class DcdMetaData:
     def is_same(self, other):
         return self.cell_size == other.cell_size and self.bound == other.bound
 
+    def bound_gdf(self, crs: Union[str, None] = None) -> GeoDataFrame:
+        df = pd.DataFrame([["bound"]], columns=["Name"])
+        _o = np.abs(self.offset)
+
+        x_size = self.map_extend_x[1] - self.map_extend_x[0]
+        y_size = self.map_extend_y[1] - self.map_extend_y[0]
+        geometry = [
+            box(
+                _o[0] + self.map_extend_x[0],
+                _o[1] + self.map_extend_y[0],
+                _o[0] + x_size,
+                _o[1] + y_size,
+            )
+        ]
+        _df = GeoDataFrame(df, geometry=geometry, crs=self.epsg)
+        if crs is not None:
+            _df = _df.to_crs(epsg=crs.replace("EPSG:", ""))
+        return _df
+
     def grid_index_2d(self, real_coords=False):
+        """
+        crate full (cartesian) index based on map dimension.
+        If real_coords is set use lower left corner of cell as value
+        """
         if real_coords:
             _idx = [
                 np.arange(self.x_count) * self.cell_size,  # numXCell
@@ -72,6 +112,37 @@ class DcdMetaData:
                 np.arange(self.y_count),  # numYCell
             ]
         return pd.MultiIndex.from_product(_idx, names=("simtime", "x", "y"))
+
+    def empty_df(self, value_name, real_coords=True):
+        """
+        Crate an empty dataframe containing all cells of the map.
+        Returns df with shape(N,1), and index [x, y]
+        """
+        full_index = self.grid_index_2d(real_coords)
+        df = pd.DataFrame(np.zeros((len(full_index), 1)), columns=[value_name])
+        df = df.set_index(full_index)
+        return df
+
+    def update_missing(self, df, real_coords=True):
+        """
+        Creates
+        """
+        index_names = list(df.index.names)
+        if index_names == ["x", "y"]:
+            full_index = self.grid_index_2d(real_coords)
+        else:
+            wrong_index = ",".join([f"'{i}'" for i in index_names])
+            raise ValueError(
+                f"Unsupported index. Expected ['x', 'y'] but got [{wrong_index}]"
+            )
+
+        columns = list(df.columns)
+        full_df = pd.DataFrame(
+            np.zeros((len(full_index), len(columns))), columns=columns
+        )
+        full_df = full_df.set_index(full_index)
+        full_df.update(df)
+        return full_df
 
     def create_full_index_from_df(self, df, real_coords=False):
         return self.create_full_index(
@@ -117,88 +188,3 @@ class DcdMetaData:
     @property
     def y_count(self):
         return self.cell_count[1]
-
-
-def _density_get_raw(csv_path, index, col_types):
-    """
-    read csv and set index
-    """
-    _df = LazyDataFrame.from_path(csv_path)
-    _df.dtype = col_types
-
-    select_columns = [*index, *list(col_types.keys())]
-    df_raw: pd.DataFrame = _df.df(set_index=False, column_selection=select_columns)
-    df_raw = df_raw.set_index(index)
-    df_raw = df_raw.sort_index()
-
-    meta = _df.read_meta_data()
-    _m = DcdMetaData.from_dict(meta)
-
-    return df_raw, _m
-
-
-def _apply_real_coords(_df, _meta: DcdMetaData):
-    _idxOld = _df.index.to_frame(index=False)
-    _idxOld["x"] = _idxOld["x"] * _meta.cell_size
-    _idxOld["y"] = _idxOld["y"] * _meta.cell_size
-    _idxNew = pd.MultiIndex.from_frame(_idxOld)
-    return _df.set_index(_idxNew)
-
-
-# deprecated
-def _full_map(df, _m: DcdMetaData, index, col_types, real_coords=False):
-    """
-    create full index: time * numXCells * numYCells
-    """
-    idx = _m.create_full_index_from_df(df, real_coords)
-    # create zero filled data frame with index
-    expected_columns = list(col_types.keys())
-    ret = pd.DataFrame(
-        data=np.zeros((len(idx), len(expected_columns))), columns=expected_columns
-    )
-    # set index and update with raw measures. (most will stay at zero)
-    ret = ret.set_index(idx)
-    ret.update(df)
-    ret = ret.astype(df.dtypes)
-    return ret
-
-
-def run_pool(pool, fn, kwargs_iter):
-    starmap_args = zip(repeat(fn), kwargs_iter)
-    return pool.starmap(apply_pool_kwargs, starmap_args)
-
-
-def apply_pool_kwargs(fn, kwargs):
-    return fn(**kwargs)
-
-
-def build_density_map(
-    csv_path,
-    index,
-    column_types,
-    real_coords=False,
-    add_missing_cells=False,
-    df_filter=None,
-):
-    """
-    build density maps from spare csv output.
-    expects a csv file with as header simtime;x;y;count;measured_t;received_t.
-    The first line must include a metadata line (starting with #) which
-    containing CELLSIZE and absolute size of the grid metadata.
-    #CELLSIZE=3.000000,DATACOL=-1,IDXCOL=3,SEP=;,XSIZE=581.135000,YSIZE=233.492000
-    """
-    print(f"load {csv_path}")
-    ret, meta = _density_get_raw(csv_path, index, column_types)
-
-    if df_filter is not None:
-        # apply early filter to remove not needed data to increase performance
-        ret = df_filter(ret)
-
-    if real_coords:
-        ret = _apply_real_coords(ret, meta)
-
-    # create full index with missing cells. Values will be set to '0' (type dependent)
-    if add_missing_cells:
-        ret = _full_map(ret, meta, index, column_types, real_coords)
-
-    return meta, ret

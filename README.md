@@ -1,5 +1,15 @@
 # roveranalyzer
 
+## System setup
+We strongly recommend to use a virtual environment
+```
+python3.8 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip3 install -r requirements.txt
+```
+Note: `python3.8 setup.py install` is not working, because requirements.txt contains URLs.
+
 ## Dev
 
 ### setup pre-comit hooks
@@ -58,7 +68,7 @@ scavetool.load_csv('some.csv')
 The default configuration `Config()` will use
 containrized a version of the scavetool, which means
 the `$CROWNET_HOME` variable must be set to the
-root of this repository. See [tutorial/README](tutorial/README.md)
+root of this repository. See [tutorials/README](tutorials/README.md)
 for configuration setup if you dont use the containers.
 
 ### ToDo's

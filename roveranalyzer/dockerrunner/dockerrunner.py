@@ -1,19 +1,27 @@
-import logging
 import os
 import pprint
 from enum import Enum
 from pathlib import Path
+from typing import Union
 
 import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
+from requests import ReadTimeout
 
-if len(logging.root.handlers) == 0:
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s:%(module)s:%(levelname)s> %(message)s",
-    )
+from roveranalyzer.utils import logger
+
+
+class ContainerLogWriter:
+    def __init__(self, path):
+        self.path = path
+
+    def write(self, container_name, output: bytes, *args, **kwargs):
+        logger.info(f"write output of {container_name}  to {self.path}")
+        os.makedirs(os.path.split(self.path)[0], exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as log:
+            log.write(output.decode("utf-8"))
 
 
 class DockerCleanup(Enum):
@@ -36,6 +44,22 @@ class DockerReuse(Enum):
         return self.value
 
 
+def stop_containers(names):
+    c = docker.DockerClient = docker.from_env()
+    for container in names:
+        try:
+            c = c.containers.get(container)
+            c.stop(timeout=2)
+        except Exception:
+            pass
+
+
+class DockerClient:
+    @classmethod
+    def get(cls, timeout=120, max_pool_size=10):
+        return docker.from_env(timeout=timeout, max_pool_size=max_pool_size)
+
+
 class DockerRunner:
     NET = "rovernet"
 
@@ -51,7 +75,7 @@ class DockerRunner:
         journal_tag="",
     ):
         if docker_client is None:
-            self.client: docker.DockerClient = docker.from_env()
+            self.client: docker.DockerClient = DockerClient.get()
         else:
             self.client: docker.DockerClient = docker_client
         self.image = f"{image}:{tag}"
@@ -68,6 +92,9 @@ class DockerRunner:
         self.reuse_policy = reuse_policy
         self.run_args = {}
         self._container = None
+        self._log_clb: Union[
+            ContainerLogWriter, None
+        ] = None  # callback to handle logoutput of container
 
         # last call in init.
         self._apply_default_volumes()
@@ -98,7 +125,7 @@ class DockerRunner:
             if reuse_policy == DockerReuse.REMOVE_RUNNING:
                 _container.stop()
                 _container.remove()
-                logging.info(
+                logger.info(
                     f"stop and remove existing container with name '{self.name}'"
                 )
             elif reuse_policy == DockerReuse.REMOVE_STOPPED:
@@ -107,14 +134,14 @@ class DockerRunner:
                         f"container is still running but reuse policy is {reuse_policy}."
                     )
                 _container.remove()
-                logging.info(f"remove existing container with name '{self.name}'")
+                logger.info(f"remove existing container with name '{self.name}'")
             elif (
                 reuse_policy == DockerReuse.REUSE_STOPPED
                 or reuse_policy == DockerReuse.REUSE_RUNNING
             ):
                 if _container.status == "running":
                     _container.stop()
-                    logging.info(f"stop existing container with name '{self.name}'")
+                    logger.info(f"stop existing container with name '{self.name}'")
             elif reuse_policy == DockerReuse.NEW_ONLY:
                 # container exists. --> error here
                 raise ValueError(
@@ -156,6 +183,9 @@ class DockerRunner:
 
     def set_working_dir(self, wdir):
         self.run_args["working_dir"] = wdir
+
+    def set_log_callback(self, clb: ContainerLogWriter):
+        self._log_clb = clb
 
     def _apply_default_environment(self):
         self.environment: dict = {}
@@ -209,10 +239,19 @@ class DockerRunner:
         try:
             self.client.images.get(self.image)
         except:
-            logging.info(
+            logger.info(
                 f"Docker image is missing. Try to pull {self.image} from repository."
             )
             self.client.images.pull(repository=self.rep, tag=self.tag)
+
+    def parse_log(self):
+        if self._log_clb is not None:
+            if self._container is None:
+                logger.warning(
+                    f"no container found for dockerrunner. Did you call parse_log at the wrong time?"
+                )
+            else:
+                self._log_clb.write(self.name, self._container.logs())
 
     def create_container(self, cmd="/init.sh", **run_args) -> Container:
         """
@@ -220,15 +259,38 @@ class DockerRunner:
         """
         self.build_run_args(**run_args)  # set name if given
         command = self.wrap_command(cmd)
-        logging.info(f"create container [image:{self.image}]")
-        logging.debug(f"   cmd: \n{pprint.pformat(command, indent=2)}")
-        logging.debug(f"   runargs: \n{pprint.pformat(self.run_args, indent=2)}")
+        logger.info(f"{'#'*10} create container [image:{self.image}]")
+        logger.debug(f"cmd: \n{pprint.pformat(command, indent=2)}")
+        logger.debug(f"runargs: \n{pprint.pformat(self.run_args, indent=2)}")
 
         c: Container = self.client.containers.create(
             image=self.image, command=command, **self.run_args
         )
-        logging.info(f"container created {c.name} [image:{self.image}]")
+        logger.info(f"{'#'*10} container created {c.name} [image:{self.image}]")
         return c
+
+    def wait(self, timeout=-1):
+        if timeout > 0:
+            ret = self._container.wait(timeout=timeout)
+        else:
+            ret = self._container.wait()
+        if ret["StatusCode"] != 0:
+            logger.error(f"{'#' * 80}")
+            logger.error(f"{'#' * 80}")
+            logger.error(f"Command returned {ret['StatusCode']}")
+            if (
+                "log_config" in self.run_args
+                and self.run_args["log_config"].type == LogConfig.types.JOURNALD
+            ):
+                logger.error(
+                    f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
+                )
+            container_log = self._container.logs()
+            if container_log != b"":
+                logger.error(f'Container Log:\n {container_log.decode("utf-8")}')
+            logger.error(f"{'#' * 80}")
+            logger.error(f"{'#' * 80}")
+        return ret
 
     def run(self, cmd, perform_cleanup=True, **run_args):
         err = False
@@ -237,42 +299,32 @@ class DockerRunner:
 
         try:
             self._container = self.create_container(cmd, **run_args)
-            logging.info(
+            logger.info(
                 f"start container {self._container.name} with {{detach: {self.detach},"
                 f" remove: {self.cleanupPolicy}, journal_tag: {self.journal_tag}}}"
             )
             self._container.start()
             if not self.detach:
-                ret = self._container.wait()
-                if ret["StatusCode"] != 0:
-                    logging.error(f"Command returned {ret['StatusCode']}")
-                    if (
-                        "log_config" in self.run_args
-                        and self.run_args["log_config"].type == LogConfig.types.JOURNALD
-                    ):
-                        logging.error(
-                            f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
-                        )
-                    container_log = self._container.logs()
-                    if container_log != b"":
-                        logging.error(
-                            f'Container Log:\n {container_log.decode("utf-8")}'
-                        )
+                ret = self.wait()
             else:
-                ret = {}
+                ret = {"Error": None, "StatusCode": 0}
         except (KeyboardInterrupt, SystemExit) as kInter:
-            logging.warning(
+            logger.warning(
                 f"KeyboardInterrupt. Stop Container {self._container.name} ..."
             )
             err = True  # stop but do not delete container
             raise  # re-raise so other parts can react to SIGINT
+        except ReadTimeout as e:
+            logger.error("wait timeout reached")
+            err = True  # stop but do not delete container
+            raise RuntimeError(e)
         except docker.errors.APIError as e:
-            logging.error(f"some API error occurred")
-            logging.error(e.explanation)
+            logger.error(f"some API error occurred")
+            logger.error(e.explanation)
             err = True  # stop but do not delete container
             raise RuntimeError(e)
         except BaseException as e:
-            logging.error(f"some error occurred")
+            logger.error(f"some error occurred")
             err = True  # stop but do not delete container
             raise RuntimeError(e)
         finally:
@@ -287,12 +339,13 @@ class DockerRunner:
         if self._container is None:
             return  # do nothing
 
-        logging.debug(f"Stop container {self._container.name} ...")
+        self.parse_log()
+        logger.debug(f"Stop container {self._container.name} ...")
         self._container.stop()
         if self.cleanupPolicy == DockerCleanup.REMOVE or (
             self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state
         ):
-            logging.debug(f"remove container {self._container.name} ...")
+            logger.debug(f"remove container {self._container.name} ...")
             self._container.remove()
             self._container = None  # container removed so do not keep reference
 

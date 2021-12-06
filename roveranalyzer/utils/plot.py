@@ -1,5 +1,53 @@
+import itertools
+import random
+from typing import List, Union
+
 import matplotlib.pyplot as plt
 import pandas as pd
+
+
+class _PlotUtil:
+    hatch_patterns = ("||", "--", "++", "x", "\\", "*", "|", "-", "+")
+    plot_markers = ["o", "x", "*", ".", "v", "1", "2", "3", "4"]
+    plot_colors = ["b", "g", "r", "c", "m", "k"]
+    line_types = ["-", ":", "-.", "--"]
+    plot_color_markers = [
+        f"{c}{m}" for c, m in itertools.product(plot_colors, plot_markers)
+    ]
+    plot_color_lines = [
+        f"{c}{l}" for c, l in itertools.product(plot_colors, line_types)
+    ]
+
+    def __init__(self) -> None:
+        random.Random(13).shuffle(self.plot_color_markers)
+        random.Random(13).shuffle(self.plot_color_lines)
+
+    def color_marker_lines(self, line_type="--"):
+        return [f"{m}{line_type}" for m in self.plot_color_markers]
+
+    def color_lines(self, line_type: Union[str, List[str], str] = None, cycle=True):
+        if line_type is None:
+            lines = self.plot_color_lines
+        elif type(line_type) == list:
+            lines = [
+                f"{c}{l}" for c, l in itertools.product(self.plot_colors, line_type)
+            ]
+            random.Random(13).shuffle(lines)
+        elif type(line_type) == str:
+            lines = [f"{m}{line_type}" for m in self.plot_color_markers]
+        else:
+            raise ValueError("expected None, list of strings or string")
+        if cycle:
+            return itertools.cycle(lines)
+        else:
+            return lines
+
+    @property
+    def color_marker_lines_cycle(self):
+        return itertools.cycle(self.color_marker_lines())
+
+
+PlotUtil = _PlotUtil()
 
 
 def check_ax(ax=None, **kwargs):
@@ -59,3 +107,49 @@ class PlotHelper:
     @property
     def plot_data(self) -> pd.DataFrame:
         return self._plot_data
+
+
+class PlotAttrs:
+    """
+    PlotAttrs is a singleton guaranteeing unique plot parameters
+    """
+
+    class __PlotAttrs:
+        plot_marker = [".", "*", "o", "v", "1", "2", "3", "4"]
+        plot_color = ["b", "g", "r", "c", "m", "y", "k", "w"]
+
+        def __init__(self):
+            pass
+
+    instance: object = None
+
+    def __init__(self):
+        if not PlotAttrs.instance:
+            PlotAttrs.instance = PlotAttrs.__PlotAttrs()
+        self.idx_m = -1
+        self.idx_c = -1
+
+    def __getattr__(self, name):
+        return getattr(self.instance, name)
+
+    def get_marker(self) -> str:
+        ret = self.instance.plot_marker[self.idx_m]
+        self.idx_m += 1
+        if self.idx_m >= len(self.instance.plot_marker):
+            self.idx_m = 0
+        return ret
+
+    def get_color(self) -> str:
+        ret = self.instance.plot_color[self.idx_c]
+        self.idx_c += 1
+        if self.idx_c >= len(self.instance.plot_color):
+            self.idx_c = 0
+        return ret
+
+    def reset(self):
+        self.idx_c = 0
+        self.idx_m = 0
+
+
+if __name__ == "__main__":
+    print(list(PlotUtil.color_marker_lines()))

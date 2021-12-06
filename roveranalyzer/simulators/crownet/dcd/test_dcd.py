@@ -8,7 +8,12 @@ import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 
-from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2D, DcdMetaData
+import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
+from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdBuilder, PickleState
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
+from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
+from roveranalyzer.simulators.vadere.plots.plots import pcolormesh_dict
 from roveranalyzer.tests.utils import TestDataHandler
 from roveranalyzer.utils import PathHelper, intersect
 
@@ -21,6 +26,9 @@ elif hasQt is not None:
 else:
     matplotlib.use("TkAgg")
 print(f"using backend: {matplotlib.get_backend()}")
+
+# use in conjunction with test_parser (parser.py) to keep test clean of absolute paths to test data.
+_glb_config = {}
 
 
 class DcdMapTests:
@@ -88,7 +96,7 @@ class DcdMapTutorialTests(DcdMapSimpleTest, unittest.TestCase):
 
 @unittest.skipIf(
     "ROVER_LOCAL" not in os.environ,
-    "Local test with local test data. Do not run on CI",
+    "Local test.  Set ROVER_LOCAL to run test. (Do not run on CI)",
 )
 class DcdMapTestLocal(DcdMapSimpleTest, unittest.TestCase):
     def setUp(self) -> None:
@@ -127,5 +135,47 @@ def plot_wrap(func, _self, *args, **kwargs):
     return ret
 
 
-if __name__ == "__main__":
-    unittest.main()
+@unittest.skipIf(
+    "ROVER_LOCAL" not in os.environ,
+    "Local test.  Set ROVER_LOCAL to run test. (Do not run on CI)",
+)
+class HdfTest(unittest.TestCase):
+    def setUp(self) -> None:
+        pass
+
+    def test_foo1(self):
+        path = PathHelper(_glb_config["data_dir"])
+
+        global_map_path = path.glob("global.csv", recursive=False, expect=1)
+        node_map_paths = path.glob("dcdMap_*.csv")
+        scenario_path = path.glob("vadere.d/*.scenario", expect=1)
+        p_name = "dcdMap_full.p"
+        _b = (
+            DcdBuilder()
+            .use_real_coords(True)
+            .all()
+            .clear_single_filter()
+            .plotter(scenario_path)
+            .csv_paths(global_map_path, node_map_paths)
+            .data_base_path(path.get_base())
+            .pickle_name(p_name)
+            .pickle_as(PickleState.FULL)
+            # .pickle_as(PickleState.MERGED)
+        )
+        # strip not selected values to speed up
+        _b.add_single_filter([DcdUtil.remove_not_selected_cells])
+        dcd = _b.build()
+
+        # data = df.count_map_provider.select_id_exact(2)
+        # print(type(data))
+        time = 2
+        id = 0
+        fig, ax = dcd.plot_area(
+            time_step=time,
+            node_id=id,
+            value="count",
+            pcolormesh_dict=pcolormesh_dict(vmin=0, vmax=4),
+            title="",
+        )
+        i = InteractiveAreaPlot(dcd, ax, value="count")
+        i.show()

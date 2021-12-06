@@ -1,11 +1,12 @@
-import logging
 import os
+import warnings
 
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.utils import logger
 
 
 class SumoRunner(DockerRunner):
@@ -50,6 +51,10 @@ class SumoRunner(DockerRunner):
         message_log=os.devnull,
         run_args_override=None,
     ):
+        """
+        This function is deprecated, please use the single_launcher
+        """
+        warnings.warn("SumoRunner.exec_single_server is a deprecated function.")
         cmd = [
             "sumo",
             "-v",
@@ -63,10 +68,37 @@ class SumoRunner(DockerRunner):
             "--quit-on-end",
         ]
 
-        logging.debug(f"exec_single_server cmd: {cmd}")
         if run_args_override is None:
             run_args_override = {}
 
+        logger.debug(f"start sumo container(single server)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
+        return self.run(cmd, **run_args_override)
+
+    def single_launcher(
+        self,
+        traci_port=9999,
+        bind="0.0.0.0",
+        message_log=os.devnull,
+        run_args_override=None,
+    ):
+        # todo: implement how opp/runner.py in line 78
+        cmd = [
+            "/veins_launchd",
+            "-vvv",
+            "--port",
+            str(traci_port),
+            "--bind",
+            bind,
+            "--logfile",
+            message_log,
+            "--single-run",
+        ]
+        if run_args_override is None:
+            run_args_override = {}
+
+        logger.debug(f"start sumo container(single server)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, **run_args_override)
 
     def exec_start_vadere_laucher(self):

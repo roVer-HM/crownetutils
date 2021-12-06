@@ -10,17 +10,17 @@ repos:
         args: ["--fast"]
 
 -   repo: https://github.com/asottile/seed-isort-config
-    rev: v1.9.3
+    rev: v2.2.0
     hooks:
     - id: seed-isort-config
 
 -   repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.6.4
+    rev: v5.8.0
     hooks:
     -   id: isort
 
 -   repo: https://github.com/kynan/nbstripout
-    rev: master
+    rev: 0.3.9
     hooks:
     - id: nbstripout
       files: ".ipynb"

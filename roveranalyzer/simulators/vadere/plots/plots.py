@@ -10,7 +10,7 @@ import matplotlib.tri as tri
 import numpy as np
 import pandas as pd
 import trimesh
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, Normalize, TwoSlopeNorm
 
 from roveranalyzer.simulators.vadere.plots.custom_tripcolor import tripcolor_costum
 from roveranalyzer.utils import PlotHelper, Timer
@@ -26,6 +26,22 @@ class PlotOptions(Enum):
     COUNT = (1, "counts")
     DENSITY = (2, "density")
     DENSITY_SMOOTH = (3, "density_smooth")
+
+
+def pcolormesh_dict(vmin, vmax, center=None, cmap=None, norm=None, **kwargs):
+    ret = {}
+    ret.update(kwargs)
+    if center is not None and norm is None:
+        assert vmin < center < vmax
+        ret.setdefault("norm", TwoSlopeNorm(center, vmin, vmax))
+
+        if cmap is None:
+            ret.setdefault("cmap", "crownet_bwr")
+
+    ret.setdefault("norm", Normalize(vmin, vmax))
+    ret.setdefault("cmap", t_cmap("Reds", replace_index=(0, 1, 0.0)))
+
+    return ret
 
 
 def t_cmap(

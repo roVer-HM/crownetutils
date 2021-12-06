@@ -12,7 +12,7 @@ from matplotlib.backend_bases import key_press_handler
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.collections import QuadMesh
 
-from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2D
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 
 
 class MyDialog(Dialog):
@@ -55,6 +55,74 @@ class MyDialog(Dialog):
         self.top.destroy()
 
 
+class IntScale(tk.Scale):
+    """
+    Scale based on data array independent on actual values.
+    The scale gui will use the index of the array 0...len(data) as the scale.
+    For some reason 'from', 'to' only works if diff is greater than 100 (for integer)
+    This IntScale uses a fixed scale of 0-128 for data input where len(data) is smaller than 100
+    and then interpolates the index of the data array when the slider is moved.
+    The get() and set() methods return or set *actual* values present in the underling data. Use
+    get_scale(), set_scale() to set/get the slider position.
+
+    If the slider is set using user values (form the data array) the closest value will be used e.g.:
+    data = [2, 4, 5, 6, 8]
+    set(4,9) --> will set slider at data[2] --> 5
+    """
+
+    def __init__(self, *arg, **kwargs):
+        self.data = kwargs.pop("data")
+        self.idx_max = len(self.data)
+
+        if len(self.data) < 100:
+            # gui does not work if to-from_ is smaller than 100 ?
+            self.s_min = 0
+            self.s_max = 128
+        else:
+            self.s_min = 0
+            self.s_max = len(self.data)
+
+        # underling scale used in gui
+        kwargs["from_"] = self.s_min
+        kwargs["to"] = self.s_max
+        super().__init__(*arg, **kwargs)
+
+    def get_idx(self, scale_value):
+        r = int(np.round(scale_value * self.idx_max / self.s_max))
+        return r
+
+    def get_scale_from_idx(self, idx):
+        r = int(np.round(idx * self.s_max / self.idx_max))
+        return r
+
+    def get_scale_from_value(self, value):
+        _t = np.abs(self.data - float(value)).argmin()
+        return self.get_scale_from_idx(_t)
+
+    def get_scale(self):
+        return super().get()
+
+    def get_for(self, scale):
+        return
+
+    def get(self):
+        """
+        return user value
+        """
+        idx = self.get_idx(super().get())
+        idx = np.min([idx, len(self.data) - 1])
+        return self.data[idx]
+
+    def set_scale(self, scale):
+        super().set(scale)
+
+    def set(self, value):
+        """
+        expect user value!
+        """
+        super().set(self.get_scale_from_value(float(value)))
+
+
 class Interactive:
     def __init__(self, ax: plt.Axes, title=""):
         self.ax = ax
@@ -66,6 +134,8 @@ class Interactive:
         self._build_tk()
         self._register_callbacks()
         self._pack()
+
+        self.update_all()
 
         tk.mainloop()
 
@@ -154,6 +224,9 @@ class Interactive:
         print("you pressed {}".format(event.key))
         key_press_handler(event, self.canvas, self.toolbar)
 
+    def update_all(self):
+        raise NotImplementedError()
+
 
 class InteractiveTableTimeNodeSlider(Interactive):
     """
@@ -174,12 +247,9 @@ class InteractiveTableTimeNodeSlider(Interactive):
         self.x = 0.0
         self.y = 0.0
         self.tracking = False
-        self.info_btn_txt = tk.StringVar()
 
-        self.time_vals = (
-            self.dcd._map.index.get_level_values("simtime").unique().to_numpy()
-        )
-        self.id_vals = self.dcd._map.index.get_level_values("ID").unique().to_numpy()
+        self.time_vals = self.dcd.valid_times()
+        self.id_vals = self.dcd.all_ids(with_ground_truth=True)
         self.node_id = int(self.id_vals.min())
         self.time = int(self.time_vals.min())
 
@@ -203,10 +273,9 @@ class InteractiveTableTimeNodeSlider(Interactive):
         self.node_id_txt.delete(0, tk.END)
         self.node_id_txt.insert(10, self.node_id)
         self.node_id_txt.bind("<Return>", self.enter)
-        self.node_id_scale = tk.Scale(
+        self.node_id_scale = IntScale(
             self.node_id_frame,
-            from_=self.id_vals.min(),
-            to=self.id_vals.max(),
+            data=self.id_vals,
             orient=tk.HORIZONTAL,
             showvalue=False,
             resolution=-1,
@@ -219,10 +288,9 @@ class InteractiveTableTimeNodeSlider(Interactive):
         self.time_txt.delete(0, tk.END)
         self.time_txt.insert(10, self.time)
         self.time_txt.bind("<Return>", self.enter)
-        self.time_scale = tk.Scale(
+        self.time_scale = IntScale(
             self.time_frame,
-            from_=self.time_vals.min(),
-            to=self.time_vals.max(),
+            data=self.time_vals,
             orient=tk.HORIZONTAL,
             showvalue=False,
             resolution=-1,
@@ -280,22 +348,26 @@ class InteractiveTableTimeNodeSlider(Interactive):
 
     def enter(self, event):
         if event.widget == self.time_txt:
-            old_val = self.time_scale.get()
+            old_val = self.time_scale.get()  # user value (not index!)
             try:
                 val = event.widget.get().strip()
-                self.time_scale.set(float(val))
-                self.update_slider("time", val)
-            except Exception as e:
+                self.time_scale.set(val)
+                # update slider expects scale value of Scale class
+                self.update_slider("time", self.time_scale.get_scale_from_value(val))
+            except Exception:
                 self.time_scale.set(old_val)
                 self.time_txt.delete(0, tk.END)
                 self.time_txt.insert(10, self.time)
         elif event.widget == self.node_id_txt:
-            old_val = self.node_id_scale.get()
+            old_val = self.node_id_scale.get()  # user value (not index!)
             try:
                 val = event.widget.get().strip()
-                self.node_id_scale.set(float(val))
-                self.update_slider("node_id", val)
-            except Exception as e:
+                self.node_id_scale.set(val)
+                # update slider expects scale value of Scale class
+                self.update_slider(
+                    "node_id", self.node_id_scale.get_scale_from_value(val)
+                )
+            except Exception:
                 self.node_id_scale.set(old_val)
                 self.node_id_txt.delete(0, tk.END)
                 self.node_id_txt.insert(10, self.node_id)
@@ -317,13 +389,15 @@ class InteractiveTableTimeNodeSlider(Interactive):
 
     def update_slider(self, slider, event):
         if slider == "node_id":
-            _t = np.abs(self.id_vals - float(event)).argmin()
-            self.node_id = self.id_vals[_t]
+            # _t = self.node_id_scale.get(int(event))
+            _t = self.node_id_scale.get()
+            self.node_id = _t
             self.node_id_txt.delete(0, tk.END)
             self.node_id_txt.insert(10, self.node_id)
         elif slider == "time":
-            _t = np.abs(self.time_vals - float(event)).argmin()
-            self.time = self.time_vals[_t]
+            # _t = self.time_scale.get(int(event))
+            _t = self.time_scale.get()
+            self.time = _t
             self.time_txt.delete(0, tk.END)
             self.time_txt.insert(10, self.time)
         else:
@@ -335,12 +409,18 @@ class InteractiveTableTimeNodeSlider(Interactive):
 
         if all([e is not None for e in [x_event, y_event]]):
             self.x = (
-                np.floor(x_event / self.dcd.meta.cell_size) * self.dcd.meta.cell_size
+                np.floor(x_event / self.dcd.metadata.cell_size)
+                * self.dcd.metadata.cell_size
             )
             self.y = (
-                np.floor(y_event / self.dcd.meta.cell_size) * self.dcd.meta.cell_size
+                np.floor(y_event / self.dcd.metadata.cell_size)
+                * self.dcd.metadata.cell_size
             )
             self.update_table()
+
+    def update_all(self):
+        self.update_plot()
+        self.update_table()
 
     def update_plot(self):
         raise NotImplementedError()
@@ -349,25 +429,31 @@ class InteractiveTableTimeNodeSlider(Interactive):
         raise NotImplementedError()
 
 
-class Interactive2DDensityPlot(InteractiveTableTimeNodeSlider):
-
+class InteractiveAreaPlot(InteractiveTableTimeNodeSlider):
     """
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
+    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value: str):
         super().__init__(dcd, ax)
 
         self.quadMesh = None
+        self.value = value
         for collection in ax.collections:
             if type(collection) == QuadMesh:
                 self.quadMesh = collection
         if self.quadMesh is None:
             raise ValueError("expected a QuadMesh collection in passed axis.")
 
+    def animate(self, frame):
+        print(frame)
+        self.dcd.update_color_mesh(self.quadMesh, frame, self.node_id, self.value)
+
     def update_plot(self):
         try:
-            self.dcd.update_color_mesh(self.quadMesh, self.time, self.node_id)
+            self.dcd.update_color_mesh(
+                self.quadMesh, self.time, self.node_id, self.value
+            )
             self.update_table()
         except KeyError as e:
             print("key err")
@@ -382,32 +468,47 @@ class Interactive2DDensityPlot(InteractiveTableTimeNodeSlider):
         self.table.insert(tk.INSERT, json.dumps(info, indent=2, sort_keys=True))
 
 
-class InteractiveDelayOverDistance(InteractiveTableTimeNodeSlider):
-
+class InteractiveValueOverDistance(InteractiveTableTimeNodeSlider):
     """
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
+    def __init__(
+        self, dcd: DcdMap2D, ax: plt.Axes, value, update_f, update_f_args=None
+    ):
         super().__init__(dcd, ax)
 
         self.node_id = self.id_vals[1]
         self.line = ax.lines[0]
-        self.data = self.dcd.update_delay_over_distance(
-            self.time, self.node_id, "measurement_age"
+        self.value = value
+        self.update_f = update_f
+        self.update_f_args = {} if update_f_args is None else update_f_args
+        self.data = self.update_f(
+            self.time, self.node_id, self.value, line=self.line, **self.update_f_args
         )
 
     def animate(self, frame):
         print(frame)
-        self.dcd.update_delay_over_distance(
-            frame, self.node_id, "measurement_age", data=self.line
+        self.update_f(
+            frame, self.node_id, self.value, line=self.line, **self.update_f_args
         )
+        # self.dcd.update_delay_over_distance(
+        #     frame, self.node_id, "measurement_age", line=self.line
+        # )
 
     def update_plot(self):
         try:
-            self.data = self.dcd.update_delay_over_distance(
-                self.time, self.node_id, "measurement_age", data=self.line
+            self.data = self.update_f(
+                self.time,
+                self.node_id,
+                self.value,
+                line=self.line,
+                **self.update_f_args,
             )
+
+            # self.data = self.dcd.update_delay_over_distance(
+            #     self.time, self.node_id, "measurement_age", line=self.line
+            # )
             self.update_table()
         except KeyError as e:
             print("key err")

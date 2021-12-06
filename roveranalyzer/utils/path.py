@@ -13,7 +13,7 @@ def get_or_create(pickle_path, generator_fn, override=False, *args, **kwargs):
         ret = pickle.load(open(pickle_path, "rb"))
     else:
         print(f"create pickle {pickle_path}")
-        ret = generator_fn(*args, **kwargs)
+        ret = generator_fn(*args, **kwargs, pickle_path=pickle_path)
         pickle.dump(ret, open(pickle_path, "wb"))
     return ret
 
@@ -224,6 +224,9 @@ class PathHelper:
         d_path = self.join(*paths)
         os.makedirs(d_path, exist_ok=exist_ok)
         return d_path
+
+    def __str__(self):
+        return self._base
 
 
 class ResultPath(PathHelper):

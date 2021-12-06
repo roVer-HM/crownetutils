@@ -1,4 +1,3 @@
-import logging
 import os
 
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -6,6 +5,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.utils import logger
 
 
 class VadereRunner(DockerRunner):
@@ -60,6 +60,7 @@ class VadereRunner(DockerRunner):
         logfile=os.devnull,
         show_gui=False,
         run_args_override=None,
+        output_dir=None,
     ):
         """
         start Vadere server waiting for exactly ONE connection on given traci_port. After
@@ -83,10 +84,34 @@ class VadereRunner(DockerRunner):
         if show_gui:
             cmd.append("--gui-mode")
 
-        logging.debug(f"exec_single_server cmd: {cmd}")
+        if output_dir != None:
+            cmd.extend(["--output-dir", output_dir])
+
         if run_args_override is None:
             run_args_override = {}
 
+        logger.debug(f"start vadere container(single server)")
+        logger.debug(f"cmd: {' '.join(cmd)}")
+        return self.run(cmd, **run_args_override)
+
+    def exec_vadere_only(self, scenario_file, output_path, run_args_override=None):
+
+        cmd = [
+            "java",
+            "-jar",
+            "/opt/vadere/vadere/VadereSimulator/target/vadere-console.jar",
+            "suq",
+            "-f",
+            scenario_file,
+            "-o",
+            output_path,
+        ]
+
+        if run_args_override is None:
+            run_args_override = {}
+
+        logger.debug(f"start vadere container(exec_vadere_only")
+        logger.debug(f"cmd: {' '.join(cmd)}")
         return self.run(cmd, **run_args_override)
 
     def exec_start_vadere_laucher(self):

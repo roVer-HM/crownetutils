@@ -1,6 +1,14 @@
 import json
 import os
 
+from roveranalyzer.utils.yesno import query_yes_no
+
+
+def ask_rm(path, default=False):
+    if os.path.exists(path):
+        if query_yes_no(f"Delete File: {path}:", default):
+            os.remove(path)
+
 
 def read_lines(path):
     if os.path.exists(path):

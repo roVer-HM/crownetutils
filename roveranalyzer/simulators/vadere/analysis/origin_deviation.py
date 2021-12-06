@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from simulators.vadere.scenario_output import ScenarioOutput
+
+from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
 
 
 class OriginDeviation:
