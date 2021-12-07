@@ -18,6 +18,45 @@ class _OppAnalysis:
     def __init__(self) -> None:
         pass
 
+    def get_packet_age(
+            self,
+            sql: Scave.CrownetSql,
+            app_path: str,
+            host_name: Union[None, str, SqlOp] = None,
+    ) -> pd.DataFrame:
+        """
+        Get packet ages for any stationary and moving node x
+        Packet age: (time x received packet i) - (time packet i created)
+                |hostId (x)    |  time_recv |  packet_age  |
+            0   |  12          |  1.2  |  0.3  |
+            1   |  12          |  1.3  |  0.4  |
+            ... |  55          |  8.3  |  4.6  |
+        """
+
+        id_map = sql.host_ids(host_name)
+        if not app_path.startswith("."):
+            app_path = f".{app_path}"
+
+        df = None
+        for _id, host in id_map.items():
+
+            _df = sql.vec_data(
+                module_name=f"{host}{app_path}",
+                vector_name="rcvdPkLifetime:vector",
+            )
+            _df["hostId"] = _id
+
+            if df is None:
+                df = _df
+            else:
+                df = pd.concat([df, _df], axis=0)
+
+        df = df.loc[:, ["hostId", "time", "value"]]
+        df.sort_values(by=["hostId"], inplace=True)
+        df.rename(columns={"value": "packet_age", "time": "time_recv"}, inplace=True)
+        df["hostId"] = df["hostId"].astype(int)
+        return df
+
     def get_packet_source_distribution(
         self,
         sql: Scave.CrownetSql,
