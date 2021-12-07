@@ -1,18 +1,21 @@
 import os
 from functools import wraps
 from itertools import combinations
-from typing import Union
+from typing import Callable, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+from matplotlib.axes import Axes
 from matplotlib.collections import QuadMesh
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
-from roveranalyzer.simulators.crownet.dcd.util import DcdMetaData, create_error_df
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import CountMapProvider
+from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
@@ -30,18 +33,46 @@ def plot_decorator(method):
     return _impl
 
 
+def savefigure(method):
+    @wraps(method)
+    def savefigure_impl(self, *method_args, **method_kwargs):
+        savefig = None
+        if "savefig" in method_kwargs:
+            savefig = method_kwargs["savefig"]
+            del method_kwargs["savefig"]
+        fig, ax = method(self, *method_args, **method_kwargs)
+        if savefig is not None:
+            os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+            logger.info(f"save figure: {savefig}")
+            fig.savefig(savefig)
+        return fig, ax
+
+    return savefigure_impl
+
+
+def with_axis(method):
+    @wraps(method)
+    def with_axis_impl(self, *method_args, **method_kwargs):
+        if "ax" not in method_kwargs:
+            _, ax = check_ax(None)
+            method_kwargs.setdefault("ax", ax)
+        return method(self, *method_args, **method_kwargs)
+
+    return with_axis_impl
+
+
 class DcdMap:
     tsc_global_id = 0
 
     def __init__(
         self,
-        m_glb: DcdMetaData,
-        location_df: pd.DataFrame,
+        metadata: DcdMetaData,
+        position_df: pd.DataFrame,
         plotter=None,
         data_base_dir=None,
     ):
-        self.meta = m_glb
-        self.location_df = location_df
+        self.metadata = metadata
+        self.position_df = position_df
         self.scenario_plotter = plotter
         self.plot_wrapper = None
         self.font_dict = {
@@ -77,11 +108,11 @@ class DcdMap:
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
-            ret = self.location_df.loc[simtime, node_id]
+            ret = self.position_df.loc[simtime, node_id]
             if ret.shape == (2,):
                 ret = ret.to_numpy()
                 if cell_id:
-                    ret = np.floor(ret / self.meta.cell_size)
+                    ret = np.floor(ret / self.metadata.cell_size)
             else:
                 raise TypeError()
         except (TypeError, KeyError):
@@ -104,18 +135,18 @@ class DcdMap2D(DcdMap):
 
     def __init__(
         self,
-        glb_meta: DcdMetaData,
+        metadata: DcdMetaData,
         global_df: pd.DataFrame,
         map_df: Union[pd.DataFrame, None],
-        location_df: pd.DataFrame,
-        count_p: CountMapProvider = None,
+        position_df: pd.DataFrame,
+        count_p: DcdMapCount = None,
         count_slice: pd.IndexSlice = None,
         map_p: DcdMapProvider = None,
         map_slice: pd.IndexSlice = None,
         plotter=None,
         **kwargs,
     ):
-        super().__init__(glb_meta, location_df, plotter, **kwargs)
+        super().__init__(metadata, position_df, plotter, **kwargs)
         self._map = map_df
         self._global_df = global_df
         self._count_map = None
@@ -125,10 +156,13 @@ class DcdMap2D(DcdMap):
         self._map_p = map_p
         self._map_slice = map_slice
 
-    def iter_nodes_d2d(self, first=0):
+    def iter_nodes_d2d(self, first_node_id=0):
+        # index order: [time, x, y, source, node]
         _i = pd.IndexSlice
 
-        data = self._map.loc[_i[first:], :].groupby(level=self.tsc_id_idx_name)
+        data = self.map.loc[_i[:, :, :, :, first_node_id:], :].groupby(
+            level=self.tsc_id_idx_name
+        )
         for i, ts_2d in data:
             yield i, ts_2d
 
@@ -141,6 +175,7 @@ class DcdMap2D(DcdMap):
         if self._map is None:
             logger.info("load map")
             self._map = self._map_p[self._map_slice, :]
+            self._map = self._map.sort_index()
         return self._map
 
     @property
@@ -158,7 +193,7 @@ class DcdMap2D(DcdMap):
         return self._count_map
 
     def all_ids(self, with_ground_truth=True):
-        ids = self.location_df.index.get_level_values("node_id").unique().to_numpy()
+        ids = self.position_df.index.get_level_values("node_id").unique().to_numpy()
         ids.sort()
         # ids = np.array(list(self.id_to_node.keys()))
         if with_ground_truth:
@@ -202,7 +237,7 @@ class DcdMap2D(DcdMap):
             ]
         )
         data = data.set_index(data.index.droplevel([0, 3]))  # (x,y) as new index
-        df = self.meta.update_missing(data, real_coords=True)
+        df = self.metadata.update_missing(data, real_coords=True)
         df.update(data)
         df = df.unstack().T
         return df
@@ -266,8 +301,8 @@ class DcdMap2D(DcdMap):
         ]
 
         places = df.copy()
-        places["x_center"] = places["x"] + 0.5 * self.meta.cell_size
-        places["y_center"] = places["y"] + 0.5 * self.meta.cell_size
+        places["x_center"] = places["x"] + 0.5 * self.metadata.cell_size
+        places["y_center"] = places["y"] + 0.5 * self.metadata.cell_size
         places["x_text"] = places["x_center"]
         places["y_text"] = places["y_center"]
         for idx, row in places.iterrows():
@@ -328,6 +363,8 @@ class DcdMap2D(DcdMap):
         print(desc.loc[["update_age"], ["mean", "std", "min", "max"]])
         print("=" * 79)
 
+    @savefigure
+    @plot_decorator
     def plot_summary(self, simtime, node_id, title="", **kwargs):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
@@ -339,36 +376,38 @@ class DcdMap2D(DcdMap):
         ax[3].clear()
         return f, ax
 
+    @savefigure
+    @with_axis
     @plot_decorator
-    def plot_location_map(self, time_step, *, ax=None, add_legend=True):
+    def plot_location_map(self, time_step, *, ax: plt.Axes = None, add_legend=True):
         places = self.own_cell()
         _i = pd.IndexSlice
         places = places.loc[_i[:, time_step], :]  # select only the needed timestep
 
-        f, ax = check_ax(ax)
-
         ax.set_title(f"Node Placement at time {time_step}s")
         ax.set_aspect("equal")
-        ax.set_xlim([0, self.meta.x_dim])
-        ax.set_ylim([0, self.meta.y_dim])
+        ax.set_xlim([0, self.metadata.x_dim])
+        ax.set_ylim([0, self.metadata.y_dim])
         if self.scenario_plotter is not None:
             self.scenario_plotter.add_obstacles(ax)
 
         for _id, df in places.groupby(level=self.tsc_id_idx_name):
             # move coordinate for node :id: to center of cell.
-            df = df + 0.5 * self.meta.cell_size
+            df = df + 0.5 * self.metadata.cell_size
             ax.scatter(df["x"], df["y"], label=f"{_id}")
 
         if add_legend:
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        return f, ax
+        return ax.get_figure(), ax
 
+    @savefigure
+    @with_axis
     @plot_decorator
-    def plot_location_map_annotated(self, time_step, *, ax=None):
+    def plot_location_map_annotated(self, time_step, *, ax: plt.Axes = None):
         places = self.own_cell()
         _i = pd.IndexSlice
         places = places.loc[_i[:, time_step], :]  # select only the needed timestep
-        f, ax = self.plot_location_map(time_step, ax, add_legend=False)
+        f, ax = self.plot_location_map(time_step, ax=ax, add_legend=False)
 
         # places = places.droplevel("simtime")
         places = self.create_label_positions(places)
@@ -417,6 +456,28 @@ class DcdMap2D(DcdMap):
         for k, v in ax_prop.items():
             getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
 
+    def update_cell_error(
+        self,
+        time_slice: slice,
+        value: str = "err",
+        agg_func: Union[Callable, str, list, dict] = "mean",
+        drop_index: bool = False,
+        name: Union[str, None] = None,
+        *args,
+        **kwargs,
+    ) -> pd.DataFrame():
+        """
+        Aggregated cell error over all nodes over a given time.
+        """
+        # select time slice. Do not select ground truth (ID = 0)
+        df = self.count_p[pd.IndexSlice[time_slice, :, :, 1:], value]
+        df = df.groupby(by=["x", "y"]).aggregate(func=agg_func, *args, **kwargs)
+        if name is not None:
+            df = df.rename(columns={value: name})
+        if drop_index:
+            df = df.reset_index(drop=True)
+        return df
+
     def update_error_over_distance(
         self,
         time_step,
@@ -425,7 +486,6 @@ class DcdMap2D(DcdMap):
         line: Line2D = None,
         bins_width=2.5,
     ):
-
         df = self.count_p.select_simtime_and_node_id_exact(time_step, node_id)[
             ["owner_dist", value]
         ]
@@ -443,6 +503,75 @@ class DcdMap2D(DcdMap):
             line.set_xdata(df["owner_dist"].to_numpy())
         return df
 
+    @savefigure
+    @with_axis
+    @plot_decorator
+    def plot_error_histogram(
+        self,
+        time_slice: slice = slice(None),
+        value="err",
+        agg_func="mean",
+        *,
+        stat: str = "count",  # "percent"
+        fill: bool = True,
+        ax: plt.Axes = None,
+        **hist_kwargs,
+    ):
+        if time_slice == slice(None):
+            _ts = self.count_p.get_time_interval()
+            time_slice = slice(_ts[0], _ts[1])
+        _t = f"Cell count Error ('{value}') for Time {time_slice.start}"
+        if time_slice.stop is not None:
+            _t += f" - {time_slice.stop}"
+        ax.set_title(_t)
+        ax.set_xlabel(f"{value}")
+
+        data = self.update_cell_error(time_slice, value, agg_func, drop_index=True)
+        ax = sns.histplot(data=data, stat=stat, fill=fill, ax=ax, **hist_kwargs)
+        return ax.get_figure(), ax
+
+    @savefigure
+    @with_axis
+    @plot_decorator
+    def plot_error_quantil_histogram(
+        self,
+        value="err",
+        agg_func="mean",
+        *,
+        stat: str = "count",  # "percent"
+        fill: bool = False,
+        ax: plt.Axes = None,
+        **hist_kwargs,
+    ):
+        tmin, tmax = self.count_p.get_time_interval()
+        time = (tmax - tmin) / 4
+        intervals = {
+            f"Time Quantil {i+1}": slice(time * i, time * i + time) for i in range(4)
+        }
+
+        ax.set_title("Cell Error Histogram")
+        ax.set_xlabel(value)
+
+        data = self.update_cell_error(
+            slice(None), value, agg_func, name="All", drop_index=True
+        )
+        quant = [
+            self.update_cell_error(v, value, agg_func, name=k, drop_index=True)
+            for k, v in intervals.items()
+        ]
+        data = pd.concat([data, *quant], axis=1)
+
+        sns.histplot(
+            data=data,
+            stat=stat,
+            common_norm=False,
+            fill=fill,
+            legend=True,
+            **hist_kwargs,
+        )
+        return ax.get_figure(), ax
+
+    @savefigure
     @plot_decorator
     def plot_error_over_distance(
         self,
@@ -481,6 +610,7 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_delay_over_distance(
         self,
@@ -529,19 +659,20 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    @savefigure
     @plot_decorator
     def plot_area(
         self,
-        time_step,
-        node_id,
-        value,
+        time_step: float,
+        node_id: int,
+        value: str,
         *,
         ax=None,
         pcolormesh_dict: dict = None,
         fig_dict: dict = None,
         ax_prop: dict = None,
         **kwargs,
-    ):
+    ) -> Tuple[Figure, Axes]:
         """
         Birds eyes view of density in a 2D color mesh with X/Y spanning the
         area under observation. Z axis (density) is shown with given color grading.
@@ -569,7 +700,7 @@ class DcdMap2D(DcdMap):
 
         _d = update_dict(pcolormesh_dict, shading="flat")
 
-        pcm = ax.pcolormesh(self.meta.X_flat, self.meta.Y_flat, df, **_d)
+        pcm = ax.pcolormesh(self.metadata.X_flat, self.metadata.Y_flat, df, **_d)
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -581,14 +712,15 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
+    @savefigure
     @plot_decorator
-    def plot_count(self, *, ax=None, **kwargs):
+    def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Total node count over time", **self.font_dict["title"])
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
         ax.set_ylabel("total node count", **self.font_dict["ylabel"])
 
-        for _id, df in self.iter_nodes_d2d(first=1):
+        for _id, df in self.iter_nodes_d2d(first_node_id=1):
             df_time = df.groupby(level=self.tsc_time_idx_name).sum()
             ax.plot(df_time.index, df_time["count"], label=f"{_id}")
 
@@ -601,8 +733,9 @@ class DcdMap2D(DcdMap):
         ax.legend()
         return f, ax
 
+    @savefigure
     @plot_decorator
-    def plot_count_diff(self, *, ax=None, save_fig=None, **kwargs):
+    def plot_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Node Count over Time", **self.font_dict["title"])
         ax.set_xlabel("Time [s]", **self.font_dict["xlabel"])
@@ -634,8 +767,6 @@ class DcdMap2D(DcdMap):
         )
         ax.plot(glb.index, glb, label="Actual count")
         f.legend()
-        if save_fig is not None:
-            f.savefig(save_fig)
         return f, ax
 
 
@@ -644,20 +775,20 @@ class DcdMap2DMulti(DcdMap2D):
 
     def __init__(
         self,
-        glb_meta: DcdMetaData,
+        metadata: DcdMetaData,
         global_df: pd.DataFrame,
         map_df: pd.DataFrame,
-        location_df: pd.DataFrame,
+        position_df: pd.DataFrame,
         map_all_df: pd.DataFrame,
         **kwargs,
     ):
         """
         Parameters
         ----------
-        glb_meta: Meta data instance for current map. cell size, map size
+        metadata: Meta data instance for current map. cell size, map size
         node_id_map: Mapping between node
         """
-        super().__init__(glb_meta, global_df, map_df, location_df, **kwargs)
+        super().__init__(metadata, global_df, map_df, position_df, **kwargs)
         self.map_all_df = map_all_df
 
     def info_dict(self, x, y, time_step, node_id):

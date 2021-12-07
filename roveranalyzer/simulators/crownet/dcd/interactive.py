@@ -409,10 +409,12 @@ class InteractiveTableTimeNodeSlider(Interactive):
 
         if all([e is not None for e in [x_event, y_event]]):
             self.x = (
-                np.floor(x_event / self.dcd.meta.cell_size) * self.dcd.meta.cell_size
+                np.floor(x_event / self.dcd.metadata.cell_size)
+                * self.dcd.metadata.cell_size
             )
             self.y = (
-                np.floor(y_event / self.dcd.meta.cell_size) * self.dcd.meta.cell_size
+                np.floor(y_event / self.dcd.metadata.cell_size)
+                * self.dcd.metadata.cell_size
             )
             self.update_table()
 
@@ -432,7 +434,7 @@ class InteractiveAreaPlot(InteractiveTableTimeNodeSlider):
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value):
+    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value: str):
         super().__init__(dcd, ax)
 
         self.quadMesh = None

@@ -14,6 +14,10 @@ _bwr_data = [
 ]
 _cmap_bwr = LinearSegmentedColormap.from_list("crownet_bwr", _bwr_data)
 
+_registerd = False
+
 
 def _register_cmap():
-    cm.register_cmap("crownet_bwr", _cmap_bwr)
+    if not _register_cmap:
+        cm.register_cmap("crownet_bwr", _cmap_bwr)
+        _registerd = True

@@ -1,5 +1,53 @@
+import itertools
+import random
+from typing import List, Union
+
 import matplotlib.pyplot as plt
 import pandas as pd
+
+
+class _PlotUtil:
+    hatch_patterns = ("||", "--", "++", "x", "\\", "*", "|", "-", "+")
+    plot_markers = ["o", "x", "*", ".", "v", "1", "2", "3", "4"]
+    plot_colors = ["b", "g", "r", "c", "m", "k"]
+    line_types = ["-", ":", "-.", "--"]
+    plot_color_markers = [
+        f"{c}{m}" for c, m in itertools.product(plot_colors, plot_markers)
+    ]
+    plot_color_lines = [
+        f"{c}{l}" for c, l in itertools.product(plot_colors, line_types)
+    ]
+
+    def __init__(self) -> None:
+        random.Random(13).shuffle(self.plot_color_markers)
+        random.Random(13).shuffle(self.plot_color_lines)
+
+    def color_marker_lines(self, line_type="--"):
+        return [f"{m}{line_type}" for m in self.plot_color_markers]
+
+    def color_lines(self, line_type: Union[str, List[str], str] = None, cycle=True):
+        if line_type is None:
+            lines = self.plot_color_lines
+        elif type(line_type) == list:
+            lines = [
+                f"{c}{l}" for c, l in itertools.product(self.plot_colors, line_type)
+            ]
+            random.Random(13).shuffle(lines)
+        elif type(line_type) == str:
+            lines = [f"{m}{line_type}" for m in self.plot_color_markers]
+        else:
+            raise ValueError("expected None, list of strings or string")
+        if cycle:
+            return itertools.cycle(lines)
+        else:
+            return lines
+
+    @property
+    def color_marker_lines_cycle(self):
+        return itertools.cycle(self.color_marker_lines())
+
+
+PlotUtil = _PlotUtil()
 
 
 def check_ax(ax=None, **kwargs):
@@ -101,3 +149,7 @@ class PlotAttrs:
     def reset(self):
         self.idx_c = 0
         self.idx_m = 0
+
+
+if __name__ == "__main__":
+    print(list(PlotUtil.color_marker_lines()))

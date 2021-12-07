@@ -1,20 +1,20 @@
 import os
 import re
-from typing import List
+from typing import Dict, List, Union
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+from pandas.core.indexing import IndexSlice
+from shapely.geometry.geo import box
 
-from roveranalyzer.simulators.crownet.dcd.util import (
-    delay_feature,
-    owner_dist_feature,
-    read_csv,
-)
+import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
     FrameConsumer,
     IHdfProvider,
 )
+from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import ProgressCmd
 
 
@@ -90,7 +90,7 @@ class DcdMapProvider(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.DCD_MAP
 
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {
             0: DcdMapKey.SIMTIME,
             1: DcdMapKey.X,
@@ -129,9 +129,13 @@ class DcdMapProvider(IHdfProvider):
 
         # create index
         with self.ctx() as store:
+            columns_to_index = list(self.index_order().values())
+            if "selection" in self.columns():
+                columns_to_index.append("selection")
+            logger.info(f"create index for columns: {','.join(columns_to_index)}")
             store.create_table_index(
                 key=self.group,
-                columns=list(self.index_order().values()),
+                columns=columns_to_index,
                 optlevel=9,
                 kind="full",
             )
@@ -145,7 +149,7 @@ class DcdMapProvider(IHdfProvider):
         return node_id
 
     def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
-        df, meta = read_csv(
+        df, meta = DcdUtil.read_csv(
             csv_path=path,
             _index_types=DcdMapKey.types_csv_index,
             _col_types=DcdMapKey.types_csv_columns,
@@ -176,14 +180,14 @@ class DcdMapProvider(IHdfProvider):
         num_rows = df.shape[0]
 
         # apply owner_dist_feature
-        df = owner_dist_feature(df, **kwargs)
+        df = DcdUtil.owner_dist_feature(df, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in owner_dist_feature. "
                 f"Number of rows were affected. actual: {df.shape[0]} expected: {num_rows} "
             )  # shape = df.shape
         # apply delay_feature
-        df = delay_feature(df, **kwargs)
+        df = DcdUtil.delay_feature(df, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in delay_feature. "
@@ -216,3 +220,25 @@ class DcdMapProvider(IHdfProvider):
 
     def set_selection_mapping_attribute(self):
         self.set_attribute("selection_mapping", self.selection_mapping)
+
+    def _to_geo(
+        self, df: pd.DataFrame, to_crs: Union[str, None] = None
+    ) -> gpd.GeoDataFrame:
+        offset = self.get_attribute("offset")
+        epsg_code = self.get_attribute("epsg")
+        cell_size = self.get_attribute("cell_size")
+
+        _index = df.index.to_frame().reset_index(drop=True)
+
+        _index["x"] = _index["x"] - offset[0]
+        _index["y"] = _index["y"] - offset[1]
+        df.index = pd.MultiIndex.from_frame(_index)
+
+        g = [
+            box(x, y, x + cell_size, y + cell_size)
+            for x, y in zip(_index["x"], _index["y"])
+        ]
+        gdf = gpd.GeoDataFrame(df, geometry=g, crs=str(epsg_code))
+        if to_crs is not None:
+            gdf = gdf.to_crs(epsg=to_crs.replace("EPSG:", ""))
+        return gdf

@@ -7,9 +7,9 @@ import pandas
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.simulators.opp.provider.hdf.CountMapProvider import (
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import (
     CountMapKey,
-    CountMapProvider,
+    DcdMapCount,
 )
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import UnsupportedOperation
@@ -27,7 +27,7 @@ class IHDFProviderTest(unittest.TestCase):
     fs: TempFS = create_tmp_fs("IHDFProviderTest")
     test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
-    provider: CountMapProvider = CountMapProvider(sample_file_dir)
+    provider: DcdMapCount = DcdMapCount(sample_file_dir)
     sample_dataframe: pd.DataFrame = create_count_map_dataframe()
 
     @classmethod
@@ -317,12 +317,12 @@ class IHDFProviderTest(unittest.TestCase):
 
     def test_write_dataframe(self):
         write_path = os.path.join(self.test_out_dir, "write_test.hdf5")
-        write_provider = CountMapProvider(write_path)
+        write_provider = DcdMapCount(write_path)
         write_provider.write_dataframe(self.sample_dataframe)
         self.assertTrue(os.path.isfile(write_path))
 
     def test_exists(self):
-        non_existing_path_provider = CountMapProvider(
+        non_existing_path_provider = DcdMapCount(
             os.path.join(self.test_out_dir, "non_existing_path.hdf5")
         )
         self.assertTrue(self.provider.exists())
