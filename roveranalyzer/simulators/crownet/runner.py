@@ -28,14 +28,6 @@ from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
-def debug_print(message:str) -> None:
-    #TODO remove hard coded file paths
-    file = "/home/mweidner/log.txt"
-    with open(file, "a") as myfile:
-        myfile.write(f"{message}\n")
-
-
-
 def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
