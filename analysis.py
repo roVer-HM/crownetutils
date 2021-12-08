@@ -6,10 +6,10 @@ matplotlib.use('TkAgg')
 
 import matplotlib.animation as animation
 
-from roveranalyzer.simulators.opp.opp_analysis import Opp, OppAccessor
+from roveranalyzer.simulators.opp.accessor import Opp, OppAccessor
 from roveranalyzer.simulators.opp.utils import ScaveTool
 from roveranalyzer.utils import PathHelper, from_pickle
-from roveranalyzer.simulators.rover.dcd.dcd_map import DcdMap2DMulti
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2DMulti
 from itertools import product
 import matplotlib.pyplot as plt
 from roveranalyzer.utils import check_ax
