@@ -55,6 +55,8 @@ class _OppAnalysis:
         df.sort_values(by=["hostId"], inplace=True)
         df.rename(columns={"value": "packet_age", "time": "time_recv"}, inplace=True)
         df["hostId"] = df["hostId"].astype(int)
+        df.reset_index(drop=True, inplace=True)
+        df.index.name = 'index'
         return df
 
     def get_packet_source_distribution(
