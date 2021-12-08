@@ -21,6 +21,9 @@ ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
 RUN = "vadereBottleneck"
 # SPECIFIC_RUN = ""
 
+DENSITY_APP_INDEX = 0
+BEACON_APP_INDEX = 1
+
 PAINT_INTERVALS = True
 IS_VADERE_ANALYSIS = True if "vadere" in RUN else False
 NODE_NAME = "node" if IS_VADERE_ANALYSIS else "pedestrianNode"
@@ -65,7 +68,7 @@ def read_spawn_times():
         df = pd.read_sql_query(
             "SELECT v.moduleName, v.vectorName, v.startSimtimeRaw, v.endSimtimeRaw "
             "FROM vector v "
-            f"WHERE v.moduleName LIKE 'World.{NODE_NAME}[%].aid.beaconApp' "
+            f"WHERE v.moduleName LIKE 'World.{NODE_NAME}[%].app[{BEACON_APP_INDEX}].app' "
             "AND v.vectorName = 'packetSent:vector(packetBytes)' "
             "ORDER BY v.startSimtimeRaw ASC", con)
         df['startTime'] = df['startSimtimeRaw'].apply(lambda x: int(str(x)[:4]) / 1000)
@@ -94,12 +97,13 @@ def read_app_data(callback):
         """
         scave = ScaveTool()
         scave_f = scave.filter_builder() \
-            .gOpen().module(f"*.{NODE_NAME}[*].aid.densityMapApp").OR().module(f"*.{NODE_NAME}[*].aid.beaconApp").gClose() \
+            .gOpen().module(f"*.{NODE_NAME}[*].app[{DENSITY_APP_INDEX}].app")
+            .OR().module(f"*.{NODE_NAME}[*].app[{BEACON_APP_INDEX}].app").gClose() \
             .AND().name("rcvdPkLifetime:vector")
 
         
         scave_f = ScaveTool()..filter_builder() \
-            .gOpen().module("*World.{NODE_NAME}[*].lteNic.mac").OR().module("*.{NODE_NAME}[*].lteNic.mac").gClose() \
+            .gOpen().module("*World.{NODE_NAME}[*].cellularNic.mac").OR().module("*.{NODE_NAME}[*].cellularNic.mac").gClose() \
             .AND().name("sentPacketToUpperLayer:vector*")
         """
 
@@ -127,14 +131,15 @@ def find(pattern, path):
 def filter_for_packageDelay():
     scave = ScaveTool()
     return scave.filter_builder() \
-        .gOpen().module(f"*.{NODE_NAME}[*].aid.densityMapApp").OR().module(f"*.{NODE_NAME}[*].aid.beaconApp").gClose() \
+        .gOpen().module(f"*.{NODE_NAME}[*].app[{DENSITY_APP_INDEX}].app")\
+        .OR().module(f"*.{NODE_NAME}[*].app[{BEACON_APP_INDEX}].app").gClose() \
         .AND().name("rcvdPkLifetime:vector")
 
 
 def filter_for_sentPacketToUpper():
     scave = ScaveTool()
     return scave.filter_builder() \
-        .gOpen().module(f"*World.{NODE_NAME}[*].lteNic.mac").OR().module("*.{NODE_NAME}[*].lteNic.mac").gClose() \
+        .gOpen().module(f"*World.{NODE_NAME}[*].cellularNic.mac").OR().module(f"*.{NODE_NAME}[*].cellularNic.mac").gClose() \
         .AND().name("sentPacketToUpperLayer:vector*")
 
 
