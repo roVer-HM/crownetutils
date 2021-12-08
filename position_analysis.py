@@ -6,15 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from analysis import ROOT, RUN, plot_vspans, intervalList, mean_pedestrian_count
+from config import *
+from analysis import plot_vspans, intervalList, mean_pedestrian_count
 
-# ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
-# RUN = "sumoBottleneck"
-PATH_ROOT = f"{ROOT}/{RUN}"
-OUTPUT_PATH = f"{PATH_ROOT}/out/position"
-SPEED_OUTPUT_PATH = f"{PATH_ROOT}/out/speed"
-DISTANCE_OUTPUT_PATH = f"{PATH_ROOT}/out/distance"
-PAINT_INTERVALS = True
 
 
 def read_position_files():

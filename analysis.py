@@ -2,6 +2,7 @@ import fnmatch
 import os
 import re
 
+from config import *
 from roveranalyzer.simulators.opp.utils import ScaveTool
 from roveranalyzer.utils import PathHelper
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2DMulti
@@ -15,21 +16,6 @@ import matplotlib.pyplot as plt
 
 matplotlib.use('TkAgg')
 
-ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
-RUN = "vadereBottleneck"
-# SPECIFIC_RUN = ""
-
-DENSITY_APP_INDEX = 0
-BEACON_APP_INDEX = 1
-
-PAINT_INTERVALS = True
-IS_VADERE_ANALYSIS = True if "vadere" in RUN else False
-NODE_NAME = "node" if IS_VADERE_ANALYSIS else "pedestrianNode"
-
-PATH_ROOT = f"{ROOT}/{RUN}"
-# PATH_SPECIFIC_RUN = f"{ROOT}/{RUN}/{SPECIFIC_RUN}"
-p = PathHelper(PATH_ROOT)
-# p_specific = PathHelper(PATH_SPECIFIC_RUN)
 
 # @from_pickle(path=PATH_ROOT + "/analysis.p")
 def read_data():
