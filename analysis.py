@@ -1,21 +1,19 @@
-import os, fnmatch, re
+import fnmatch
+import os
+import re
+
+from roveranalyzer.simulators.opp.utils import ScaveTool
+from roveranalyzer.utils import PathHelper
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2DMulti
+from roveranalyzer.utils import check_ax
+
+import pandas as pd
+import numpy as np
+import sqlite3
 import matplotlib
-from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
 
 matplotlib.use('TkAgg')
-
-import matplotlib.animation as animation
-
-from roveranalyzer.simulators.opp.accessor import Opp, OppAccessor
-from roveranalyzer.simulators.opp.utils import ScaveTool
-from roveranalyzer.utils import PathHelper, from_pickle
-from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2DMulti
-from itertools import product
-import matplotlib.pyplot as plt
-from roveranalyzer.utils import check_ax
-import pandas as pd
-import sqlite3
-import numpy as np
 
 ROOT = "/home/mkilian/repos/crownet/analysis/roveranalyzer/data"
 RUN = "vadereBottleneck"

@@ -1,9 +1,10 @@
+import fnmatch
 import math
+import os
 
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
-import os, fnmatch
+import pandas as pd
 
 from analysis import ROOT, RUN, plot_vspans, intervalList, mean_pedestrian_count
 
