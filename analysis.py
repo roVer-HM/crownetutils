@@ -1,6 +1,7 @@
 import fnmatch
 import os
 import re
+from typing import List
 
 from config import *
 from roveranalyzer.simulators.opp.utils import ScaveTool
@@ -13,25 +14,10 @@ import numpy as np
 import sqlite3
 import matplotlib
 import matplotlib.pyplot as plt
+import roveranalyzer.simulators.opp as OMNeT
 
 matplotlib.use('TkAgg')
 
-
-# @from_pickle(path=PATH_ROOT + "/analysis.p")
-def read_data():
-    global_map_path = p.glob(
-        "global.csv", recursive=False, expect=1
-    )
-    node_map_paths = p.glob("dcdMap_*.csv")
-    # scenario_path = p.glob("vadere.d/*.scenario", expect=1)
-
-    dcd = DcdMap2DMulti.from_paths(
-        global_data=global_map_path,
-        node_data=node_map_paths,
-        real_coords=True,
-    )
-
-    return dcd
 
 """
 def read_param():
@@ -43,9 +29,58 @@ def read_param():
 """
 
 
+def sqls_matching_sim_config(
+        sim_config: str = SIM_CONFIG,
+        validate=VALIDATE_RUN_COUNT,
+        path: str = PATH_ROOT,
+) -> List[OMNeT.CrownetSql]:
+    sqls = []
+    for vec_file in vec_files_matching_sim_config(sim_config, validate, path):
+        sca_file = ".".join(vec_file.split(".")[0:-1]) + ".sca"
+        sqls.append(
+           OMNeT.CrownetSql(
+               vec_path=vec_file,
+               sca_path=sca_file,
+               network="World")
+        )
+    return sqls
+
+
+def vec_files_matching_sim_config(
+        sim_config: str = SIM_CONFIG,
+        validate: bool = VALIDATE_RUN_COUNT,
+        path: str = PATH_ROOT
+) -> List[str]:
+    vec_files = find("*.vec", path)
+    vec_files = [file for file in vec_files if sim_config in file.split("/")[-2]]
+    if validate:
+        validate_run_count(vec_files)
+    return vec_files
+
+
+class MissingRunError(Exception):
+    pass
+
+
+class DuplicateRunError(Exception):
+    pass
+
+
+def validate_run_count(vec_files: List[str]):
+    target = set([i for i in range(RUN_COUNT)])
+    for file in vec_files:
+        run_index = int(file.split(".")[0].split("_")[-1])
+        try:
+            target.remove(run_index)
+        except KeyError:
+            raise DuplicateRunError(f"Duplicate simulation run with index: {run_index}")
+    if len(target) > 0:
+        raise MissingRunError(f"Missing simulation run with index: {str(target)}")
+
+
 def read_spawn_times():
     df_list = list()
-    vec_files = find("*.vec", PATH_ROOT)
+    vec_files = vec_files_matching_sim_config()
     for i in range(len(vec_files)):
         vec_file = vec_files[i]
         con = sqlite3.connect(vec_file)
@@ -72,7 +107,7 @@ def find_number(text):
 # @from_pickle(path=PATH_ROOT + "/rcvdPkLifetimeVec.p")
 def read_app_data(callback):
     df_list = list()
-    vec_files = find("*.vec", PATH_ROOT)
+    vec_files = vec_files_matching_sim_config()
     for i in range(len(vec_files)):
         # inputs = f"{ROOT}/{RUN}/vars_rep_{i}.vec"
         # scave = ScaveTool()
@@ -103,7 +138,7 @@ def read_app_data(callback):
     return df_all
 
 
-def find(pattern, path):
+def find(pattern, path) -> List[str]:
     result = []
     for root, dirs, files in os.walk(path):
         for name in files:
@@ -306,7 +341,7 @@ def mean_simulation_time():
         data.append([i, last_person_time])
 
     df_sim_time = pd.DataFrame(data, columns=['runId', 'sim_time'])
-    if RUN == "vadereBottleneck":
+    if SIM_CONFIG == "vadereBottleneck":
         df_sim_time = df_sim_time[df_sim_time['runId'] != 1]
 
     return df_sim_time['sim_time'].mean()
@@ -482,7 +517,7 @@ if __name__ == "__main__":
     upper = read_app_data(filter_for_sentPacketToUpper)
 
     # Reduce failed Vadere run
-    if RUN == "vadereBottleneck":
+    if SIM_CONFIG == "vadereBottleneck":
         delay = delay[delay['repetitionId'] != "1"]
         # upper = upper[upper['repetitionId'] != "1"]
 
