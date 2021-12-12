@@ -2,11 +2,21 @@ import os
 
 from roveranalyzer.utils import PathHelper
 
+# constants
+VADERE_SIMPLE = "vadereSimple"
+VADERE_BOTTLENECK = "vadereBottleneck"
+SUMO_SIMPLE = "sumoSimple"
+SUMO_BOTTLENECK = "sumoBottleneck"
 SIM = "cmp_vadere_sumo"
-SIM_CONFIG = "vadereSimple"
-RUN = ""
-RUN_COUNT = 10
+DENSITY_APP_INDEX = 0
+BEACON_APP_INDEX = 1
+NODE_NAME = "pNode"
+
+
 ROOT = f"{os.environ['HOME']}/crownet/crownet/simulations/{SIM}/results"
+SIM_CONFIG = VADERE_SIMPLE
+RUN_COUNT = 10
+VALIDATE_RUN_COUNT = False
 
 # SPECIFIC_RUN = ""
 
@@ -17,14 +27,10 @@ PATH_ROOT = ROOT
 p = PathHelper(PATH_ROOT)
 # p_specific = PathHelper(PATH_SPECIFIC_RUN)
 
-DENSITY_APP_INDEX = 0
-BEACON_APP_INDEX = 1
 
 PAINT_INTERVALS = True
 IS_VADERE_ANALYSIS = True if "vadere" in SIM_CONFIG else False
-NODE_NAME = "pNode"
 
-VALIDATE_RUN_COUNT = False
 
 #
 # position analysis settings:
