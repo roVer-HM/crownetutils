@@ -1,34 +1,68 @@
 import fnmatch
 import math
 import os
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from config import *
-from analysis import plot_vspans, intervalList, mean_pedestrian_count
+from analysis import plot_vspans, intervalList, mean_pedestrian_count, sqls_matching_sim_config
+import roveranalyzer.simulators.opp as OMNeT
+
+
+def positions_dataframes_all() -> List[pd.DataFrame]:
+    df_all = []
+    for sql in sqls_matching_sim_config():
+        df_all.append(positions_dataframe(sql))
+
+    df = pd.concat(df_all, ignore_index=True)
+
+    if SIM_CONFIG == "vadereBottleneck":  # TODO ???
+        df = df[df['runId'] != 1]
+
+    return df
+
+
+def positions_dataframe(sql: OMNeT.CrownetSql):
+    df = sql.host_position()
+    offset = sql.sca_data(
+        module_name=f"{sql.network}.coordConverter",
+        scalar_name=sql.OR(["simOffsetX:last", "simOffsetY:last"]),
+    )["scalarValue"].to_numpy()
+    df["x"] = df["x"] + offset[0]
+    df["y"] = df["y"] + offset[1]
+
+    run_id = sql.query_sca(f"select attrValue from runAttr r where r.attrName = 'runnumber' ").iloc[0]['attrValue']
+    run_id = int(run_id)
+    df['runId'] = run_id
+    df.rename(columns={"vecIdx": "id"}, inplace=True)
+    return df
 
 
 
 def read_position_files():
-    position_list = find('positions.txt', PATH_ROOT)
-    position_list.sort()
+    return positions_dataframes_all()
+# def read_position_files():
+#     position_list = find('positions.txt', PATH_ROOT)
+#     position_list.sort()
+#
+#     df_all = []
+#     columns = ["time", "id", "x", "y"]
+#     for i in range(len(position_list)):
+#         tmp = pd.read_csv(position_list[i], delimiter="\t")
+#         tmp.columns = columns
+#         tmp['runId'] = i
+#         df_all.append(tmp)
+#
+#     df = pd.concat(df_all, ignore_index=True)
+#
+#     if SIM_CONFIG == "vadereBottleneck":
+#         df = df[df['runId'] != 1]
+#
+#     return df
 
-    df_all = []
-    columns = ["time", "id", "x", "y"]
-    for i in range(len(position_list)):
-        tmp = pd.read_csv(position_list[i], delimiter="\t")
-        tmp.columns = columns
-        tmp['runId'] = i
-        df_all.append(tmp)
-
-    df = pd.concat(df_all, ignore_index=True)
-
-    if RUN == "vadereBottleneck":
-        df = df[df['runId'] != 1]
-
-    return df
 
 def find(pattern, path):
     result = []
@@ -223,7 +257,7 @@ def calculate_distance_between_pedestrians_and_enb():
     for run in run_ids:
         print(f"Aggregating run {run}")
         df_filtered = df[df["runId"] == run]
-        for i in range(df["time"].min(), df["time"].max(), 10):
+        for i in range(df["time"].min().astype(np.int), df["time"].max().astype(np.int), 10):
             df_tmp = df_filtered[df_filtered["time"] == i]
             id_list = df_tmp.id.unique()
             id_list.sort()
