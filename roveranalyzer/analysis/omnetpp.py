@@ -19,10 +19,10 @@ class _OppAnalysis:
         pass
 
     def get_packet_age(
-            self,
-            sql: Scave.CrownetSql,
-            app_path: str,
-            host_name: Union[None, str, SqlOp] = None,
+        self,
+        sql: Scave.CrownetSql,
+        app_path: str,
+        host_name: Union[None, str, SqlOp] = None,
     ) -> pd.DataFrame:
         """
         Get packet ages for any stationary and moving node x

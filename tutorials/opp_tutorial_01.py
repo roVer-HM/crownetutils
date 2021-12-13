@@ -2,6 +2,7 @@ import os
 import sys
 
 from oppanalyzer import ScaveTool
+
 # Structure based on suq-controller (Daniel Lehmberg)
 # This is just to make sure that the systems path is set up correctly, to have correct imports.
 # (It can be ignored)

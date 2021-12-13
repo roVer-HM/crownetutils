@@ -1,14 +1,12 @@
 import os
 
-from pandas import IndexSlice
-
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
     DockerRunner,
 )
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
-from roveranalyzer.utils import logger
+from roveranalyzer.utils import logger, sockcheck
 
 
 class ControlRunner(DockerRunner):
@@ -97,4 +95,6 @@ class ControlRunner(DockerRunner):
 
         logger.debug(f"start controller container(start_controller)")
         logger.debug(f"cmd: {' '.join(cmd)}")
-        return self.run(cmd, self.run_args)
+        run_result = self.run(cmd, self.run_args)
+        sockcheck.check(self.name, int(traci_port))
+        return run_result
