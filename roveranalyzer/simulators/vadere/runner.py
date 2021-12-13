@@ -5,7 +5,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
-from roveranalyzer.utils import logger
+from roveranalyzer.utils import logger, sockcheck
 
 
 class VadereRunner(DockerRunner):
@@ -92,7 +92,9 @@ class VadereRunner(DockerRunner):
 
         logger.debug(f"start vadere container(single server)")
         logger.debug(f"cmd: {' '.join(cmd)}")
-        return self.run(cmd, **run_args_override)
+        run_result = self.run(cmd, **run_args_override)
+        sockcheck.check(self.name, int(traci_port))
+        return run_result
 
     def exec_vadere_only(self, scenario_file, output_path, run_args_override=None):
 
