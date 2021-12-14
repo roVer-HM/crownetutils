@@ -1,7 +1,7 @@
 import fnmatch
 import math
 import os
-from typing import List
+from typing import List, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -41,9 +41,14 @@ def positions_dataframe(sql: OMNeT.CrownetSql):
     return df
 
 
+DATAFRAME_ALL_RUNS: Union[pd.DataFrame, None] = None
+
 
 def read_position_files():
-    return positions_dataframes_all()
+    global DATAFRAME_ALL_RUNS
+    if DATAFRAME_ALL_RUNS is None:
+        DATAFRAME_ALL_RUNS = positions_dataframes_all()
+    return DATAFRAME_ALL_RUNS.copy(deep=True)
 # def read_position_files():
 #     position_list = find('positions.txt', PATH_ROOT)
 #     position_list.sort()
