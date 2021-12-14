@@ -79,16 +79,18 @@ def find(pattern, path):
 
 
 def scatter_pedestrian_positions():
-    runId = 2
+    run_id = 2
     df = read_position_files()
-    df_filtered = df[df['runId'] == runId]
+    df_filtered = df[df['runId'] == run_id]
 
     for begin, end in intervalList:
         begin = int(begin)
         end = int(end)
+        if begin > df_filtered["time"].max():
+            continue
         df_all = df_filtered.query(f'time >= {begin}').query(f'time <= {end}')
-        min = round((df_all['y'].min() - 10) / 10) * 10
-        max = round((df_all['y'].max() + 10) / 10) * 10
+        minimum = round((df_all['y'].min() - 10) / 10) * 10
+        maximum = round((df_all['y'].max() + 10) / 10) * 10
 
         for u in [begin, end - (round(((end - begin) / 2) / 10) * 10), end]:
             df_filter = df_filtered[df_filtered['time'] == u]
@@ -98,16 +100,16 @@ def scatter_pedestrian_positions():
 
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
             ax.scatter(x, y, label='Pedestrian', marker='.', color='red')
-            ax.set_ylim(min, max)
+            ax.set_ylim(minimum, maximum)
             ax.set_xlabel("x-coordinate")
             ax.set_ylabel("y-coordinate")
             ax.legend()
 
             plt.title("Pedestrian positions at time step " + str(u))
-            plt.yticks(np.arange(min, max, 10))
+            plt.yticks(np.arange(minimum, maximum, 10))
 
             fig = ax.get_figure()
-            fig.savefig(OUTPUT_PATH + '/position_' + str(u) + '_' + str(runId) + '.png', bbox_inches='tight')
+            fig.savefig(OUTPUT_PATH + '/position_' + str(u) + '_' + str(run_id) + '.png', bbox_inches='tight')
 
 
 def scatter_plot_min_max():
@@ -189,8 +191,8 @@ def average_speed_per_pedestrian_per_run():
                     distance.append(row1.y - row2.y)
             df_id['distance'] = distance
             df = pd.concat([df, df_id]).drop_duplicates(['x', 'y', 'time', 'id'], keep='last')
-            average_speed = df_id['distance'].sum() / df_id['distance'].count()
-            df_speed = df_speed.append({'id': node_id, 'averageSpeed': average_speed}, ignore_index=True)
+            df_average_speed = df_id['distance'].sum() / df_id['distance'].count()
+            df_speed = df_speed.append({'id': node_id, 'averageSpeed': df_average_speed}, ignore_index=True)
 
         x = df_speed.id.values
         y = df_speed.averageSpeed.values
