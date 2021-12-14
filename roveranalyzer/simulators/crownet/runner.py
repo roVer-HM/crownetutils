@@ -28,6 +28,7 @@ from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
+
 def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
@@ -569,8 +570,8 @@ class BaseRunner:
                 use_local=self.ns["ctl_local"],
                 scenario=self.ns["scenario_file"],
                 ctrl_args=self.ns["ctrl_args"],
-                result_dir= self.ns["result_dir"],
-                experiment_label = experiment_label,
+                result_dir=self.ns["result_dir"],
+                experiment_label=experiment_label,
             )
         else:
 
@@ -718,7 +719,6 @@ class BaseRunner:
                 self.sumo_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
-
 
     def run_simulation_omnet_vadere(self):
         ret = 255

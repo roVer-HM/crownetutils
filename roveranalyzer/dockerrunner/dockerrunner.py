@@ -64,15 +64,15 @@ class DockerRunner:
     NET = "rovernet"
 
     def __init__(
-            self,
-            image,
-            tag="latest",
-            docker_client=None,
-            name="",
-            cleanup_policy=DockerCleanup.KEEP_FAILED,
-            reuse_policy=DockerReuse.NEW_ONLY,
-            detach=False,
-            journal_tag="",
+        self,
+        image,
+        tag="latest",
+        docker_client=None,
+        name="",
+        cleanup_policy=DockerCleanup.KEEP_FAILED,
+        reuse_policy=DockerReuse.NEW_ONLY,
+        detach=False,
+        journal_tag="",
     ):
         if docker_client is None:
             self.client: docker.DockerClient = DockerClient.get()
@@ -136,8 +136,8 @@ class DockerRunner:
                 _container.remove()
                 logger.info(f"remove existing container with name '{self.name}'")
             elif (
-                    reuse_policy == DockerReuse.REUSE_STOPPED
-                    or reuse_policy == DockerReuse.REUSE_RUNNING
+                reuse_policy == DockerReuse.REUSE_STOPPED
+                or reuse_policy == DockerReuse.REUSE_RUNNING
             ):
                 if _container.status == "running":
                     _container.stop()
@@ -279,8 +279,8 @@ class DockerRunner:
             logger.error(f"{'#' * 80}")
             logger.error(f"Command returned {ret['StatusCode']}")
             if (
-                    "log_config" in self.run_args
-                    and self.run_args["log_config"].type == LogConfig.types.JOURNALD
+                "log_config" in self.run_args
+                and self.run_args["log_config"].type == LogConfig.types.JOURNALD
             ):
                 logger.error(
                     f"For full container output see: journalctl -b CONTAINER_TAG={self.journal_tag} --all"
@@ -343,7 +343,7 @@ class DockerRunner:
         logger.debug(f"Stop container {self._container.name} ...")
         self._container.stop()
         if self.cleanupPolicy == DockerCleanup.REMOVE or (
-                self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state
+            self.cleanupPolicy == DockerCleanup.KEEP_FAILED and not has_error_state
         ):
             logger.debug(f"remove container {self._container.name} ...")
             self._container.remove()
