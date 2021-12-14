@@ -233,7 +233,7 @@ def average_speed_per_pedestrian():
                 distance.append(row1.y - row2.y)
         df_id['distance'] = distance
         df = pd.concat([df, df_id]).drop_duplicates(['x', 'y', 'time', 'id'], keep='last')
-        average_speesumoBottleneckd = df_id['distance'].sum() / df_id['distance'].count()
+        average_speed = df_id['distance'].sum() / df_id['distance'].count()
         df_speed = df_speed.append({'id': node_id, 'averageSpeed': average_speed}, ignore_index=True)
 
     x = df_speed.id.values
