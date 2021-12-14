@@ -91,7 +91,7 @@ if __name__ == "__main__":
     ]
 
     # define tag of omnet and vadere docker images, see https://sam-dev.cs.hm.edu/rover/rover-main/container_registry/
-    model = CoupledConsoleWrapper(
+    model = VadereOmnetWrapper(
         model="Coupled", vadere_tag="200527-1424", omnetpp_tag="200221-1642"
     )
 
