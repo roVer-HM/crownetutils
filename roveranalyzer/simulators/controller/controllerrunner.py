@@ -21,16 +21,18 @@ class ControlRunner(DockerRunner):
         TRACE = "TRACE"
         ALL = "ALL"
 
+    OUTPUT_DEFAULT = "vadere_controlled"
+
     def __init__(
-        self,
-        image="sam-dev.cs.hm.edu:5023/rover/crownet/flowcontrol",
-        tag="latest",
-        docker_client=None,
-        name="",
-        cleanup_policy=DockerCleanup.REMOVE,
-        reuse_policy=DockerReuse.REMOVE_STOPPED,
-        detach=False,
-        journal_tag="",
+            self,
+            image="sam-dev.cs.hm.edu:5023/rover/crownet/flowcontrol",
+            tag="latest",
+            docker_client=None,
+            name="",
+            cleanup_policy=DockerCleanup.REMOVE,
+            reuse_policy=DockerReuse.REMOVE_STOPPED,
+            detach=False,
+            journal_tag="",
     ):
         super().__init__(
             image,
@@ -56,19 +58,19 @@ class ControlRunner(DockerRunner):
         # add...
 
     def start_controller(
-        self,
-        loglevel=LogLevel.DEBUG,
-        logfile=os.devnull,
-        run_args_override=None,
-        control_file="control.py",
-        host_name="vadere_rover_run",
-        connection_mode="client",
-        traci_port=9999,
-        use_local=False,
-        scenario=None,
-        result_dir="results",
-        experiment_label="vadere_controlled_out",
-        ctrl_args: ArgList = ArgList(),
+            self,
+            loglevel=LogLevel.DEBUG,
+            logfile=os.devnull,
+            run_args_override=None,
+            control_file="control.py",
+            host_name="vadere_rover_run",
+            connection_mode="client",
+            traci_port=9999,
+            use_local=False,
+            scenario=None,
+            result_dir="results",
+            experiment_label=f"{OUTPUT_DEFAULT}_out",
+            ctrl_args: ArgList = ArgList(),
     ):
 
         # if connection_mode == "client":

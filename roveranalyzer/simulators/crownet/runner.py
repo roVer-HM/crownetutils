@@ -553,7 +553,7 @@ class BaseRunner:
         if mode == "client":
 
             host_name = f"vadere_{self.ns['run_name']}"
-            experiment_label = f"vadere_controlled_{self.ns['experiment_label']}"
+            experiment_label = f"{ControlRunner.OUTPUT_DEFAULT}_{self.ns['experiment_label']}"
 
             _wait_for_vadere = True
             while _wait_for_vadere:
