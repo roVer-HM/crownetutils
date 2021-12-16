@@ -117,7 +117,11 @@ def scatter_pedestrian_positions():
 def scatter_plot_min_max():
     df = read_position_files()
     df = df.drop(columns="id")
-    df_time = df.groupby("time").agg({"y": [np.max, np.min], "x": [np.max, np.min]})
+    # df_time = df.groupby("time").agg({"y": [np.max, np.min], "x": [np.max, np.min]})
+    time_per_bin = 10.0
+    bins = int(np.floor(df["time"].max() / time_per_bin))
+    df_time = df.groupby(pd.cut(df["time"], bins)).agg({"y": [np.max, np.min], "x": [np.max, np.min]})
+    df_time.index = [v.right for v in df_time.index.values]
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
     x = df_time.index.values
