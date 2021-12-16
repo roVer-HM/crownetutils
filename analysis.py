@@ -330,7 +330,7 @@ def all_pedestrians_instantiated():
 def mean_simulation_time() -> float:
     data = []
     df = read_spawn_times()
-    for i in range(10):
+    for i in range(RUN_COUNT):
         df_filtered = df[df['runId'] == f"{i}"]
         last_person_time = int(df_filtered["endTime"].max())
         data.append([i, last_person_time])
@@ -345,7 +345,7 @@ def mean_simulation_time() -> float:
 def simulation_duration_per_run():
     data = []
     df = read_spawn_times()
-    for i in range(10):
+    for i in range(RUN_COUNT):
         df_filtered = df[df['runId'] == f"{i}"]
         last_person_time = int(df_filtered["endTime"].max())
         data.append([i, last_person_time])
@@ -370,7 +370,7 @@ def data_with_ped_count(data):
     # Mean Pedestrian Count
     list = []
     df = read_spawn_times()
-    for i in range(10):
+    for i in range(RUN_COUNT):
         df_filtered = df[df['runId'] == f"{i}"]
         last_person_time = int(df_filtered["endTime"].max())
 
@@ -417,7 +417,7 @@ def data_with_ped_count(data):
 def mean_pedestrian_count():
     list = []
     df = read_spawn_times()
-    for i in range(10):
+    for i in range(RUN_COUNT):
         df_filtered = df[df['runId'] == f"{i}"]
         last_person_time = int(df_filtered["endTime"].max())
 
@@ -444,7 +444,7 @@ def mean_pedestrian_count():
 
 def pedestrian_count_per_run():
     df = read_spawn_times()
-    for i in range(10):
+    for i in range(RUN_COUNT):
         data = []
         df_filtered = df[df['runId'] == str(i)]
         last_person_time = int(df_filtered["endTime"].max())

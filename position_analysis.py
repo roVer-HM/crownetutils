@@ -174,7 +174,7 @@ def average_speed():
 
 def average_speed_per_pedestrian_per_run():
     df_master = read_position_files()
-    for z in range(0, 10):
+    for z in range(RUN_COUNT):
         df_filtered = df_master[df_master['runId'] == z]
         df = df_filtered.groupby(["time", "id"], as_index=False).agg({"x": np.mean, "y": np.mean})
 
