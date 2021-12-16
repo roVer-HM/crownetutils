@@ -172,7 +172,7 @@ def make_count_plot(delay):
     ax2.set_xlabel("time [s]")
     ax2.set_ylabel(f"mean delay (window size: {time_per_bin}s )[s]")
     ax2.legend()
-    f2.savefig(p.join("out/delay_rcvdPackage_median.png"))
+    f2.savefig(os.path.join(OUT_PATH, f"delay_rcvdPackage_median.png"))
 
 
 def generate_mean_delay_per_run(delay):
@@ -206,10 +206,10 @@ def generate_mean_delay_per_run(delay):
                 ax1.legend()
                 ax.legend()
 
-                f1.savefig(p.join(f"out/delay/delay_rcvdPackage_mean_{a}.png"))
+                f1.savefig(os.path.join(OUT_PATH_DELAY, f"delay_rcvdPackage_mean_{a}.png"))
 
     ax = plot_vspans(ax)
-    f.savefig(p.join(f"out/delay/delay_rcvdPackage_mean.png"))
+    f.savefig(os.path.join(OUT_PATH_DELAY, f"delay_rcvdPackage_mean.png"))
 
 
 def generate_plots_rcvdPackage_delay_median(delay):
@@ -250,8 +250,8 @@ def generate_plots_rcvdPackage_delay_median(delay):
     ax1.legend()
     ax2.legend()
 
-    f1.savefig(p.join("out/delay_rcvdPackage_median.png"))
-    f2.savefig(p.join("out/delay_rcvdPackage_mean.png"))
+    f1.savefig(os.path.join(OUT_PATH, f"delay_rcvdPackage_median.png"))
+    f2.savefig(os.path.join(OUT_PATH, f"delay_rcvdPackage_mean.png"))
 
 
 def delay_with_ped_count_and_distance_to_enb(delay):
@@ -269,7 +269,7 @@ def delay_with_ped_count_and_distance_to_enb(delay):
         distancPedCountPlot.plot("time", "value", data=df_mean, label=n)
 
     fig = distancPedCountPlot.get_figure()
-    fig.savefig(p.join("out/delay_ped_count_distance_enb.png"))
+    fig.savefig(os.path.join(OUT_PATH, f"delay_ped_count_distance_enb.png"))
 
 
 def generate_plots_sendPacketToUpper_delay_median(delay):
@@ -315,8 +315,8 @@ def generate_plots_sendPacketToUpper_delay_median(delay):
     ax1.legend()
     ax2.legend()
 
-    f1.savefig(p.join("out/delay_sentPacketUpper_median.png"))
-    f2.savefig(p.join("out/delay_sentPacketUpper_mean.png"))
+    f1.savefig(os.path.join(OUT_PATH, f"delay_sentPacketUpper_median.png"))
+    f2.savefig(os.path.join(OUT_PATH, f"delay_sentPacketUpper_mean.png"))
 
 
 def all_pedestrians_instantiated():
@@ -361,7 +361,7 @@ def simulation_duration_per_run():
     plt.title("Length of Simulation per Run")
 
     fig = ax.get_figure()
-    fig.savefig(p.join("out/simulation_times.png"))
+    fig.savefig(os.path.join(OUT_PATH, f"simulation_times.png"))
 
 
 def data_with_ped_count(data):
@@ -409,7 +409,7 @@ def data_with_ped_count(data):
     # ax1.legend(loc='center left', bbox_to_anchor=(1.0, 1.0))
 
     fig = ax1.get_figure()
-    fig.savefig(p.join("out/data_with_ped_count.png"), bbox_inches="tight")
+    fig.savefig(os.path.join(OUT_PATH, f"data_with_ped_count.png"), bbox_inches="tight")
 
 
 def mean_pedestrian_count():
@@ -435,7 +435,7 @@ def mean_pedestrian_count():
     plt.title("Mean Pedestrian Count Per Time Over All Simulations")
 
     fig = ax.get_figure()
-    fig.savefig(p.join("out/mean_ped_count_over_time.png"))
+    fig.savefig(os.path.join(OUT_PATH, f"mean_ped_count_over_time.png"))
 
     return df_reduced
 
@@ -463,7 +463,7 @@ def pedestrian_count_per_run():
         plt.title("Pedestrian Count over Time")
 
         fig = ax.get_figure()
-        fig.savefig(p.join(f"out/ped_count/pedestrian_count_{i}.png"))
+        fig.savefig(os.path.join(OUT_PATH_PED_COUNT, f"pedestrian_count_{i}.png"))
 
 
 intervalList = [[10, 80], [90, 120], [150, 300], [350, 430], [500, 640]] # Sumo Bottleneck

@@ -109,7 +109,7 @@ def scatter_pedestrian_positions():
             plt.yticks(np.arange(minimum, maximum, 10))
 
             fig = ax.get_figure()
-            fig.savefig(OUTPUT_PATH + '/position_' + str(u) + '_' + str(run_id) + '.png', bbox_inches='tight')
+            fig.savefig(OUT_PATH_POSITION + '/position_' + str(u) + '_' + str(run_id) + '.png', bbox_inches='tight')
 
 
 def scatter_plot_min_max():
@@ -135,7 +135,7 @@ def scatter_plot_min_max():
     # plt.grid()
 
     fig = ax.get_figure()
-    fig.savefig(OUTPUT_PATH + '/min_max.png')
+    fig.savefig(OUT_PATH_POSITION + '/min_max.png')
 
 
 def average_speed():
@@ -201,13 +201,13 @@ def average_speed_per_pedestrian_per_run():
         ax.scatter(x, y, marker='.', color='red')
         plt.xticks(np.arange(min(x), max(x) + 1, 1))
         fig = ax.get_figure()
-        fig.savefig(SPEED_OUTPUT_PATH + f"/average_speed_scatter{z}.png")
+        fig.savefig(OUT_PATH_SPEED + f"/average_speed_scatter{z}.png")
 
         # Boxplot
         boxplot = df.boxplot(by='id', column='distance', grid=False, showfliers=False)
         plt.yticks(np.arange(0, 20, 1))
         fig2 = boxplot.get_figure()
-        fig2.savefig(SPEED_OUTPUT_PATH + f"/average_speed_boxplot_{z}.png")
+        fig2.savefig(OUT_PATH_SPEED + f"/average_speed_boxplot_{z}.png")
 
 
 def average_speed_per_pedestrian():
@@ -245,13 +245,13 @@ def average_speed_per_pedestrian():
     ax.scatter(x, y, marker='.', color='red')
     plt.xticks(np.arange(min(x), max(x) + 1, 1))
     fig = ax.get_figure()
-    fig.savefig(OUTPUT_PATH + '/average_speed_scatter.png')
+    fig.savefig(OUT_PATH_POSITION + '/average_speed_scatter.png')
 
     # Boxplot
     boxplot = df.boxplot(by='id', column='distance', grid=False, showfliers=False)
     plt.yticks(np.arange(0, 20, 1))
     fig2 = boxplot.get_figure()
-    fig2.savefig(OUTPUT_PATH + '/average_speed_boxplot.png')
+    fig2.savefig(OUT_PATH_POSITION + '/average_speed_boxplot.png')
 
 
 def calculate_distance_between_pedestrians_and_enb():
@@ -320,7 +320,7 @@ def calculate_distance_between_pedestrians_and_enb():
 
     plot_vspans(ax)
 
-    fig.savefig(DISTANCE_OUTPUT_PATH + f"/distance_mean_to_enb.png")
+    fig.savefig(OUT_PATH_DISTANCE + f"/distance_mean_to_enb.png")
 
     return ax
 

@@ -16,16 +16,7 @@ NODE_NAME = "pNode"
 ROOT = f"{os.environ['HOME']}/crownet/crownet/simulations/{SIM}/results"
 SIM_CONFIG = VADERE_SIMPLE
 RUN_COUNT = 10
-VALIDATE_RUN_COUNT = False
-
-# SPECIFIC_RUN = ""
-
-# PATH_ROOT = f"{ROOT}/{SIM_CONFIG}"
-PATH_ROOT = ROOT
-
-# PATH_SPECIFIC_RUN = f"{ROOT}/{RUN}/{SPECIFIC_RUN}"
-p = PathHelper(PATH_ROOT)
-# p_specific = PathHelper(PATH_SPECIFIC_RUN)
+VALIDATE_RUN_COUNT = True
 
 
 PAINT_INTERVALS = True
@@ -33,8 +24,17 @@ IS_VADERE_ANALYSIS = True if "vadere" in SIM_CONFIG else False
 
 
 #
-# position analysis settings:
+# output paths
 #
-OUTPUT_PATH = f"{PATH_ROOT}/out/position"
-SPEED_OUTPUT_PATH = f"{PATH_ROOT}/out/speed"
-DISTANCE_OUTPUT_PATH = f"{PATH_ROOT}/out/distance"
+OUT_PATH = f"{ROOT}/plots/{SIM_CONFIG}"
+OUT_PATH_POSITION = f"{OUT_PATH}/position"
+OUT_PATH_SPEED = f"{OUT_PATH}/speed"
+OUT_PATH_DELAY = f"{OUT_PATH}/delay"
+OUT_PATH_DISTANCE = f"{OUT_PATH}/distance"
+OUT_PATH_PED_COUNT = f"{OUT_PATH}/ped_count"
+
+OUT_PATHS_LIST = [OUT_PATH_POSITION, OUT_PATH_SPEED, OUT_PATH_DELAY, OUT_PATH_DISTANCE]  # , OUT_PATH_PED_COUNT]
+
+for path in OUT_PATHS_LIST:
+    PathHelper(path, create_missing=True)
+
