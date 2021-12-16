@@ -1,7 +1,9 @@
 import fnmatch
 import math
 import os
+import sys
 from typing import List, Union
+import logging as log
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -325,9 +327,15 @@ def calculate_distance_between_pedestrians_and_enb():
     return ax
 
 
-if __name__ == "__main__":
-    # calculate_distance_between_pedestrians()
+def main():
+    log.basicConfig(stream=sys.stdout, level=log.WARNING)
+    calculate_distance_between_pedestrians_and_enb()
     scatter_pedestrian_positions()
-    # scatter_plot_min_max()
-    # average_speed_per_pedestrian()
-    # average_speed_per_pedestrian_per_run()
+    scatter_plot_min_max()
+    # average_speed()  # ???
+    average_speed_per_pedestrian()
+    average_speed_per_pedestrian_per_run()
+
+
+if __name__ == "__main__":
+    main()

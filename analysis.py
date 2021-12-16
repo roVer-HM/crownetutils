@@ -1,6 +1,7 @@
 import fnmatch
 import os
 import re
+import sys
 from typing import List
 import logging as log
 
@@ -499,14 +500,14 @@ def delay_mean_variance_per_interval(data):
         print("-------------------------")
 
 
-if __name__ == "__main__":
+def main():
+    log.basicConfig(stream=sys.stdout, level=log.WARNING)
+    all_pedestrians_instantiated()
+    simulation_duration_per_run()
+    mean_pedestrian_count()
+    print(f"{mean_simulation_time()=}")
 
-    # all_pedestrians_instantiated()
-    # simulation_duration_per_run()
-    # mean_pedestrian_count()
-    print(mean_simulation_time())
-
-    delay = read_app_data(filter_for_packageDelay)
+    delay: pd.DataFrame = read_app_data(filter_for_packageDelay)
     upper = read_app_data(filter_for_sentPacketToUpper)
 
     # Reduce failed Vadere run
@@ -516,13 +517,17 @@ if __name__ == "__main__":
 
     # Delay with Mean Pedestrian Count
     data_with_ped_count(upper)
-    # delay_with_ped_count_and_distance_to_enb(delay)
+    delay_with_ped_count_and_distance_to_enb(delay)
 
     # Mean/Median Delay
-    # generate_mean_delay_per_run(delay)
-    # generate_plots_rcvdPackage_delay_median(delay)
-    # delay_mean_variance_per_interval(delay)
+    generate_mean_delay_per_run(delay)
+    generate_plots_rcvdPackage_delay_median(delay)
+    delay_mean_variance_per_interval(delay)
 
     # Mean/Median sentPacketToUpper
-    # delay_mean_variance_per_interval(upper)
-    # generate_plots_sendPacketToUpper_delay_median(upper)
+    delay_mean_variance_per_interval(upper)
+    generate_plots_sendPacketToUpper_delay_median(upper)
+
+
+if __name__ == "__main__":
+    main()
