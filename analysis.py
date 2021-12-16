@@ -197,8 +197,8 @@ def generate_mean_delay_per_run(delay):
                 ax.plot("time", "value", data=df_mean, label=n)
                 ax1.plot("time", "value", data=df_mean, label=n)
 
-                ax1.set_ylim(0, 30)
-                ax1.set_xlim(0, 800)
+                # ax1.set_ylim(0, 30)
+                # ax1.set_xlim(0, 800)
 
                 ax.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)", y=1.05)
                 ax1.set_title("rcvdPkLifetime (delay) of all packets (beacon + map)", y=1.05)
@@ -229,12 +229,12 @@ def generate_plots_rcvdPackage_delay_median(delay):
         df_median = df_median.dropna()
         ax1.plot("time", "value", data=df_median, label=n)
         ax2.plot("time", "value", data=df_mean, label=n)
-        plt.yticks(np.arange(0, 45, 5))
+        # plt.yticks(np.arange(0, 45, 5))
 
-        ax1.set_ylim(0, 30)
-        ax1.set_xlim(0, 800)
-        ax2.set_ylim(0, 30)
-        ax2.set_xlim(0, 800)
+        # ax1.set_ylim(0, 30)
+        # ax1.set_xlim(0, 800)
+        # ax2.set_ylim(0, 30)
+        # ax2.set_xlim(0, 800)
 
     label = "time [s]"
     title = "rcvdPkLifetime (delay) of all packets (beacon + map)"
