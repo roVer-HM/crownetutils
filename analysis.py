@@ -145,9 +145,9 @@ def find(pattern, path) -> List[str]:
 def filter_for_packageDelay() -> ScaveFilter:
     scave = ScaveTool()
     return scave.filter_builder() \
-        .gOpen().module(f"*.{NODE_NAME}[*].app[{DENSITY_APP_INDEX}].app")\
-        .OR().module(f"*.{NODE_NAME}[*].app[{BEACON_APP_INDEX}].app").gClose() \
-        .AND().name("rcvdPkLifetime:vector")
+        .gOpen().module(f'"*.{NODE_NAME}[*].app[{DENSITY_APP_INDEX}].app"')\
+        .OR().module(f'"*.{NODE_NAME}[*].app[{BEACON_APP_INDEX}].app"').gClose() \
+        .AND().name('"rcvdPkLifetime:vector"')
 
 
 def filter_for_sentPacketToUpper() -> ScaveFilter:
