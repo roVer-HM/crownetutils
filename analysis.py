@@ -2,6 +2,7 @@ import fnmatch
 import os
 import re
 from typing import List
+import logging as log
 
 from config import *
 from roveranalyzer.simulators.opp.utils import ScaveTool
@@ -31,11 +32,10 @@ def read_param():
 
 def sqls_matching_sim_config(
         sim_config: str = SIM_CONFIG,
-        validate=VALIDATE_RUN_COUNT,
-        path: str = PATH_ROOT,
+        search_path: str = ROOT
 ) -> List[OMNeT.CrownetSql]:
     sqls = []
-    for vec_file in vec_files_matching_sim_config(sim_config, validate, path):
+    for vec_file in vec_files_matching_sim_config(sim_config, search_path):
         sca_file = ".".join(vec_file.split(".")[0:-1]) + ".sca"
         sqls.append(
            OMNeT.CrownetSql(
@@ -48,34 +48,27 @@ def sqls_matching_sim_config(
 
 def vec_files_matching_sim_config(
         sim_config: str = SIM_CONFIG,
-        validate: bool = VALIDATE_RUN_COUNT,
-        path: str = PATH_ROOT
+        search_path: str = ROOT
 ) -> List[str]:
-    vec_files = find("*.vec", path)
+    vec_files = find("*.vec", search_path)
     vec_files = [file for file in vec_files if sim_config in file.split("/")[-2]]
-    if validate:
-        validate_run_count(vec_files)
+    validate_run_count(vec_files)
     return vec_files
-
-
-class MissingRunError(Exception):
-    pass
-
-
-class DuplicateRunError(Exception):
-    pass
 
 
 def validate_run_count(vec_files: List[str]):
     target = set([i for i in range(RUN_COUNT)])
     for file in vec_files:
         run_index = int(file.split(".")[0].split("_")[-1])
-        try:
-            target.remove(run_index)
-        except KeyError:
-            raise DuplicateRunError(f"Duplicate simulation run with index: {run_index}")
+        if run_index >= RUN_COUNT:
+            log.warning(f"Using simulation run with index higher than run count. Index: {run_index}")
+        else:
+            try:
+                target.remove(run_index)
+            except KeyError:
+                log.warning(f"Duplicate simulation run with index: {run_index}")
     if len(target) > 0:
-        raise MissingRunError(f"Missing simulation run with index: {str(target)}")
+        log.warning(f"Missing simulation run with index: {str(target)}")
 
 
 def read_spawn_times():
