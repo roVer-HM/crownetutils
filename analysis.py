@@ -6,6 +6,7 @@ from typing import List
 import logging as log
 
 from config import *
+from roveranalyzer.simulators.opp.scave import ScaveFilter
 from roveranalyzer.simulators.opp.utils import ScaveTool
 from roveranalyzer.utils import PathHelper
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2DMulti
@@ -72,7 +73,7 @@ def validate_run_count(vec_files: List[str]):
         log.warning(f"Missing simulation run with index: {str(target)}")
 
 
-def read_spawn_times():
+def read_spawn_times() -> pd.DataFrame:
     df_list = list()
     vec_files = vec_files_matching_sim_config()
     for i in range(len(vec_files)):
@@ -99,7 +100,7 @@ def find_number(text):
 
 
 # @from_pickle(path=PATH_ROOT + "/rcvdPkLifetimeVec.p")
-def read_app_data(callback):
+def read_app_data(callback) -> pd.DataFrame:
     df_list = list()
     vec_files = vec_files_matching_sim_config()
     for i in range(len(vec_files)):
@@ -141,7 +142,7 @@ def find(pattern, path) -> List[str]:
     return result
 
 
-def filter_for_packageDelay():
+def filter_for_packageDelay() -> ScaveFilter:
     scave = ScaveTool()
     return scave.filter_builder() \
         .gOpen().module(f"*.{NODE_NAME}[*].app[{DENSITY_APP_INDEX}].app")\
@@ -149,7 +150,7 @@ def filter_for_packageDelay():
         .AND().name("rcvdPkLifetime:vector")
 
 
-def filter_for_sentPacketToUpper():
+def filter_for_sentPacketToUpper() -> ScaveFilter:
     scave = ScaveTool()
     return scave.filter_builder() \
         .gOpen().module(f"*World.{NODE_NAME}[*].cellularNic.mac").OR().module(f"*.{NODE_NAME}[*].cellularNic.mac").gClose() \
@@ -326,7 +327,7 @@ def all_pedestrians_instantiated():
     print(latest_spawn_time)
 
 
-def mean_simulation_time():
+def mean_simulation_time() -> float:
     data = []
     df = read_spawn_times()
     for i in range(10):
