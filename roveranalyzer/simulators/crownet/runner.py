@@ -278,7 +278,7 @@ def parse_args_as_dict(runner: Any, args=None):
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands
-    add_base_arguments(parser=parent, args=_args)
+    add_base_arguments(parser=parent)
 
     # subparsers
     sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
