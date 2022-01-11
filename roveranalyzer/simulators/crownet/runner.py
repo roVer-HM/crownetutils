@@ -4,7 +4,7 @@ import signal
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, List
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -28,15 +28,8 @@ from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
-def debug_print(message:str) -> None:
-    #TODO remove hard coded file paths
-    file = "/home/mweidner/log.txt"
-    with open(file, "a") as myfile:
-        myfile.write(f"{message}\n")
 
-
-
-def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
+def add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
@@ -69,9 +62,9 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
         action=SubstituteAction,
         do_on=["timestamp"],
         sub_action=lambda x: datetime.now()
-        .isoformat()
-        .replace("-", "")
-        .replace(":", ""),
+            .isoformat()
+            .replace("-", "")
+            .replace(":", ""),
         required=False,
         help="experiment-label used in the result path. Use 'timestamp' to get current sanitized ISO-Format timestamp.",
     )
@@ -135,9 +128,9 @@ def add_control_arguments(parser: argparse.ArgumentParser, args: List[str]):
         action=SimulationArgAction,
         prefix="--ctrl.",
         help="Specify arguments for the control script. Use --ctrl. prefix to specify arguments to pass to the control executable."
-        "`--ctrl.foo bar` --> `--foo bar`. If single '-' is needed use `--ctrl.-v`. Multiple values "
-        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
-        "executable. Defaults: ",
+             "`--ctrl.foo bar` --> `--foo bar`. If single '-' is needed use `--ctrl.-v`. Multiple values "
+             "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+             "executable. Defaults: ",
     )
     parser.add_argument(
         "-wc",
@@ -208,7 +201,7 @@ def add_vadere_arguments(parser: argparse.ArgumentParser):
         default="",
         required=False,
         help="Set log file name of Vadere. If not set '', log file will not be created. "
-        "This setting has no effect on --log-journald. (Default: '') ",
+             "This setting has no effect on --log-journald. (Default: '') ",
     )
 
 
@@ -218,8 +211,8 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
         dest="opp_exec",
         default="",
         help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
-        "Use --opp. prefix to specify arguments to pass to the "
-        "given executable.",
+             "Use --opp. prefix to specify arguments to pass to the "
+             "given executable.",
     )
     parser.add_argument(
         "--opp.xxx",
@@ -231,9 +224,9 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
         action=SimulationArgAction,
         prefix="--opp.",
         help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable."
-        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
-        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
-        "executable. Defaults: ",
+             "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+             "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+             "executable. Defaults: ",
     )
     parser.add_argument(
         "--omnet-tag",
@@ -499,7 +492,7 @@ class BaseRunner:
                 ContainerLogWriter(f"{self.result_base_dir()}/container_sumo.out")
             )
 
-    def build_and_start_control_runner(self, port=9997):
+    def build_and_start_control_runner(self):
         self.build_control_runner(detach=True)
         self.exec_control_runner(mode="server")
 
@@ -577,8 +570,8 @@ class BaseRunner:
                 use_local=self.ns["ctl_local"],
                 scenario=self.ns["scenario_file"],
                 ctrl_args=self.ns["ctrl_args"],
-                result_dir= self.ns["result_dir"],
-                experiment_label = experiment_label,
+                result_dir=self.ns["result_dir"],
+                experiment_label=experiment_label,
             )
         else:
 
@@ -593,11 +586,7 @@ class BaseRunner:
                 ctrl_args=self.ns["ctrl_args"],
             )
 
-    def build_and_start_vadere_only(self, port=None):
-
-        if port is None:
-            port = self.ns["v_traci_port"]
-
+    def build_and_start_vadere_only(self):
         run_name = self.ns["run_name"]
         self.vadere_runner = VadereRunner(
             docker_client=self.docker_client,
@@ -614,11 +603,6 @@ class BaseRunner:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
             )
-
-        # TODO (duplicates write_container_log)
-        logfile = os.devnull
-        if self.ns["v_logfile"] != "":
-            logfile = self.ns["v_logfile"]
 
         os.makedirs(self.result_base_dir(), exist_ok=True)
 
@@ -661,7 +645,6 @@ class BaseRunner:
 
         finally:
             # always stop container and delete if no error occurred
-            err_state = ret
             logger.debug(f"cleanup with ret={ret}")
 
             # TODO: does not work
@@ -726,7 +709,6 @@ class BaseRunner:
                 self.sumo_runner.container_cleanup(has_error_state=err_state)
             self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
-
 
     def run_simulation_omnet_vadere(self):
         ret = 255
@@ -872,7 +854,7 @@ class BaseRunner:
         except RuntimeError as cErr:
             logger.error(cErr)
             ret = 255
-        except KeyboardInterrupt as K:
+        except KeyboardInterrupt:
             logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
