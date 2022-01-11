@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import glob
 import json
@@ -22,6 +24,7 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMap
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import FrameConsumer
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
+from roveranalyzer.utils import logging
 
 
 def _hdf_job(args):
@@ -194,9 +197,19 @@ class DcdHdfBuilder(FrameConsumer):
         id_slice: slice = slice(None),
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
+        selection: str | int = "ymf",
     ):
         self.add_df_filter(DcdUtil.remove_not_selected_cells)
         providers = self.build(time_slice, id_slice, x_slice, y_slice)
+
+        if isinstance(selection, str):
+            m = providers.map_p.get_selection_mapping_attribute()
+            if selection not in m:
+                logging.logging.error(
+                    f"selection string '{selection}'not found expected one of"
+                    f"[{','.join(m.keys())}]"
+                )
+            selection = m[selection]
 
         return DcdMap2D(
             metadata=providers.metadata,
@@ -206,7 +219,7 @@ class DcdHdfBuilder(FrameConsumer):
             count_p=providers.count_p,
             count_slice=providers.count_slice,
             map_p=providers.map_p.add_filter(
-                selection=1
+                selection=selection
             ),  # ensure only selected cells are load
             map_slice=providers.map_slice,
         )
