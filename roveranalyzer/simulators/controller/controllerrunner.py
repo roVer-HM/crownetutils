@@ -66,8 +66,8 @@ class ControlRunner(DockerRunner):
         traci_port=9999,
         use_local=False,
         scenario=None,
-        result_dir = "results",
-        experiment_label = "vadere_controlled_out",
+        result_dir="results",
+        experiment_label="vadere_controlled_out",
         ctrl_args: ArgList = ArgList(),
     ):
 
@@ -95,12 +95,10 @@ class ControlRunner(DockerRunner):
             ctrl_args.to_string(),
         ]
 
-
         if connection_mode == "client":
             cmd.extend(["--client-mode", "--scenario-file", scenario])
             cmd.extend(["--output-dir", result_dir])
             cmd.extend(["--experiment-label", experiment_label])
-
 
         logger.debug(f"start controller container(start_controller)")
         logger.debug(f"cmd: {' '.join(cmd)}")
