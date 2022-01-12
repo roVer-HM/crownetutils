@@ -2,10 +2,12 @@ import abc
 import contextlib
 import os
 import warnings
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
+from geopandas.geodataframe import GeoDataFrame
 
+from roveranalyzer.simulators.opp.provider.hdf.IHdfGeoProvider import GeoProvider
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 
 
@@ -59,6 +61,9 @@ class BaseHdfProvider:
         with tables.open_file(self._hdf_path, "r") as hdf_file:
             return hdf_file.root[_key].table.attrs[attr_key]
 
+    def get_time_interval(self):
+        return self.get_attribute("time_interval")
+
     def contains_group(self, group):
         with self.ctx() as ctx:
             return group in [g._v_name for g in ctx.groups()]
@@ -85,7 +90,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         # self._hdf_path: str = hdf_path
         # self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
         # self.group: str = self.group_key()
-        self.idx_order: {} = self.index_order()
+        self.idx_order: Dict = self.index_order()
         self._dispatcher = {
             int: self._handle_primitive,
             float: self._handle_primitive,
@@ -93,14 +98,17 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             list: self._handle_list,
             slice: self._handle_slice,
             tuple: self._handle_tuple,
+            Operation: self._handle_operation,
         }
+        self._filters = set()
+        self.operators = Operation
 
     @abc.abstractmethod
     def group_key(self) -> str:
         return "None"
 
     @abc.abstractmethod
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return {}
 
     @abc.abstractmethod
@@ -111,6 +119,11 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     def default_index_key(self) -> str:
         return "None"
 
+    def _to_geo(
+        self, df: pd.DataFrame, to_crs: Union[str, None] = None
+    ) -> GeoDataFrame:
+        raise NotImplementedError("not supported operation")
+
     @property
     def hdf_path(self):
         return self._hdf_path
@@ -118,6 +131,22 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     @property
     def dispatcher(self):
         return self._dispatcher
+
+    def geo(self, to_crs=None) -> GeoProvider:
+        return GeoProvider(self, to_crs)
+
+    def add_filter(self, **kwargs):
+        keys = [*self.columns(), *(self.index_order().values())]
+        for key, value in kwargs.items():
+            if key not in keys:
+                raise ValueError("Filter key not in index or columns")
+            con, _ = self.dispatcher[type(value)](key, value)
+            for c in con:
+                self._filters.add(c)
+        return self
+
+    def clear_filter(self):
+        self._filters.clear()
 
     @staticmethod
     def cast_to_set(value: Any):
@@ -128,6 +157,14 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             return set(value)
         else:
             return value
+
+    def _handle_operation(
+        self, key: str, value: Operation
+    ) -> Tuple[List[str], Optional[List[str]]]:
+        condition = self._build_exact_condition(
+            key=key, value=value.value, operation=value.operation
+        )
+        return condition, None
 
     def _handle_primitive(
         self, key: str, value: any
@@ -193,8 +230,9 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         condition, columns = f(key, item)
         return condition, columns
 
-    def __getitem__(self, item: any):
+    def __getitem__(self, item: any) -> pd.DataFrame:
         condition, columns = self.dispatch(self.default_index_key(), item)
+        condition.extend(list(self._filters))
         # remove conditions containing 'None' values
         condition = [i for i in condition if not "None" in i]
         if len(condition) == 0 and columns is None:

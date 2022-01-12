@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
@@ -22,7 +22,7 @@ class GenericHdfProvider(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.COUNT_MAP
 
-    def index_order(self) -> {}:
+    def index_order(self) -> Dict:
         return self._index_order
 
     def columns(self) -> List[str]:

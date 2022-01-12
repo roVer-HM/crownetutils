@@ -20,7 +20,7 @@ from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
 
 class DcdMapProviderTest(unittest.TestCase):
     # create tmp fs. (use fs.root_path to access as normal path)
-    fs: TempFS = create_tmp_fs("CountMapProviderTest")
+    fs: TempFS = create_tmp_fs("DcdMapCountProviderTest")
     test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
     provider: DcdMapProvider = DcdMapProvider(sample_file_dir)
@@ -130,7 +130,7 @@ class DcdMapProviderTest(unittest.TestCase):
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.parse_node_id"
     )
-    @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.read_csv")
+    @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdUtil.read_csv")
     def test_build_dcd_dataframe(
         self, mock_read_csv: MagicMock, mock_parse_node_id: MagicMock
     ):

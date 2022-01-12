@@ -2,14 +2,17 @@ import glob
 import io
 import os
 import pprint as pp
+import re
 import signal
 import sqlite3 as sq
 import subprocess
 import time
-from typing import List, Union
+from typing import List, Tuple, Union
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely.geometry import Point
 
 from roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.configuration import Config
@@ -237,6 +240,15 @@ class ScaveFilter:
 
 
 class SqlOp:
+    """
+    Helper class to build `WHERE` clause for matching a
+    column against a single or multiple values which
+    may contain placeholder strings `%`.
+
+    Use classmethods `OR` or `AND` for the respective boolean operator
+    needed.
+    """
+
     def __init__(self, operator, group):
         self._operator = operator
         self._group = group if type(group) == list else [group]
@@ -268,6 +280,10 @@ class SqlOp:
 
 class OppSql:
 
+    """
+    Util class to access vec and sca database files.
+    """
+
     OR = SqlOp.OR
     AND = SqlOp.AND
 
@@ -296,12 +312,16 @@ class OppSql:
     @property
     def vec_con(self):
         if self._vec_con is None:
+            if not os.path.exists(self.vec_path):
+                raise FileNotFoundError(self.vec_path)
             self._vec_con = sq.connect(self.vec_path)
         return self._vec_con
 
     @property
     def sca_con(self):
         if self._sca_con is None:
+            if not os.path.exists(self.sca_path):
+                raise FileNotFoundError(self.sca_path)
             self._sca_con = sq.connect(self.sca_path)
         return self._sca_con
 
@@ -322,27 +342,30 @@ class OppSql:
     def query_sca(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="sca", type=type, **kwargs)
 
+    @staticmethod
+    def _to_sql(obj: Union[str, SqlOp], table, column, prefix="", suffix=""):
+        """
+        Transform string or sql operator into sql string
+        """
+        if type(obj) == SqlOp:
+            return f"{prefix} {obj.apply(table, column)} {suffix}"
+        elif type(obj) == str:
+            if "%" in obj:
+                return f"{prefix} {table}.{column} like '{obj}' {suffix}"
+            else:
+                return f"{prefix} {table}.{column} = '{obj}' {suffix}"
+        else:
+            raise ValueError("expected SqlOp or string")
+
     def vec_info(
         self, moduleName=None, vectorName=None, runId=1, cols=("vectorId",), **kwargs
     ):
         cols = ", ".join([f"v.{c}" for c in cols])
         _sql = f"select {cols} from vector v where v.runId = '{runId}' "
-        if type(moduleName) == SqlOp:
-            _sql += "and "
-            _sql += moduleName.apply("v", "moduleName")
-        elif moduleName is not None and "%" in moduleName:
-            _sql += f" and v.moduleName like '{moduleName}'"
-        elif moduleName is not None:
-            _sql += f" and v.moduleName = '{moduleName}'"
+        _sql += self._to_sql(moduleName, "v", "moduleName", "and")
+        _sql += self._to_sql(vectorName, "v", "vectorName", "and")
 
-        if type(vectorName) == SqlOp:
-            _sql += " and "
-            _sql += vectorName.apply("v", "vectorName")
-        elif vectorName is not None and "%" in vectorName:
-            _sql += f" and v.vectorName like '{vectorName}'"
-        elif vectorName is not None:
-            _sql += f" and v.vectorName = '{vectorName}'"
-
+        # print(_sql)
         df = self.query_vec(_sql, type="df", **kwargs)
         return df
 
@@ -353,27 +376,25 @@ class OppSql:
 
     def vec_merge_on(
         self,
-        moduleName=None,
-        vectorName=None,
-        col_map=None,  # {id1: column name1, ...}
+        moduleName: Union[None, str, SqlOp] = None,
+        vectorName: Union[None, str, SqlOp] = None,
         runId=1,
         time_resolution=1e12,
         **kwargs,
     ):
+        """
+        Merge
+        """
 
-        if col_map is None:
-            _info = self.vec_info(
-                moduleName, vectorName, runId, cols=("vectorId", "vectorName"), **kwargs
-            )
-            _ids = _info["vectorId"].to_list()
-            _id_map = (
-                _info.reset_index(drop=True)
-                .set_index(keys=["vectorId"])
-                .to_dict()["vectorName"]
-            )
-        else:
-            _ids = list(_id_map.keys())
-            _id_map = col_map
+        _info = self.vec_info(
+            moduleName, vectorName, runId, cols=("vectorId", "vectorName"), **kwargs
+        )
+        _ids = _info["vectorId"].to_list()
+        _id_map = (
+            _info.reset_index(drop=True)
+            .set_index(keys=["vectorId"])
+            .to_dict()["vectorName"]
+        )
 
         v_str = ", ".join([f'v{id}.value as "{name}"' for id, name in _id_map.items()])
         sub_q = f"(select * from vectorData as v where v.vectorId = {_ids[0]}) as v{_ids[0]}"
@@ -388,28 +409,72 @@ class OppSql:
             df = df.rename(columns={"simtimeRaw": "time"})
         return df
 
+    def sca_data(
+        self,
+        module_name: Union[None, str, SqlOp] = None,
+        scalar_name: Union[None, str, SqlOp] = None,
+        ids: Union[None, List[int]] = None,
+        cols: set = ("scalarId", "scalarName", "scalarValue"),
+        runId=1,
+    ) -> pd.DataFrame:
+
+        cols = ", ".join([f"s.{c}" for c in cols])
+
+        if module_name is not None and scalar_name is not None:
+            _sql = f"select {cols} from scalar as s where "
+            _sql += self._to_sql(module_name, "s", "moduleName")
+            _sql += self._to_sql(scalar_name, "s", "scalarName", "and")
+        elif ids is not None:
+            _ids_str = ",".join(str(i) for i in ids)
+            _sql = f"select {cols} from scalar as s where s.scalarId in ({_ids_str})"
+        else:
+            raise ValueError(
+                "provide either module and scalar name or list of scalar ids"
+            )
+
+        # print(_sql)
+        df = self.query_sca(_sql)
+        return df
+
     def vec_data(
         self,
-        moduleName=None,
-        vectorName=None,
-        ids=None,
+        module_name: Union[None, str, SqlOp] = None,
+        vector_name: Union[None, str, SqlOp] = None,
+        ids: Union[None, List[int], pd.DataFrame] = None,
         runId=1,
-        cols=("vectorId", "simtimeRaw", "value"),
+        cols: set = ("vectorId", "simtimeRaw", "value"),
+        value_name: str = "value",
+        time_slice: slice = slice(None),
         time_resolution=1e12,
         **kwargs,
     ):
-        _ids = (
-            self.vec_ids(moduleName, vectorName, runId, **kwargs)
-            if ids is None
-            else ids
-        )
+
+        if module_name is not None and vector_name is not None:
+            _ids = self.vec_ids(module_name, vector_name)
+        elif type(ids) == pd.DataFrame:
+            _ids = ids["vectorId"].unique()
+            if "vectorId" not in cols:
+                cols = [*cols, "vectorId"]
+        else:
+            _ids = ids
+
         _ids = ", ".join([str(i) for i in _ids])
         cols = ", ".join([f"v_data.{c}" for c in cols])
-        _sql = f"select {cols} from vectorData v_data where v_data.vectorId in ({_ids})"
+        if time_slice != slice(None):
+            _time = f" and v_data.simTimeRaw >= {time_slice.start * time_resolution} and v_data.simTimeRaw <= {time_slice.stop * time_resolution}"
+        else:
+            _time = ""
+        _sql = f"select {cols} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
         df = self.query_vec(_sql, type="df", **kwargs)
         if time_resolution is not None and "simtimeRaw" in cols:
             df["simtimeRaw"] = df["simtimeRaw"] / time_resolution
             df = df.rename(columns={"simtimeRaw": "time"})
+
+        if type(ids) == pd.DataFrame:
+            df = pd.merge(df, ids, how="left", on=["vectorId"])
+
+        df = df.rename(columns={"value": value_name})
+
         return df
 
 
@@ -427,35 +492,202 @@ class CrownetSql(OppSql):
         ["packetSent:vector(packetBytes)", "packetCreated:vector(packetBytes)"]
     )
 
-    _misc = "%s.misc[%d]"
-    _misc_app = "%s.misc[%d].app[%d]"
+    _pos_x = "posX:vector"
+    _pos_y = "posy:vector"
 
-    _ped = "%s.misc[%d]"
-    _ped_app = "%s.misc[%d].app[%d]"
+    _module_vectors = ["misc", "pNode", "vNode"]
 
     _vehicle = "%s.misc[%d]"
     _vehicle_app = "%s.misc[%d].app[%d]"
 
+    module_vectors = ["misc", "pNode", "vNode"]
+
     def __init__(self, vec_path=None, sca_path=None, network="World"):
         super().__init__(vec_path=vec_path, sca_path=sca_path)
-        self._network = network
+        self.network = network
+        self.module_names = self.OR(
+            [f"{self.network}.{i}[%]" for i in self._module_vectors]
+        )
+        self._host_id_regex = re.compile(
+            f"(?P<host>^{self.network}\.(?P<type>{'|'.join(self._module_vectors)})\[\d+\]).*"
+        )
+        self._host_index_regex = re.compile(
+            f"^{self.network}\.(?P<type>{'|'.join(self._module_vectors)})\[(?P<hostIdx>\d+)\].*"
+        )
 
-    def host_ids(self):
+    def host_ids(self, module_name: Union[None, str, SqlOp] = None):
         """
         Return hostIds of all vector nodes present in simulation (misc, pNode, vNode)
         """
-        _module_names = self.OR(
-            [
-                f"{self._network}.misc[%]",
-                f"{self._network}.pNode[%]",
-                f"{self._network}.vNode[%]",
-            ]
-        )
-        _sql: pd.DataFrame = f"select s.moduleName, s.scalarValue from scalar as s where \n  {_module_names.apply('s', 'moduleName')} \n  AND s.scalarName = 'hostId:last'"
+        module_name = self.module_names if module_name is None else module_name
+
+        _sql: pd.DataFrame = f"select s.moduleName, s.scalarValue from scalar as s where \n  {self._to_sql(module_name, 's', 'moduleName')} \n  AND s.scalarName = 'hostId:last'"
         _df = self.query_sca(sql_str=_sql)
         _df["scalarValue"] = pd.to_numeric(_df["scalarValue"], downcast="integer")
         _df = _df.reset_index(drop=True).set_index(keys="scalarValue")
         return _df.to_dict()["moduleName"]
+
+    def module_to_host_ids(self):
+        return {v: k for k, v in self.host_ids().items()}
+
+    def host_position(
+        self,
+        module_name: Union[SqlOp, str, None] = None,
+        ids: Union[pd.DataFrame, None] = None,
+        time_slice: slice = slice(None),
+        epsg_code_base: Union[str, None] = None,
+        epsg_code_to: Union[str, None] = None,
+        cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
+    ) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+        """
+        Get host position data in cartesian coordinates.
+
+        By default the columns vectorId1 and vectorId2 are dropped. They correspond
+        to the x and y values respectively. If epsg_code is present the `geomentry`
+        column is added.
+
+        Use either the module_name selector (sql operator or simple string)
+        or provide am `ids` data frame with columns ['x', 'y'] which corresponds
+        to vectorIds for posX and posY respectively. Caller must ensure that each
+        row in the ids frame corresponse to one host. Use `ids` to filter based on
+        hosts.
+
+        For time filter use time_slice to specify a closed interval. Both start and stop
+        value will be matched. [a, b] --> a <= x <= b
+
+        If `epsg_code` is given the method returns a GeoDataFrame with an additional `geometry`
+        column and a coordinate reference system defined by the epsg_code.
+        Frequent values:
+          * UTM ZONE 32N (most of Germany): `EPSG:32632` (cartesian, in meter)
+          * OpenStreetMap, GoogleMaps, WSG84 Pseudo Mercartor: `EPSG:3857` (cartesian, in meter)
+          * WGS84 (World Geodetic System 1984 used in GPS): `EPSG:4326 (lat/lon, in degree)
+
+        Examples:
+        1) all host from all vectors (misc[*], pNode[*], vNode[*]) between 12.5s and 90.0s
+
+        df = host_pos(time_slice=slice(12.5, 90.0))      # defaults to all
+
+        2) Only misc and pNodes with UTM ZONE 32N (default for sumo based simulations)
+           Use the 'or' operator to select both misc and pNode vectors. Ensure that the
+           full path is correct.
+
+        gdf = host_pos(
+            module_name=SqlOp.OR(["World.misc[%]", World.pNode[%]])
+            epsg_code=32632
+        )
+
+        3) Only select positions for selected host (may come from different vectors)
+           In this example 3 host are selected where the vectorIds=[5, 12, 14]  are
+           x postion vectors and [9, 44, 18] are y position vectors for 3 host.
+
+        ids = pd.DataFrame([[5,9],[12,44],[14, 18]], columns=["x", "y"])
+        df = host_pos(ids=ids)
+
+        """
+        module_name = self.module_names if module_name is None else module_name
+        if ids is None:
+            _x = self.vector_ids_to_host(
+                module_name=module_name, vector_name="posX:vector"
+            )
+            _y = self.vector_ids_to_host(
+                module_name=module_name, vector_name="posY:vector"
+            )
+        else:
+            _x = self.vector_ids_to_host(vec_ids=ids["x"].unique())
+            _y = self.vector_ids_to_host(vec_ids=ids["y"].unique())
+            raise ValueError("provide either module_name or ids data frame")
+
+        _x = self.vec_data(ids=_x, value_name="x", time_slice=time_slice)
+
+        _y = self.vec_data(ids=_y, value_name="y", time_slice=time_slice)
+        df = pd.merge(
+            _x,
+            _y,
+            how="outer",
+            on=["time", "hostId", "host", "vecIdx"],
+            suffixes=["1", "2"],
+        )
+        if df["x"].hasnans or df["y"].hasnans:
+            print("warning: host positions are inconsistent")
+
+        # get simulation bound offset
+        offset = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simOffsetX:last", "simOffsetY:last"]),
+        )["scalarValue"].to_numpy()
+
+        # get simulation bound (width, height). Lower left point [0, 0] + offset
+        bound = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
+        )["scalarValue"].to_numpy()
+
+        # convert to bottom-left origin and remove offset used during the simulation
+        df["y"] = bound[1] - df["y"]  # move from top-left-orig to bottom-left-orig
+        # nothing to do for x, only y-axis needs conversion
+        df["x"] = df["x"] - offset[0]
+        df["y"] = df["y"] - offset[1]
+
+        if epsg_code_base is not None:
+            geometry = [Point(x, y) for x, y in zip(df["x"], df["y"])]
+            df = gpd.GeoDataFrame(df, crs=epsg_code_base, geometry=geometry)
+            cols = [*cols, "geometry"]
+            if epsg_code_to is not None:
+                df = df.to_crs(epsg=epsg_code_to.replace("EPSG:", ""))
+
+        return df.loc[:, cols]
+
+    def vector_ids_to_host(
+        self,
+        module_name: Union[None, str, SqlOp] = None,
+        vector_name: Union[None, str, SqlOp] = None,
+        vec_ids: Union[None, List[int]] = None,
+        columns=("vectorId", "host", "hostId", "vecIdx"),
+    ) -> pd.DataFrame:
+        module_map = self.module_to_host_ids()
+
+        if module_name is not None and vector_name is not None:
+            vec_ids = self.vec_ids(module_name, vector_name)
+
+        if vec_ids is None:
+            raise ValueError("set either module and vector name or provide vector ids")
+
+        _vec_id_str = ",".join([str(i) for i in vec_ids])
+
+        def _match_host(x):
+            if _m := self._host_index_regex.match(x):
+                return f'{_m.groupdict()["type"]}[{_m.groupdict()["hostIdx"]}]'
+            raise ValueError(
+                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
+            )
+
+        def _match_host_id(x):
+            if _m := self._host_id_regex.match(x):
+                if _m.groupdict()["host"] in module_map:
+                    return module_map[_m.groupdict()["host"]]
+                else:
+                    ValueError(f"Module {_m} not found in module map")
+            raise ValueError(
+                f"given moduleName '{x}' does match module regex {self._host_id_regex}"
+            )
+
+        def _match_vector_idx(x):
+            if _m := self._host_index_regex.match(x):
+                return int(_m.groupdict()["hostIdx"])
+            raise ValueError(
+                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
+            )
+
+        _sql = f"select v.vectorId, v.moduleName from vector as v where v.vectorId in ({_vec_id_str})"
+        _df = self.query_vec(_sql)
+        if "host" in columns:
+            _df["host"] = _df["moduleName"].apply(lambda x: _match_host(x))
+        if "hostId" in columns:
+            _df["hostId"] = _df["moduleName"].apply(lambda x: _match_host_id(x))
+        if "vecIdx" in columns:
+            _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
+
+        return _df[list(columns)]
 
 
 class ScaveTool:
