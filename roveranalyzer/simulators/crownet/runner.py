@@ -330,6 +330,14 @@ def parse_args_as_dict(runner: Any, args=None):
     sumo_parser.set_defaults(main_func=runner.run_simulation_omnet_sumo)
     sumo_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
+    # omnet
+    omnet_parser: argparse.ArgumentParser = sub.add_parser(
+        "omnet", help="omnet subparser", parents=[parent]
+    )
+    add_omnet_arguments(parser=omnet_parser, args=_args)
+    omnet_parser.set_defaults(main_func=runner.run_simulation_omnet)
+    omnet_parser.set_defaults(result_dir_callback=result_dir_with_opp)
+
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
 
@@ -655,6 +663,37 @@ class BaseRunner:
             #     self.vadere_runner.container_cleanup(has_error_state=err_state)
             # self.opp_runner.container_cleanup(has_error_state=err_state)
 
+        return ret
+
+    def run_simulation_omnet(self):
+        ret = 255  # fail
+        self.build_opp_runner()
+
+        try:
+            # start OMNeT++ container and attach to it
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
+                arg_list=self.ns["opp_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=self.ns["experiment_label"],
+                run_args_override={},
+            )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
+
+        except RuntimeError as cErr:
+            logger.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logger.debug(f"cleanup with ret={ret}")
+            self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
     def run_simulation_omnet_sumo(self):
