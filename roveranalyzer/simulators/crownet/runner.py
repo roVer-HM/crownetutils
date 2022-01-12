@@ -96,7 +96,7 @@ def add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--reuse-policy",
         dest="reuse_policy",
-        type=DockerCleanup,
+        type=DockerReuse,
         choices=list(DockerReuse),
         default=DockerReuse.REMOVE_RUNNING,
         required=False,
