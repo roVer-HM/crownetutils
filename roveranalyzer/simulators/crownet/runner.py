@@ -4,7 +4,7 @@ import signal
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, List
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -29,7 +29,7 @@ from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
 
-def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
+def add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
@@ -278,7 +278,7 @@ def parse_args_as_dict(runner: Any, args=None):
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands
-    add_base_arguments(parser=parent, args=_args)
+    add_base_arguments(parser=parent)
 
     # subparsers
     sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
@@ -492,7 +492,7 @@ class BaseRunner:
                 ContainerLogWriter(f"{self.result_base_dir()}/container_sumo.out")
             )
 
-    def build_and_start_control_runner(self, port=9997):
+    def build_and_start_control_runner(self):
         self.build_control_runner(detach=True)
         self.exec_control_runner(mode="server")
 
@@ -553,7 +553,9 @@ class BaseRunner:
         if mode == "client":
 
             host_name = f"vadere_{self.ns['run_name']}"
-            experiment_label = f"{ControlRunner.OUTPUT_DEFAULT}_{self.ns['experiment_label']}"
+            experiment_label = (
+                f"{ControlRunner.OUTPUT_DEFAULT}_{self.ns['experiment_label']}"
+            )
 
             _wait_for_vadere = True
             while _wait_for_vadere:
@@ -586,11 +588,7 @@ class BaseRunner:
                 ctrl_args=self.ns["ctrl_args"],
             )
 
-    def build_and_start_vadere_only(self, port=None):
-
-        if port is None:
-            port = self.ns["v_traci_port"]
-
+    def build_and_start_vadere_only(self):
         run_name = self.ns["run_name"]
         self.vadere_runner = VadereRunner(
             docker_client=self.docker_client,
@@ -607,11 +605,6 @@ class BaseRunner:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
             )
-
-        # TODO (duplicates write_container_log)
-        logfile = os.devnull
-        if self.ns["v_logfile"] != "":
-            logfile = self.ns["v_logfile"]
 
         os.makedirs(self.result_base_dir(), exist_ok=True)
 
@@ -654,7 +647,6 @@ class BaseRunner:
 
         finally:
             # always stop container and delete if no error occurred
-            err_state = ret
             logger.debug(f"cleanup with ret={ret}")
 
             # TODO: does not work
@@ -864,7 +856,7 @@ class BaseRunner:
         except RuntimeError as cErr:
             logger.error(cErr)
             ret = 255
-        except KeyboardInterrupt as K:
+        except KeyboardInterrupt:
             logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
