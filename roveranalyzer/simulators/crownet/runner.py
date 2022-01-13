@@ -955,8 +955,3 @@ class BaseRunner:
             if self.control_runner is not None:
                 self.control_runner.container_cleanup(has_error_state=err_state)
         return ret
-
-
-if __name__ == "__main__":
-    b = BaseRunner(".")
-    print("hi")
