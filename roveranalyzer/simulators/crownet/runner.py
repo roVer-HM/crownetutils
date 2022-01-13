@@ -437,8 +437,7 @@ class process_as:
 
 class BaseRunner:
     def __init__(self, working_dir, args=None):
-        self._args = args
-        self.ns = None  # will be set in run()
+        self.ns = parse_args_as_dict(self, args)
         self.docker_client = DockerClient.get()  # increased timeout
         self.working_dir = working_dir
         self.vadere_runner = None
@@ -466,15 +465,7 @@ class BaseRunner:
         """
         return self.ns["result_dir_callback"](self.ns, self.working_dir)
 
-    def load_namespace(self, args):
-        """
-        allow namespace overwrite
-        """
-        self.ns = parse_args_as_dict(self, args)
-
     def run(self):
-        logger.info("load namespace")
-        self.load_namespace(self._args)
         logger.info("execute pre hooks")
         self.pre()
         logger.info("execute simulation")
