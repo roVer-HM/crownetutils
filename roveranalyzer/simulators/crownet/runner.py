@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import signal
 import sys
@@ -338,14 +339,60 @@ def parse_args_as_dict(runner: Any, args=None):
     omnet_parser.set_defaults(main_func=runner.run_simulation_omnet)
     omnet_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
+    # config file
+    cfg_parser: argparse.ArgumentParser = sub.add_parser(
+        "config",
+        help="read configuration from json file",
+    )
+    cfg_parser.add_argument(
+        "-f",
+        "--file",
+        dest="cfg_file",
+        required=True,
+        nargs=1,
+        help="Any json file which contains the key 'cmd_args'. The value must be a List.",
+    )
+
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
+    if "cfg_file" in ns:
+        return read_config_file(runner, ns)
 
     level_idx = ns["verbose"]
     set_level(levels[level_idx])
     set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
 
     return ns
+
+
+def read_config_file(runner: Any, ns: dict):
+    """
+    read file and search for "cmd_args" key and reload namespace from this.
+    Ensure that 'config' subcommand is not present to prevent loop
+    """
+    print(os.path.abspath("."))
+    cfg_file = ns["cfg_file"][0]
+    with open(cfg_file, "r", encoding="utf-8") as fd:
+        cfg_json = json.load(fd)
+
+    if "cmd_args" not in cfg_json:
+        raise argparse.ArgumentError(
+            f"expected 'cmd_args' key in config file but found {cfg_json.keys()}"
+        )
+
+    cmd_args = cfg_json["cmd_args"]
+    if not isinstance(cmd_args, list):
+        raise argparse.ArgumentError(
+            f"expected list value for 'cmd_args' but got {type(cmd_args)}"
+        )
+
+    if cmd_args[0] == "config":
+        raise argparse.ArgumentError(
+            f"Parse loop detected. The config file cannot contain the 'config' subcommand. [{cmd_args}]"
+        )
+
+    logger.info(f"Load config {cmd_args}")
+    return parse_args_as_dict(runner=runner, args=cmd_args)
 
 
 def result_dir_with_opp(ns, working_dir) -> str:
