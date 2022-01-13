@@ -119,11 +119,12 @@ class _OppAnalysis:
             df_rcv /= _sum
         return df_rcv
 
+    @PlotUtil.with_axis
     def plot_packet_source_distribution(
         self,
-        ax: plt.Axes,
         data: pd.DataFrame,
         hatch_patterns: List[str] = PlotUtil.hatch_patterns,
+        ax: plt.Axes = None,
         **kwargs,
     ) -> plt.Axes:
         patterns = itertools.cycle(hatch_patterns)
@@ -137,7 +138,7 @@ class _OppAnalysis:
             for patch in bar:
                 patch.set_hatch(_h)
         ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
-        return ax
+        return ax.get_figure(), ax
 
     def get_neighborhood_table_size(
         self,
@@ -169,8 +170,9 @@ class _OppAnalysis:
         tbl_idx.sort()
         return tbl, tbl_idx
 
+    @PlotUtil.with_axis
     def plot_neighborhood_table_size_over_time(
-        self, ax, tbl: pd.DataFrame, tbl_idx: np.ndarray
+        self, tbl: pd.DataFrame, tbl_idx: np.ndarray, ax: plt.Axes = None
     ) -> plt.Axes:
         """
         x-axis: time
@@ -185,7 +187,7 @@ class _OppAnalysis:
         ax.set_ylabel("Neighboor count")
         ax.set_xlabel("time [s]")
         ax.set_title("Size of neighborhood table over time for each node")
-        return ax
+        return ax.get_figure(), ax
 
 
 OppAnalysis = _OppAnalysis()

@@ -14,6 +14,7 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
+import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
@@ -21,44 +22,7 @@ from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import check_ax, update_dict
 
-
-def plot_decorator(method):
-    @wraps(method)
-    def _impl(self, *method_args, **method_kwargs):
-        if self.plot_wrapper is not None:
-            return self.plot_wrapper(method, self, *method_args, **method_kwargs)
-        else:
-            return method(self, *method_args, **method_kwargs)
-
-    return _impl
-
-
-def savefigure(method):
-    @wraps(method)
-    def savefigure_impl(self, *method_args, **method_kwargs):
-        savefig = None
-        if "savefig" in method_kwargs:
-            savefig = method_kwargs["savefig"]
-            del method_kwargs["savefig"]
-        fig, ax = method(self, *method_args, **method_kwargs)
-        if savefig is not None:
-            os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
-            logger.info(f"save figure: {savefig}")
-            fig.savefig(savefig)
-        return fig, ax
-
-    return savefigure_impl
-
-
-def with_axis(method):
-    @wraps(method)
-    def with_axis_impl(self, *method_args, **method_kwargs):
-        if "ax" not in method_kwargs:
-            _, ax = check_ax(None)
-            method_kwargs.setdefault("ax", ax)
-        return method(self, *method_args, **method_kwargs)
-
-    return with_axis_impl
+PlotUtil = _Plot.PlotUtil
 
 
 class DcdMap:
@@ -363,8 +327,8 @@ class DcdMap2D(DcdMap):
         print(desc.loc[["update_age"], ["mean", "std", "min", "max"]])
         print("=" * 79)
 
-    @savefigure
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
     def plot_summary(self, simtime, node_id, title="", **kwargs):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
@@ -376,9 +340,9 @@ class DcdMap2D(DcdMap):
         ax[3].clear()
         return f, ax
 
-    @savefigure
-    @with_axis
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.with_axis
+    @PlotUtil.plot_decorator
     def plot_location_map(self, time_step, *, ax: plt.Axes = None, add_legend=True):
         places = self.own_cell()
         _i = pd.IndexSlice
@@ -400,9 +364,9 @@ class DcdMap2D(DcdMap):
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         return ax.get_figure(), ax
 
-    @savefigure
-    @with_axis
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.with_axis
+    @PlotUtil.plot_decorator
     def plot_location_map_annotated(self, time_step, *, ax: plt.Axes = None):
         places = self.own_cell()
         _i = pd.IndexSlice
@@ -503,9 +467,9 @@ class DcdMap2D(DcdMap):
             line.set_xdata(df["owner_dist"].to_numpy())
         return df
 
-    @savefigure
-    @with_axis
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.with_axis
+    @PlotUtil.plot_decorator
     def plot_error_histogram(
         self,
         time_slice: slice = slice(None),
@@ -530,9 +494,9 @@ class DcdMap2D(DcdMap):
         ax = sns.histplot(data=data, stat=stat, fill=fill, ax=ax, **hist_kwargs)
         return ax.get_figure(), ax
 
-    @savefigure
-    @with_axis
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.with_axis
+    @PlotUtil.plot_decorator
     def plot_error_quantil_histogram(
         self,
         value="err",
@@ -571,8 +535,8 @@ class DcdMap2D(DcdMap):
         )
         return ax.get_figure(), ax
 
-    @savefigure
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
     def plot_error_over_distance(
         self,
         time_step,
@@ -610,8 +574,8 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
-    @savefigure
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
     def plot_delay_over_distance(
         self,
         time_step,
@@ -659,8 +623,8 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
-    @savefigure
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
     def plot_area(
         self,
         time_step: float,
@@ -712,8 +676,8 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
-    @savefigure
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
     def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Total node count over time", **self.font_dict["title"])
@@ -733,8 +697,8 @@ class DcdMap2D(DcdMap):
         ax.legend()
         return f, ax
 
-    @savefigure
-    @plot_decorator
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
     def plot_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         f, ax = check_ax(ax, **kwargs)
         ax.set_title("Node Count over Time", **self.font_dict["title"])

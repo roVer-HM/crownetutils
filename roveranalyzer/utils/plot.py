@@ -1,9 +1,15 @@
 import itertools
+import os
 import random
+from functools import wraps
 from typing import List, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+import roveranalyzer.utils.logging as _log
+
+logger = _log.logger
 
 
 class _PlotUtil:
@@ -45,6 +51,42 @@ class _PlotUtil:
     @property
     def color_marker_lines_cycle(self):
         return itertools.cycle(self.color_marker_lines())
+
+    def with_axis(self, method):
+        @wraps(method)
+        def with_axis_impl(self, *method_args, **method_kwargs):
+            if "ax" not in method_kwargs:
+                _, ax = check_ax(None)
+                method_kwargs.setdefault("ax", ax)
+            return method(self, *method_args, **method_kwargs)
+
+        return with_axis_impl
+
+    def savefigure(self, method):
+        @wraps(method)
+        def savefigure_impl(self, *method_args, **method_kwargs):
+            savefig = None
+            if "savefig" in method_kwargs:
+                savefig = method_kwargs["savefig"]
+                del method_kwargs["savefig"]
+            fig, ax = method(self, *method_args, **method_kwargs)
+            if savefig is not None:
+                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+                logger.info(f"save figure: {savefig}")
+                fig.savefig(savefig)
+            return fig, ax
+
+        return savefigure_impl
+
+    def plot_decorator(self, method):
+        @wraps(method)
+        def _impl(self, *method_args, **method_kwargs):
+            if self.plot_wrapper is not None:
+                return self.plot_wrapper(method, self, *method_args, **method_kwargs)
+            else:
+                return method(self, *method_args, **method_kwargs)
+
+        return _impl
 
 
 PlotUtil = _PlotUtil()
