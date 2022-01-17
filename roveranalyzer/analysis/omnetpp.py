@@ -13,7 +13,7 @@ from pandas.core.frame import DataFrame
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.simulators.opp.scave import SqlOp
-from roveranalyzer.utils.logging import logger
+from roveranalyzer.utils.logging import logger, timing
 
 PlotUtil = _Plot.PlotUtil
 
@@ -193,6 +193,7 @@ class _OppAnalysis:
         ax.set_title("Size of neighborhood table over time for each node")
         return ax.get_figure(), ax
 
+    @timing
     def get_received_packet_delay(
         self,
         sql: Scave.CrownetSql,
@@ -247,6 +248,7 @@ class _OppAnalysis:
         else:
             return vec_data, pd.DataFrame()
 
+    @timing
     def get_received_packet_loss(
         self, sql: Scave.CrownetSql, module_name: Scave.SqlOp | str
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -261,7 +263,6 @@ class _OppAnalysis:
             (1) aggregated  packet loss of the form (hostId, srcHostId) [numPackets, packet_lost, packet_loss_ratio]
             (2) raw data (hostId, srcHostId, time)[seqNo]
         """
-        time_start = default_timer()
         logger.info("load packet loss data from *.vec")
 
         vec_names = ["rcvdPkSeqNo:vector", "rcvdPkHostId:vector"]
@@ -309,7 +310,6 @@ class _OppAnalysis:
             "lost"
         ].sum()
         lost_df["packet_loss_ratio"] = lost_df["packet_lost"] / lost_df["numPackets"]
-        logger.info(f"packet loss ratio done {default_timer() - time_start}")
         return lost_df, vec_data
 
 
