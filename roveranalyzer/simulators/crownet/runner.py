@@ -5,7 +5,7 @@ import signal
 import sys
 import time
 from datetime import datetime
-from typing import Any, List
+from typing import Any, Dict, List
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -270,7 +270,7 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     )
 
 
-def parse_args_as_dict(runner: Any, args=None):
+def parse_args_as_dict(runner: Any, args=None) -> Dict:
     _args: List[str] = sys.argv[1:] if args is None else args
 
     # parse arguments
@@ -356,7 +356,8 @@ def parse_args_as_dict(runner: Any, args=None):
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
     if "cfg_file" in ns:
-        return read_config_file(runner, ns)
+        cfg_file = ns["cfg_file"][0]
+        return read_config_file(runner, cfg_file)
 
     level_idx = ns["verbose"]
     set_level(levels[level_idx])
@@ -365,13 +366,11 @@ def parse_args_as_dict(runner: Any, args=None):
     return ns
 
 
-def read_config_file(runner: Any, ns: dict):
+def read_config_file(runner: Any, cfg_file: str) -> Dict:
     """
     read file and search for "cmd_args" key and reload namespace from this.
     Ensure that 'config' subcommand is not present to prevent loop
     """
-    print(os.path.abspath("."))
-    cfg_file = ns["cfg_file"][0]
     with open(cfg_file, "r", encoding="utf-8") as fd:
         cfg_json = json.load(fd)
 
@@ -436,6 +435,10 @@ class process_as:
 
 
 class BaseRunner:
+    @classmethod
+    def from_config(cls, workding_dir, config_path):
+        return cls(workding_dir, args=["config", "-f", config_path])
+
     def __init__(self, working_dir, args=None):
         self.ns = parse_args_as_dict(self, args)
         self.docker_client = DockerClient.get()  # increased timeout
