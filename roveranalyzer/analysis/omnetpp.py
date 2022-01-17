@@ -193,5 +193,124 @@ class _OppAnalysis:
         ax.set_title("Size of neighborhood table over time for each node")
         return ax.get_figure(), ax
 
+    def get_received_packet_delay(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        delay_resolution: float = 1.0,
+        describe: bool = True,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Packet delay data based on single applications in '<Network>.<Module>[*].app[*].app'
+
+        Args:
+            sql (Scave.CrownetSql): Scave database handler
+            module_name (Scave.SqlOp): [description]
+            delay_resolution (float, optional): Delay resolution mutliplier. Defaults to 1.0 (seconds).
+            describe (bool, optional): [description]. If true second data frame contains descriptive statistics based on hostId/srcHostId. Defaults to True.
+
+        Returns:
+            tuple[pd.DataFrame, pd.DataFrame]: DataFrame of the form (index)[columns]:
+            (1) raw data (hostId, srcHostId, time)[delay]
+            (2) empty  or (hostId, srcHostId)[count, mean, std, min, 25%, 50%, 75%, max] if describe=True
+        """
+        vec_names = ["rcvdPkLifetime:vector", "rcvdPkHostId:vector"]
+        df = sql.vector_ids_to_host(
+            module_name,
+            sql.OR(vec_names),
+            vec_info_columns=["vectorId", "vectorName"],
+            name_columns=["hostId"],
+        )
+        vec_data = sql.vec_data(ids=df, value_name="delay")
+        vec_data = vec_data.rename(columns={"vectorName": "value_type"})
+        vec_data["value_type"] = vec_data["value_type"].map(
+            {"rcvdPkLifetime:vector": "delay", "rcvdPkHostId:vector": "srcHostId"}
+        )
+        vec_data = (
+            vec_data.drop(columns=["vectorId"])
+            .pivot(index=["hostId", "time"], columns=["value_type"])
+            .droplevel(level=0, axis=1)
+            .reset_index()
+        )
+        col_dtypes = sql.get_column_types(
+            vec_data.columns.to_list(), time=float, delay=float, srcHostId=np.int32
+        )
+        vec_data = vec_data.astype(col_dtypes)
+        vec_data.columns.name = ""
+        vec_data = vec_data.set_index(
+            keys=["hostId", "srcHostId", "time"], verify_integrity=True
+        )
+        vec_data = vec_data.sort_index()
+        vec_data["delay"] *= delay_resolution
+
+        if describe:
+            return vec_data, vec_data.groupby(level=["hostId", "srcHostId"]).describe()
+        else:
+            return vec_data, pd.DataFrame()
+
+    def get_received_packet_loss(
+        self, sql: Scave.CrownetSql, module_name: Scave.SqlOp | str
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Packet loss data based on single applications in '<Network>.<Module>[*].app[*].app'
+
+        Args:
+            sql (Scave.CrownetSql): Scave database handler
+            module_name (Scave.SqlOp, optional): Modules for which the packet loss is calculated
+
+        Returns:
+            tuple[pd.DataFrame, pd.DataFrame]:  DataFrames of the form (index)[columns]:
+            (1) aggregated  packet loss of the form (hostId, srcHostId) [numPackets, packet_lost, packet_loss_ratio]
+            (2) raw data (hostId, srcHostId, time)[seqNo]
+        """
+        time_start = default_timer()
+        logger.info("load packet loss data from *.vec")
+
+        vec_names = ["rcvdPkSeqNo:vector", "rcvdPkHostId:vector"]
+        vec_info = sql.vector_ids_to_host(
+            module_name,
+            sql.OR(vec_names),
+            vec_info_columns=["vectorId", "vectorName"],
+            name_columns=["hostId"],
+        )
+        vec_data = sql.vec_data(ids=vec_info)
+        logger.info(f"received data with shape {vec_data.shape}")
+        vec_data = vec_data.rename(columns={"vectorName": "value_type"})
+        vec_data["value_type"] = vec_data["value_type"].map(
+            {"rcvdPkSeqNo:vector": "seqNo", "rcvdPkHostId:vector": "srcHostId"}
+        )
+        vec_data = (
+            vec_data.drop(columns=["vectorId"])
+            .pivot(index=["hostId", "time"], columns=["value_type"])
+            .droplevel(level=0, axis=1)
+            .reset_index()
+        )
+        col_dtypes = sql.get_column_types(
+            vec_data.columns.to_list(), time=float, seqNo=np.int32, srcHostId=np.int32
+        )
+        vec_data = vec_data.astype(col_dtypes)
+        vec_data.columns.name = ""
+        vec_data = vec_data.set_index(
+            keys=["hostId", "srcHostId", "time"], verify_integrity=True
+        )
+        vec_data = vec_data.sort_index()
+        logger.info("calculate packet los per host and packet source")
+        grouped = vec_data.groupby(level=["hostId", "srcHostId"])
+        vec_data["lost"] = 0
+        for _, group in grouped:
+            vec_data.loc[group.index, "lost"] = group["seqNo"].diff() - 1
+
+        logger.info("calculate packet loss ratio per host and source")
+        lost_df = (
+            vec_data.groupby(level=["hostId", "srcHostId"])["seqNo"]
+            .apply(lambda x: x.max() - x.min())
+            .to_frame()
+        )
+        lost_df = lost_df.rename(columns={"seqNo": "numPackets"})
+        lost_df["packet_lost"] = vec_data.groupby(level=["hostId", "srcHostId"])[
+            "lost"
+        ].sum()
+        lost_df["packet_loss_ratio"] = lost_df["packet_lost"] / lost_df["numPackets"]
+        logger.info(f"packet loss ratio done {default_timer() - time_start}")
+        return lost_df, vec_data
+
 
 OppAnalysis = _OppAnalysis()
