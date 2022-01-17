@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import glob
 import io
 import os
@@ -7,12 +9,14 @@ import signal
 import sqlite3 as sq
 import subprocess
 import time
+from multiprocessing import Value
 from typing import List, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely.geometry import Point
+from traitlets.traitlets import Bool
 
 from roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.configuration import Config
@@ -358,26 +362,84 @@ class OppSql:
             raise ValueError("expected SqlOp or string")
 
     def vec_info(
-        self, moduleName=None, vectorName=None, runId=1, cols=("vectorId",), **kwargs
-    ):
-        cols = ", ".join([f"v.{c}" for c in cols])
-        _sql = f"select {cols} from vector v where v.runId = '{runId}' "
-        _sql += self._to_sql(moduleName, "v", "moduleName", "and")
-        _sql += self._to_sql(vectorName, "v", "vectorName", "and")
+        self,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        vector_ids: List[int] | None = None,
+        run_id: int = 1,
+        cols: List[str] | None = None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Query vector base information contained in xxx.vec files. This will access the 'vector'
+        table from the xxx.vec file provided in the constructor.
+
+        Args:
+            moduleName (SqlOp|str, optional): column selector for moduleName column. Defaults to None.
+            vectorName (SqlOp|str, optional): column selector for vectorName. Defaults to None.
+            ids (List[int], optional): vector id list. Defaults to None.
+            runId (int, optional): Defaults to 1.
+            cols (List[str], optional): List of columns to return.
+                Possible columns: [vectorId, runId, moduleName, vectorName,
+                vectorCount, vectorMin, vectorMax, vectorSum, vectorSumSqr,
+                startEventNum, endEventNum, startSimtimeRaw, endSimtimeRaw].
+                If None, return all columns. Defaults to None.
+            human_names (List[str], optional):
+
+        Raises:
+            ValueError: must provide module/vector names or ids. If both are provided
+                        the former will be used.
+
+        Returns:
+            pd.Dataframe:
+        """
+        if cols is None:
+            cols = "*"  # select all columns
+        else:
+            cols = ", ".join([f"v.{c}" for c in cols])
+
+        if all(i is not None for i in [module_name, vector_name]):
+            _sql = f"select {cols} from vector v where v.runId = '{run_id}' "
+            _sql += self._to_sql(module_name, "v", "moduleName", "and")
+            _sql += self._to_sql(vector_name, "v", "vectorName", "and")
+        elif vector_ids is not None:
+            _id_str = [str(i) for i in vector_ids]
+            _sql = f"select {cols} from vector v where v.runId = '{run_id}' "
+            _sql += f" and v.vectorId in ({', '.join(_id_str)})"
+        else:
+            raise ValueError(
+                "expected either moduleName and vectorName or list of vector ids"
+            )
 
         # print(_sql)
         df = self.query_vec(_sql, type="df", **kwargs)
         return df
 
-    def vec_ids(self, moduleName=None, vectorName=None, runId=1, **kwargs) -> List[int]:
-        return self.vec_info(moduleName, vectorName, runId, **kwargs)[
-            "vectorId"
-        ].to_list()
+    def vec_ids(
+        self,
+        module_name: SqlOp | str,
+        vector_name: SqlOp | str,
+        run_id: int = 1,
+        **kwargs,
+    ) -> List[int]:
+        """VectorId list for moudle/vector names.
+
+        Args:
+            moduleName (SqlOp|str, optional): column selector for moduleName column. Defaults to None.
+            vectorName (SqlOp|str, optional): column selector for vectorName. Defaults to None.
+            ids (List[int], optional): [description]. vector id list. Defaults to None.
+            runId (int, optional): [description]. Defaults to 1.
+
+        Returns:
+            List[int]:
+        """
+        return self.vec_info(
+            module_name, vector_name, run_id=run_id, cols=["vectorId"], **kwargs
+        )["vectorId"].to_list()
 
     def vec_merge_on(
         self,
-        moduleName: Union[None, str, SqlOp] = None,
-        vectorName: Union[None, str, SqlOp] = None,
+        module_name: Union[None, str, SqlOp] = None,
+        vector_name: Union[None, str, SqlOp] = None,
         runId=1,
         time_resolution=1e12,
         **kwargs,
@@ -387,7 +449,7 @@ class OppSql:
         """
 
         _info = self.vec_info(
-            moduleName, vectorName, runId, cols=("vectorId", "vectorName"), **kwargs
+            module_name, vector_name, runId, cols=("vectorId", "vectorName"), **kwargs
         )
         _ids = _info["vectorId"].to_list()
         _id_map = (
@@ -438,11 +500,11 @@ class OppSql:
 
     def vec_data(
         self,
-        module_name: Union[None, str, SqlOp] = None,
-        vector_name: Union[None, str, SqlOp] = None,
-        ids: Union[None, List[int], pd.DataFrame] = None,
-        runId=1,
-        cols: set = ("vectorId", "simtimeRaw", "value"),
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        ids: List[int] | pd.DataFrame | None = None,
+        runId: int = 1,
+        columns: List[str] = ("vectorId", "simtimeRaw", "value"),
         value_name: str = "value",
         time_slice: slice = slice(None),
         time_resolution=1e12,
@@ -453,20 +515,20 @@ class OppSql:
             _ids = self.vec_ids(module_name, vector_name)
         elif type(ids) == pd.DataFrame:
             _ids = ids["vectorId"].unique()
-            if "vectorId" not in cols:
-                cols = [*cols, "vectorId"]
+            if "vectorId" not in columns:
+                columns = [*columns, "vectorId"]
         else:
             _ids = ids
 
         _ids = ", ".join([str(i) for i in _ids])
-        cols = ", ".join([f"v_data.{c}" for c in cols])
+        columns = ", ".join([f"v_data.{c}" for c in columns])
         if time_slice != slice(None):
             _time = f" and v_data.simTimeRaw >= {time_slice.start * time_resolution} and v_data.simTimeRaw <= {time_slice.stop * time_resolution}"
         else:
             _time = ""
-        _sql = f"select {cols} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
+        _sql = f"select {columns} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
         df = self.query_vec(_sql, type="df", **kwargs)
-        if time_resolution is not None and "simtimeRaw" in cols:
+        if time_resolution is not None and "simtimeRaw" in columns:
             df["simtimeRaw"] = df["simtimeRaw"] / time_resolution
             df = df.rename(columns={"simtimeRaw": "time"})
 
@@ -491,6 +553,8 @@ class CrownetSql(OppSql):
     v_app_sending = OppSql.OR(
         ["packetSent:vector(packetBytes)", "packetCreated:vector(packetBytes)"]
     )
+
+    _dtypes = {"host": "str", "hostId": np.int32, "vecIdx": np.int32}
 
     _pos_x = "posX:vector"
     _pos_y = "posy:vector"
@@ -593,8 +657,8 @@ class CrownetSql(OppSql):
                 module_name=module_name, vector_name="posY:vector"
             )
         else:
-            _x = self.vector_ids_to_host(vec_ids=ids["x"].unique())
-            _y = self.vector_ids_to_host(vec_ids=ids["y"].unique())
+            _x = self.vector_ids_to_host(vector_ids=ids["x"].unique())
+            _y = self.vector_ids_to_host(vector_ids=ids["y"].unique())
             raise ValueError("provide either module_name or ids data frame")
 
         _x = self.vec_data(ids=_x, value_name="x", time_slice=time_slice)
@@ -637,22 +701,27 @@ class CrownetSql(OppSql):
 
         return df.loc[:, cols]
 
+    def get_column_types(self, existing_columns, **kwargs):
+        _cols = dict(self._dtypes)
+        for k, v in kwargs.items():
+            _cols[k] = v
+        for k in set(_cols.keys()) - set(existing_columns):
+            del _cols[k]
+        return _cols
+
     def vector_ids_to_host(
         self,
-        module_name: Union[None, str, SqlOp] = None,
-        vector_name: Union[None, str, SqlOp] = None,
-        vec_ids: Union[None, List[int]] = None,
-        columns=("vectorId", "host", "hostId", "vecIdx"),
+        module_name: None | str | SqlOp = None,
+        vector_name: None | str | SqlOp = None,
+        vector_ids: None | List[int] = None,
+        run_id: int = 1,
+        vec_info_columns: List[str] | None = ["vectorId"],
+        name_columns: List[str] = ("host", "hostId", "vecIdx"),
     ) -> pd.DataFrame:
+        """
+        Add human readable lables to vectorIds' (i.e hostId, vecIdx, ...)
+        """
         module_map = self.module_to_host_ids()
-
-        if module_name is not None and vector_name is not None:
-            vec_ids = self.vec_ids(module_name, vector_name)
-
-        if vec_ids is None:
-            raise ValueError("set either module and vector name or provide vector ids")
-
-        _vec_id_str = ",".join([str(i) for i in vec_ids])
 
         def _match_host(x):
             if _m := self._host_index_regex.match(x):
@@ -678,16 +747,31 @@ class CrownetSql(OppSql):
                 f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
             )
 
-        _sql = f"select v.vectorId, v.moduleName from vector as v where v.vectorId in ({_vec_id_str})"
-        _df = self.query_vec(_sql)
-        if "host" in columns:
-            _df["host"] = _df["moduleName"].apply(lambda x: _match_host(x))
-        if "hostId" in columns:
-            _df["hostId"] = _df["moduleName"].apply(lambda x: _match_host_id(x))
-        if "vecIdx" in columns:
-            _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
+        _cols = list(vec_info_columns)  # copy
+        if "moduleName" not in vec_info_columns:
+            # moduleName must be returned to create needed names. Will be
+            # removed later if column is not selected by user.
+            vec_info_columns.insert(0, "moduleName")
 
-        return _df[list(columns)]
+        _df = self.vec_info(
+            module_name=module_name,
+            vector_name=vector_name,
+            vector_ids=vector_ids,
+            run_id=run_id,
+            cols=vec_info_columns,
+        )
+
+        if "host" in name_columns:
+            _df["host"] = _df["moduleName"].apply(lambda x: _match_host(x))
+            _cols.append("host")
+        if "hostId" in name_columns:
+            _df["hostId"] = _df["moduleName"].apply(lambda x: _match_host_id(x))
+            _cols.append("hostId")
+        if "vecIdx" in name_columns:
+            _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
+            _cols.append("vecIdx")
+
+        return _df[_cols]
 
 
 class ScaveTool:

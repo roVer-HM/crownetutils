@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import itertools
+from timeit import default_timer
 from typing import List, Tuple, Union
 
 import matplotlib as mpl
@@ -10,6 +13,7 @@ from pandas.core.frame import DataFrame
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.simulators.opp.scave import SqlOp
+from roveranalyzer.utils.logging import logger
 
 PlotUtil = _Plot.PlotUtil
 
@@ -22,7 +26,7 @@ class _OppAnalysis:
         self,
         sql: Scave.CrownetSql,
         app_path: str,
-        host_name: Union[None, str, SqlOp] = None,
+        host_name: SqlOp | str | None = None,
     ) -> pd.DataFrame:
         """
         Get packet ages for any stationary and moving node x
@@ -63,7 +67,7 @@ class _OppAnalysis:
         self,
         sql: Scave.CrownetSql,
         app_path: str,
-        host_name: Union[None, str, SqlOp] = None,
+        host_name: SqlOp | str | None = None,
         normalize: bool = True,
     ) -> pd.DataFrame:
         """
@@ -143,10 +147,10 @@ class _OppAnalysis:
     def get_neighborhood_table_size(
         self,
         sql: Scave.CrownetSql,
-        module_name: Union[Scave.SqlOp, str, None] = None,
+        module_name: Scave.SqlOp | str | None = None,
         indexList: str = "host",
         **kwargs,
-    ) -> Tuple[pd.DataFrame, np.ndarray]:
+    ) -> tuple[pd.DataFrame, np.ndarray]:
         """
         Extract neighborhood table size vectors from given module_name. Use the sql Operator for multiple selections.
         and None to default to all module vectors (misc, pNode, vNode)
@@ -162,7 +166,7 @@ class _OppAnalysis:
         )
 
         ids = [str(i) for i in tbl["vectorId"].unique()]
-        ids = sql.vector_ids_to_host(vec_ids=ids)
+        ids = sql.vector_ids_to_host(vector_ids=ids)
         tbl = pd.merge(tbl, ids, how="inner", on=["vectorId"]).drop(
             columns=["vectorId"]
         )
