@@ -8,10 +8,14 @@ import pandas as pd
 from geopandas import GeoDataFrame
 from pandas.core.frame import DataFrame
 
+import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
     DcdGlobalDensity,
     DcdGlobalPosition,
 )
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
+from roveranalyzer.utils.general import Project
 
 
 class _folium:
@@ -52,6 +56,21 @@ class _DensityMap:
         map = pd.concat([map, pos], axis=1)
 
         return map
+
+    def create_interactive_map(
+        self,
+        sql: Scave.CrownetSql,
+        global_p: DcdGlobalPosition,
+        time: float | None,
+        epsg_code_base: str = Project.UTM_32N,
+        epsg_code_to: str = Project.OpenStreetMaps,
+    ) -> folium.Map:
+        i = pd.IndexSlice
+        cells = global_p.geo(Project.OpenStreetMaps)[i[time, :, :]]
+        nodes = sql.host_position(
+            epsg_code_base=epsg_code_base, epsg_code_to=epsg_code_to
+        )
+        return self.get_interactive(cells, nodes)
 
     def get_interactive(
         self,
