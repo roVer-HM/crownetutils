@@ -508,6 +508,8 @@ class OppSql:
         value_name: str = "value",
         time_slice: slice = slice(None),
         time_resolution=1e12,
+        index: List[str] | None = None,
+        index_sort: bool = True,
         **kwargs,
     ):
 
@@ -597,12 +599,12 @@ class CrownetSql(OppSql):
     def host_position(
         self,
         module_name: Union[SqlOp, str, None] = None,
-        ids: Union[pd.DataFrame, None] = None,
+        ids: pd.DataFrame | None = None,
         time_slice: slice = slice(None),
-        epsg_code_base: Union[str, None] = None,
-        epsg_code_to: Union[str, None] = None,
+        epsg_code_base: str | None = None,
+        epsg_code_to: str | None = None,
         cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
-    ) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+    ) -> pd.DataFrame | gpd.GeoDataFrame:
         """
         Get host position data in cartesian coordinates.
 
@@ -711,11 +713,11 @@ class CrownetSql(OppSql):
 
     def vector_ids_to_host(
         self,
-        module_name: None | str | SqlOp = None,
-        vector_name: None | str | SqlOp = None,
-        vector_ids: None | List[int] = None,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        vector_ids: List[int] | None = None,
         run_id: int = 1,
-        vec_info_columns: List[str] | None = ["vectorId"],
+        vec_info_columns: List[str] | None = ("vectorId"),
         name_columns: List[str] = ("host", "hostId", "vecIdx"),
     ) -> pd.DataFrame:
         """
