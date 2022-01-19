@@ -29,6 +29,7 @@ class _OppAnalysis:
         host_name: SqlOp | str | None = None,
     ) -> pd.DataFrame:
         """
+        Deprecated use get_received_packet_delay
         Get packet ages for any stationary and moving node x
         Packet age: (time x received packet i) - (time packet i created)
                 |hostId (x)    |  time_recv |  packet_age  |
@@ -37,30 +38,17 @@ class _OppAnalysis:
             ... |  55          |  8.3  |  4.6  |
         """
 
-        id_map = sql.host_ids(host_name)
         if not app_path.startswith("."):
             app_path = f".{app_path}"
-
-        df = None
-        for _id, host in id_map.items():
-
-            _df = sql.vec_data(
-                module_name=f"{host}{app_path}",
-                vector_name="rcvdPkLifetime:vector",
-            )
-            _df["hostId"] = _id
-
-            if df is None:
-                df = _df
-            else:
-                df = pd.concat([df, _df], axis=0)
-
-        df = df.loc[:, ["hostId", "time", "value"]]
-        df.sort_values(by=["hostId"], inplace=True)
-        df.rename(columns={"value": "packet_age", "time": "time_recv"}, inplace=True)
-        df["hostId"] = df["hostId"].astype(int)
-        df.reset_index(drop=True, inplace=True)
-        df.index.name = "index"
+        module_name = sql.m_append_suffix(app_path, modules=host_name)
+        df, _ = self.get_received_packet_delay(
+            sql, module_name=module_name, describe=False
+        )
+        df = (
+            df.reset_index()
+            .rename(columns={"time": "time_recv", "rcvdPktLifetime": "packet_age"})
+            .drop(columns=["srcHostId"])
+        )
         return df
 
     def get_packet_source_distribution(
@@ -131,6 +119,15 @@ class _OppAnalysis:
         ax: plt.Axes = None,
         **kwargs,
     ) -> plt.Axes:
+        """Plot packet source distribution
+
+        Args:
+            ax (plt.Axes, optional): Axes to use. If missing a new axes will be injected by
+                                     PlotUtil.with_axis decorator.
+
+        Returns:
+            plt.Axes:
+        """
         patterns = itertools.cycle(hatch_patterns)
 
         ax = data.plot.barh(stacked=True, width=0.5, ax=ax)
@@ -148,29 +145,27 @@ class _OppAnalysis:
         self,
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str | None = None,
-        indexList: str = "host",
         **kwargs,
     ) -> tuple[pd.DataFrame, np.ndarray]:
-        """
-        Extract neighborhood table size vectors from given module_name. Use the sql Operator for multiple selections.
-        and None to default to all module vectors (misc, pNode, vNode)
-        """
-        if module_name is None:
-            module_name = sql.OR(
-                [f"{sql.network}.{i}[%].nTable" for i in sql.module_vectors]
-            )
+        """Extract neighborhood table size vectors from given module_name.
 
-        tbl = sql.vec_data(
-            module_name=module_name,  # "World.misc[%].nTable",
+        Args:
+            sql (Scave.CrownetSql): DB handler see Scave.CrownetSql for more information
+            module_name (Scave.SqlOp, optional): Module selector for neighborhood table. See CrownetSql.m_XXX methods for examples
+
+        Returns:
+            tuple[pd.DataFrame, np.ndarray]: [description]
+        """
+        module_name = sql.m_table() if module_name is None else module_name
+
+        tbl = sql.vector_ids_to_host(
+            module_name=module_name,
             vector_name="tableSize:vector",
-        )
+            name_columns=["host", "hostId"],
+            pull_data=True,
+        ).drop(columns=["vectorId"])
 
-        ids = [str(i) for i in tbl["vectorId"].unique()]
-        ids = sql.vector_ids_to_host(vector_ids=ids)
-        tbl = pd.merge(tbl, ids, how="inner", on=["vectorId"]).drop(
-            columns=["vectorId"]
-        )
-        tbl_idx = tbl[indexList].unique()
+        tbl_idx = tbl["hostId"].unique()
         tbl_idx.sort()
         return tbl, tbl_idx
 
@@ -178,10 +173,18 @@ class _OppAnalysis:
     def plot_neighborhood_table_size_over_time(
         self, tbl: pd.DataFrame, tbl_idx: np.ndarray, ax: plt.Axes = None
     ) -> plt.Axes:
-        """
+        """Plot neighborhood table size for each node over time.
         x-axis: time
         y-axis: number of entries in neighborhood table
-        data: selected hosts
+
+        Args:
+            tbl (pd.DataFrame): Data see get_neighborhood_table_size_over_time()
+            tbl_idx (np.ndarray): see get_neighborhood_table_size_over_time()
+            ax (plt.Axes, optional): Axes to use. If missing a new axes will be injected by
+                                     PlotUtil.with_axis decorator.
+
+        Returns:
+            plt.Axes:
         """
         _c = PlotUtil.color_lines(line_type=None)
         for i in tbl_idx:
@@ -204,8 +207,8 @@ class _OppAnalysis:
         """Packet delay data based on single applications in '<Network>.<Module>[*].app[*].app'
 
         Args:
-            sql (Scave.CrownetSql): Scave database handler
-            module_name (Scave.SqlOp): [description]
+            sql (Scave.CrownetSql): DB handler see Scave.CrownetSql for more information
+            module_name (Scave.SqlOp): Module selector for application(s). See CrownetSql.m_XXX methods for examples
             delay_resolution (float, optional): Delay resolution mutliplier. Defaults to 1.0 (seconds).
             describe (bool, optional): [description]. If true second data frame contains descriptive statistics based on hostId/srcHostId. Defaults to True.
 
@@ -214,39 +217,114 @@ class _OppAnalysis:
             (1) raw data (hostId, srcHostId, time)[delay]
             (2) empty  or (hostId, srcHostId)[count, mean, std, min, 25%, 50%, 75%, max] if describe=True
         """
-        vec_names = ["rcvdPkLifetime:vector", "rcvdPkHostId:vector"]
-        df = sql.vector_ids_to_host(
+        vec_names = {
+            "rcvdPkLifetime:vector": {
+                "name": "rcvdPktLifetime",
+                "dtype": float,
+            },
+            "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
+        }
+        vec_data = sql.vec_data_pivot(
             module_name,
-            sql.OR(vec_names),
-            vec_info_columns=["vectorId", "vectorName"],
-            name_columns=["hostId"],
-        )
-        vec_data = sql.vec_data(ids=df, value_name="delay")
-        vec_data = vec_data.rename(columns={"vectorName": "value_type"})
-        vec_data["value_type"] = vec_data["value_type"].map(
-            {"rcvdPkLifetime:vector": "delay", "rcvdPkHostId:vector": "srcHostId"}
-        )
-        vec_data = (
-            vec_data.drop(columns=["vectorId"])
-            .pivot(index=["hostId", "time"], columns=["value_type"])
-            .droplevel(level=0, axis=1)
-            .reset_index()
-        )
-        col_dtypes = sql.get_column_types(
-            vec_data.columns.to_list(), time=float, delay=float, srcHostId=np.int32
-        )
-        vec_data = vec_data.astype(col_dtypes)
-        vec_data.columns.name = ""
-        vec_data = vec_data.set_index(
-            keys=["hostId", "srcHostId", "time"], verify_integrity=True
+            vec_names,
+            append_index=["srcHostId"],
         )
         vec_data = vec_data.sort_index()
-        vec_data["delay"] *= delay_resolution
+        vec_data["rcvdPktLifetime"] *= delay_resolution
 
         if describe:
             return vec_data, vec_data.groupby(level=["hostId", "srcHostId"]).describe()
         else:
             return vec_data, pd.DataFrame()
+
+    @timing
+    def get_measured_sinr_d2d(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.CrownetSql | str | None = None,
+        withMacId: bool = False,
+    ) -> pd.DataFrame:
+        """SINR measurements for D2D communication at the receveing node.
+
+        Args:
+            sql (Scave.CrownetSql): DB handler see Scave.CrownetSql for more information
+            module_name (Scave.CrownetSql): Module selector. If None use all modules (misc, pNode, vNode) and all.
+                                            For selector path see CrownetSql.m_XXXX methods for examples as well as the moduleName
+                                            column in the simulation vector files.
+            withMacId (bool, optional): In addition to hostId (OMNeT based node id) return Sim5G identifier (currently only for the source node). Defaults to False.
+
+        Returns:
+            pd.DataFrame: SINR dataframe of the form [index](columns): [hostId, srcHostId, srcMacId, time](rcvdSinrD2D)
+
+            e.g.
+                                               rcvdSinrD2D
+            hostId srcHostId srcMacId time
+            20     23        1028     0.213    18.003613
+                                      0.446    18.164892
+                                      0.550    18.164892
+            "Node 20 received data from node 23 (or macNode 1028) at time 0.213 a signal with the SINR of 18.003613
+        """
+        module_name = sql.m_channel() if module_name is None else module_name
+
+        vec_names = {
+            "rcvdSinrD2D:vector": {"name": "rcvdSinrD2D", "dtype": np.float32},
+            "rcvdSinrD2DSrcOppId:vector": {"name": "srcHostId", "dtype": np.int32},
+        }
+        if withMacId:
+            vec_names["rcvdSinrD2DSrcMacId:vector"] = {
+                "name": "srcMacId",
+                "dtype": np.int32,
+            }
+            append_idx = ["srcHostId", "srcMacId"]
+        else:
+            append_idx = ["srcHostId"]
+        df = sql.vec_data_pivot(module_name, vec_names, append_index=append_idx)
+        return df
+
+    @timing
+    def get_measured_sinr_ul_dl(
+        self,
+        sql: Scave.CrownetSql,
+        sinr_module: Scave.CrownetSql | str | None = None,
+        enb_module: Scave.CrownetSql | str | None = None,
+    ) -> pd.DataFrame:
+        """Return SINR for UL and DL during feedback computation at the serving eNB for each host
+
+        Args:
+            sql (Scave.CrownetSql): DB handler see Scave.CrownetSql for more information
+            sinr_module (Scave.CrownetSql, optional): Module selector to access SINR vectors (part of the channelmodel node). If None use
+                                                      all module vectors (misc, pNode, vNode). Defaults to None.
+            enb_module (Scave.CrownetSql, optional): Module selector for serving eNB for each host over time.
+                                                     If None use all module vectors (misc, pNode, vNode). Selection must match the selection of sinr_module
+                                                     Defaults to None.
+
+        Returns:
+            pd.DataFrame: DataFrame of the form [index](columns): [hostId, time](sinrDl, sinrUl, eNB)
+        """
+
+        sinr_module = sql.m_channel() if sinr_module is None else sinr_module
+        enb_module = sql.m_phy() if enb_module is None else enb_module
+        sinr_names = {
+            "measuredSinrUl:vector": {
+                "name": "mSinrUl",
+                "dtype": float,
+            },
+            "measuredSinrDl:vector": {"name": "mSinrDl", "dtype": float},
+        }
+        sinr = sql.vec_data_pivot(sinr_module, sinr_names)
+        sinr = sinr.sort_index()
+
+        enbs = sql.vector_ids_to_host(
+            sql.m_phy(), "servingCell:vector", name_columns=["hostId"], pull_data=True
+        )
+        enbs = enbs.drop(columns=["vectorId"]).rename(columns={"value": "eNB"})
+        enbs = enbs.set_index(["hostId", "time"]).sort_index()
+
+        df = pd.merge(sinr, enbs, on=["hostId", "time"], how="outer").sort_index()
+        for _, _df in df.groupby(level=["hostId"]):
+            df.loc[_df.index, "eNB"] = _df["eNB"].ffill()
+        df = df.dropna()
+        return df
 
     @timing
     def get_received_packet_loss(
@@ -255,7 +333,7 @@ class _OppAnalysis:
         """Packet loss data based on single applications in '<Network>.<Module>[*].app[*].app'
 
         Args:
-            sql (Scave.CrownetSql): Scave database handler
+            sql (Scave.CrownetSql): DB handler see Scave.CrownetSql for more information
             module_name (Scave.SqlOp, optional): Modules for which the packet loss is calculated
 
         Returns:
@@ -265,34 +343,16 @@ class _OppAnalysis:
         """
         logger.info("load packet loss data from *.vec")
 
-        vec_names = ["rcvdPkSeqNo:vector", "rcvdPkHostId:vector"]
-        vec_info = sql.vector_ids_to_host(
-            module_name,
-            sql.OR(vec_names),
-            vec_info_columns=["vectorId", "vectorName"],
-            name_columns=["hostId"],
+        vec_names = {
+            "rcvdPkSeqNo:vector": {
+                "name": "seqNo",
+                "dtype": np.int32,
+            },
+            "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
+        }
+        vec_data = sql.vec_data_pivot(
+            module_name, vec_names, append_index=["srcHostId"]
         )
-        vec_data = sql.vec_data(ids=vec_info)
-        logger.info(f"received data with shape {vec_data.shape}")
-        vec_data = vec_data.rename(columns={"vectorName": "value_type"})
-        vec_data["value_type"] = vec_data["value_type"].map(
-            {"rcvdPkSeqNo:vector": "seqNo", "rcvdPkHostId:vector": "srcHostId"}
-        )
-        vec_data = (
-            vec_data.drop(columns=["vectorId"])
-            .pivot(index=["hostId", "time"], columns=["value_type"])
-            .droplevel(level=0, axis=1)
-            .reset_index()
-        )
-        col_dtypes = sql.get_column_types(
-            vec_data.columns.to_list(), time=float, seqNo=np.int32, srcHostId=np.int32
-        )
-        vec_data = vec_data.astype(col_dtypes)
-        vec_data.columns.name = ""
-        vec_data = vec_data.set_index(
-            keys=["hostId", "srcHostId", "time"], verify_integrity=True
-        )
-        vec_data = vec_data.sort_index()
         logger.info("calculate packet los per host and packet source")
         grouped = vec_data.groupby(level=["hostId", "srcHostId"])
         vec_data["lost"] = 0
