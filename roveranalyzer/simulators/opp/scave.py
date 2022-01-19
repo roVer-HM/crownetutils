@@ -255,7 +255,7 @@ class SqlOp:
 
     def __init__(self, operator, group):
         self._operator = operator
-        self._group = group if type(group) == list else [group]
+        self._group = group if isinstance(group, list) else [group]
 
     @classmethod
     def OR(cls, items):
