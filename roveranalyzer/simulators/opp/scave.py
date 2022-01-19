@@ -21,6 +21,7 @@ from traitlets.traitlets import Bool
 from roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.configuration import Config
 from roveranalyzer.utils import Timer, logger
+from roveranalyzer.utils.logging import timing
 
 
 class ScaveData:
@@ -336,6 +337,7 @@ class OppSql:
         self, sql_str, file="vec", type="df", **kwargs
     ) -> Union[pd.DataFrame, sq.Cursor]:
         _con = self._file[file]()
+        logger.debug(f"execute sql on db {file}: {sql_str}")
         if type == "df":
             return pd.read_sql_query(sql_str, _con, **kwargs)
         elif type == "cursor":
@@ -542,6 +544,15 @@ class OppSql:
 
         df = df.rename(columns={"value": value_name})
 
+        if index is not None:
+            df = df.set_index(index)
+            if index_sort:
+                df = df.sort_index()
+
+        if df.shape[0] == 0:
+            logger.info("Query returned empty DataFrame.")
+            logger.debug(_sql)
+
         return df
 
 
@@ -722,9 +733,32 @@ class CrownetSql(OppSql):
         run_id: int = 1,
         vec_info_columns: List[str] | None = ("vectorId"),
         name_columns: List[str] = ("host", "hostId", "vecIdx"),
+        pull_data: bool = False,
+        **pull_data_kw,
     ) -> pd.DataFrame:
-        """
-        Add human readable lables to vectorIds' (i.e hostId, vecIdx, ...)
+        """Add human readable lables to vector data. The vector data can be provided either by
+        module and vector name selectors or by a list of vector ids. If both are provided the
+        vector_ids are ignored.
+
+        Args:
+            module_name (SqlOp, optional): Module selector. If None vector_ids must be set. Defaults to None.
+            vector_name (SqlOp, optional): Vector selector. If None vector_ids must be set Defaults to None.
+            vector_ids (List[int], optional): List of vectors to select. If set module_name and vector_name must be None. Defaults to None.
+            run_id (int, optional): Defaults to 1.
+            vec_info_columns (List[str], optional): List of columns to retrun. Defaults to ("vectorId").
+                                                    Possible columns: [vectorId, runId, moduleName, vectorName,
+                                                    vectorCount, vectorMin, vectorMax, vectorSum, vectorSumSqr,
+                                                    startEventNum, endEventNum, startSimtimeRaw, endSimtimeRaw].
+                                                    If None, return all columns. Defaults to None.
+            name_columns (List[str], optional): Name columns for human readbale names. Defaults to ("host", "hostId", "vecIdx").
+                                                Possible columns: [host, hostId, vecIdx]
+            pull_data (bool, optional): In addition to any information columns query the data for the selected vectors. Defaults to False.
+
+        Raises:
+            ValueError: Either provoide module_name and vector_name or vector_ids
+
+        Returns:
+            pd.DataFrame: Structure depends on args
         """
         module_map = self.module_to_host_ids()
 
@@ -776,7 +810,121 @@ class CrownetSql(OppSql):
             _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
             _cols.append("vecIdx")
 
-        return _df[_cols]
+        if pull_data:
+            return self.vec_data(ids=_df[_cols], **pull_data_kw)
+        else:
+            return _df[_cols]
+
+    @timing
+    def vec_data_pivot(
+        self,
+        module_name: SqlOp | str,
+        vector_name_map: dict,
+        append_index: List[str] = (),
+        index: List[str] | None = None,
+    ) -> pd.DataFrame:
+        """Query multiple vector values and transfrom data based on vector names and hostId/time key.
+
+        e.g.
+        Transfrom df
+        hostId time value vector_name
+        1      0.1  1       vec_1
+        1      0.1  2       vec_2
+        2      0.2  3       vec_1
+        2      0.2  4       vec_2
+        1      0.2  5       vec_1
+        1      0.2  6       vec_2
+
+        ... to
+        hostId  time    vec_1   vec_2
+        1       0.1     1       2
+        1       0.2     5       6
+        2       0.2     3       4
+
+
+        Args:
+            module_name (SqlOp): Module selector
+            vector_name_map (dict): Dict of the form {<VectorName1>: {"name: _, "dtype": _ }, <VectorName1>: {...}, ...}
+                                    <VectorNameX> must be the full vector name as listed in the *.vec database file. The
+                                    vector will be renamed based on the "name" value. Use "dtype" to set the correct data type
+                                    for each vector.
+            append_index (List[str], optional): Append vector provided by the vector_name_map  to the default index ([hostId, time]) of the dataframe. Defaults to ().
+            index (List[str], optional): Override default and 'append_index' by providing the complete index. User must ensure the columns exist. Defaults to None.
+
+        Returns:
+            pd.DataFrame: Dataframe of the from [index](column):
+                Variant1: [hostId, *append_index, time](<*vector_name>)   columns will be all vectors which are NOT added as additional indices.
+                Variant2: [<index>](*)  based on index argument and vector_name_map
+        """
+        df = self.vector_ids_to_host(
+            module_name,
+            self.OR(list(vector_name_map.keys())),
+            vec_info_columns=["vectorId", "vectorName"],
+            name_columns=["hostId"],
+        )
+        vec_data = self.vec_data(ids=df)
+        vec_data["vectorName"] = vec_data["vectorName"].map(
+            {k: v["name"] for k, v in vector_name_map.items()}
+        )
+        vec_data = (
+            vec_data.drop(columns=["vectorId"])
+            .pivot(index=["hostId", "time"], columns=["vectorName"])
+            .droplevel(level=0, axis=1)
+            .reset_index()
+        )
+        _dtypes = {v["name"]: v["dtype"] for _, v in vector_name_map.items()}
+        col_dtypes = self.get_column_types(
+            vec_data.columns.to_list(), time=float, **_dtypes
+        )
+        vec_data = vec_data.astype(col_dtypes)
+        vec_data.columns.name = ""
+        if index is None:
+            _idx = ["hostId", *append_index, "time"]
+            # ensure no duplicates added and keep order. https://stackoverflow.com/a/480227
+            seen = set()
+            _idx = [x for x in _idx if not (x in seen or seen.add(x))]
+        else:
+            _idx = index
+
+        if len(_idx) > 0:
+            vec_data = vec_data.set_index(keys=_idx, verify_integrity=True)
+            vec_data = vec_data.sort_index()
+        return vec_data
+
+    # some default module selectors based on the vector database
+
+    def m_channel(self, modules: List[str] | None = None) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR(
+            [f"{self.network}.{i}[%].cellularNic.channelModel[0]" for i in _m]
+        )
+
+    def m_phy(self, modules: List[str] | None = None) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[%].cellularNic.phy" for i in _m])
+
+    def m_app0(self, modules: List[str] | None = None) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[%].app[0].app" for i in _m])
+
+    def m_app1(self, modules: List[str] | None = None) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[%].app[1].app" for i in _m])
+
+    def m_append_suffix(
+        self, suffix: str, modules: str | List[str] | SqlOp | None = None
+    ) -> SqlOp:
+        if isinstance(modules, str):
+            return f"{modules}{suffix}"
+        elif isinstance(modules, SqlOp):
+            return modules.append_suffix(suffix)
+        else:
+            _m = modules if modules is not None else self._module_vectors
+            return self.OR([f"{self.network}.{i}[%]{suffix}" for i in _m])
+
+    def m_table(self, modules: List[str] | None = None) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[%].nTable" for i in _m])
 
 
 class ScaveTool:
