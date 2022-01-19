@@ -281,6 +281,9 @@ class SqlOp:
             ret = f" {self._operator} ".join(ret)
             return f"({ret})"
 
+    def append_suffix(self, suffix: str):
+        self._group = [f"{i}{suffix}" for i in self._group]
+
 
 class OppSql:
 
