@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import pprint
 from enum import Enum
@@ -9,7 +11,7 @@ from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
 from requests import ReadTimeout
-from __future__ import annotations
+
 import time
 
 from roveranalyzer.utils import logger
