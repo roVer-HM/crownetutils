@@ -57,7 +57,7 @@ class _DensityMap:
         self,
         cells: GeoDataFrame = None,
         nodes: GeoDataFrame = None,
-        time: Union[None, float] = None,
+        time: float | None = None,
     ) -> folium.Map:
         map = None
         if cells is not None:
