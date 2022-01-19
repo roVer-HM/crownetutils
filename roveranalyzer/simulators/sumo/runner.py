@@ -74,7 +74,7 @@ class SumoRunner(DockerRunner):
         logger.debug(f"start sumo container(single server)")
         logger.debug(f"cmd: {' '.join(cmd)}")
         run_result = self.run(cmd, **run_args_override)
-        sockcheck.check(self.name, int(traci_port))
+        self.wait_for_log(f"listening on port {traci_port}...")
         return run_result
 
     def single_launcher(
@@ -102,6 +102,7 @@ class SumoRunner(DockerRunner):
         logger.debug(f"start sumo container(single server)")
         logger.debug(f"cmd: {' '.join(cmd)}")
         run_result = self.run(cmd, **run_args_override)
+        #TODO replace sockcheck.check by self.wait_for_log()
         sockcheck.check(self.name, int(traci_port))
         return run_result
 

@@ -105,5 +105,6 @@ class ControlRunner(DockerRunner):
         logger.debug(f"start controller container(start_controller)")
         logger.debug(f"cmd: {' '.join(cmd)}")
         run_result = self.run(cmd, self.run_args)
-        sockcheck.check(self.name, int(traci_port))
+        if connection_mode == "server":
+            self.wait_for_log(f"listening on port {traci_port} ...")
         return run_result
