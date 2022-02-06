@@ -282,8 +282,8 @@ def calculate_distance_between_pedestrians_and_enb():
                 for k in range(index + 1, len(df_tmp.id), 1):
                     x2 = df_tmp[df_tmp["id"] == id_list[k]]["x"].values[0]
                     y2 = df_tmp[df_tmp["id"] == id_list[k]]["y"].values[0]
-                    dist = math.sqrt(abs((x2 - x1) ** 2 - (y2 - y1) ** 2))
-                    dist_enb = math.sqrt(abs((enb_x - x1) ** 2 - (enb_y - y1) ** 2))
+                    dist = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+                    dist_enb = math.sqrt((enb_x - x1) ** 2 + (enb_y - y1) ** 2)
                     distance.append([i, dist, dist_enb])
 
     df = pd.DataFrame(distance)
