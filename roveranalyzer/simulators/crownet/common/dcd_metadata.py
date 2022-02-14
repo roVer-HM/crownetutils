@@ -25,7 +25,9 @@ class DcdMetaData:
         cell_size = float(meta["CELLSIZE"])
         cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
         node_id = meta["NODE_ID"]
-        _meta = cls(cell_size, cell_count, bound, node_id)
+        _meta = cls(
+            cell_size, cell_count, bound, node_id, map_type=meta.get("MAP_TYPE", "")
+        )
         if all([k in meta for k in ["XOFFSET", "YOFFSET"]]):
             _meta.offset = [float(meta["XOFFSET"]), float(meta["YOFFSET"])]
         return _meta
@@ -40,6 +42,7 @@ class DcdMetaData:
         epsg="",
         map_extend_x=[0, 0],
         map_extend_y=[0, 0],
+        map_type="",
     ):
         self.cell_size = cell_size
         self.cell_count = cell_count
@@ -49,15 +52,19 @@ class DcdMetaData:
         self.epsg = epsg
         self.map_extend_x = map_extend_x
         self.map_extend_y = map_extend_y
+        self.map_type = map_type
 
     def is_global(self):
-        return self.node_id == "global"
+        return self.node_id == "global" or self.node_id == -1
 
     def is_node(self):
         return self.node_id not in ["global", "all"]
 
     def is_all(self):
         return self.node_id == "all"
+
+    def is_entropy_data(self):
+        return "entropy" in self.map_type
 
     def is_same(self, other):
         return self.cell_size == other.cell_size and self.bound == other.bound

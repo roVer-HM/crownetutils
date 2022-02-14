@@ -530,7 +530,10 @@ class OppSql:
         _ids = ", ".join([str(i) for i in _ids])
         columns = ", ".join([f"v_data.{c}" for c in columns])
         if time_slice != slice(None):
-            _time = f" and v_data.simTimeRaw >= {time_slice.start * time_resolution} and v_data.simTimeRaw <= {time_slice.stop * time_resolution}"
+            if time_slice.start is None:
+                _time = f" and v_data.simTimeRaw == {time_slice.stop * time_resolution}"
+            elif time_slice.start is not None and time_slice.stop is not None:
+                _time = f" and v_data.simTimeRaw >= {time_slice.start * time_resolution} and v_data.simTimeRaw <= {time_slice.stop * time_resolution}"
         else:
             _time = ""
         _sql = f"select {columns} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
@@ -731,7 +734,7 @@ class CrownetSql(OppSql):
         vector_name: SqlOp | str | None = None,
         vector_ids: List[int] | None = None,
         run_id: int = 1,
-        vec_info_columns: List[str] | None = ("vectorId"),
+        vec_info_columns: List[str] | None = ("vectorId",),
         name_columns: List[str] = ("host", "hostId", "vecIdx"),
         pull_data: bool = False,
         **pull_data_kw,
@@ -790,7 +793,8 @@ class CrownetSql(OppSql):
         if "moduleName" not in vec_info_columns:
             # moduleName must be returned to create needed names. Will be
             # removed later if column is not selected by user.
-            vec_info_columns.insert(0, "moduleName")
+            if isinstance(vec_info_columns, tuple):
+                vec_info_columns = ["moduleName", *vec_info_columns]
 
         _df = self.vec_info(
             module_name=module_name,

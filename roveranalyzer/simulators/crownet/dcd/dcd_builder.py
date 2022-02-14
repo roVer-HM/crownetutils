@@ -261,7 +261,10 @@ class DcdHdfBuilder(FrameConsumer):
             .to_numpy()
         )
         self.map_p.create_from_csv(
-            self.map_paths, [self], global_position=self.position_df
+            self.map_paths,
+            [self],
+            global_position=self.position_df,
+            global_metadata=meta,
         )
         # 3) append global count to count provider
         self.append_global_count()

@@ -68,7 +68,9 @@ class _DensityMap:
         i = pd.IndexSlice
         cells = global_p.geo(Project.OpenStreetMaps)[i[time, :, :]]
         nodes = sql.host_position(
-            epsg_code_base=epsg_code_base, epsg_code_to=epsg_code_to
+            epsg_code_base=epsg_code_base,
+            epsg_code_to=epsg_code_to,
+            time_slice=slice(time),
         )
         return self.get_interactive(cells, nodes)
 
