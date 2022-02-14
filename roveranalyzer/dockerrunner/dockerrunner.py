@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import pprint
 from enum import Enum
@@ -9,6 +11,8 @@ from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
 from requests import ReadTimeout
+
+import time
 
 from roveranalyzer.utils import logger
 
@@ -357,6 +361,38 @@ class DockerRunner:
             self._container.stop()
             self._container.remove()
             self._container = None
+
+    def get_ip(self):
+        return self.client.containers.get(self.name).attrs["NetworkSettings"]["Networks"][self.NET]["IPAddress"]
+
+    def wait_for_log(self, log_string: str | bytes, time_to_wait: int = 30, retry_timeout: int = 3) -> bool:
+        start_time = time.time()
+        end_time = start_time + time_to_wait
+        byte_str = bytes(log_string, 'utf-8') if isinstance(log_string, str) else log_string
+        success = False
+
+        while time.time() < end_time:
+            if byte_str in self.container.logs():
+                success = True
+                break
+            else:
+                logger.debug(
+                    f"server setup not finished yet."
+                )
+                if time.time() < end_time:
+                    logger.debug("Retrying...")
+                    time.sleep(retry_timeout)
+
+        if success:
+            logger.debug(
+                f"Server is available."
+            )
+        else:
+            logger.warn(
+                f"Server is NOT available - retry limit reached - giving up."
+            )
+
+        return success
 
     def __str__(self) -> str:
         return f"{__name__}: Run Arguments: {pprint.pformat(self.run_args, indent=2)}"
