@@ -503,6 +503,7 @@ class OppSql:
         df = self.query_sca(_sql)
         return df
 
+    @timing
     def vec_data(
         self,
         module_name: SqlOp | str | None = None,
@@ -728,6 +729,7 @@ class CrownetSql(OppSql):
             del _cols[k]
         return _cols
 
+    @timing
     def vector_ids_to_host(
         self,
         module_name: SqlOp | str | None = None,
@@ -793,8 +795,12 @@ class CrownetSql(OppSql):
         if "moduleName" not in vec_info_columns:
             # moduleName must be returned to create needed names. Will be
             # removed later if column is not selected by user.
-            if isinstance(vec_info_columns, tuple):
+            if any(isinstance(vec_info_columns, t) for t in [tuple, list]):
                 vec_info_columns = ["moduleName", *vec_info_columns]
+            elif isinstance(vec_info_columns, str):
+                vec_info_columns = ["moduleName", vec_info_columns]
+            else:
+                raise ValueError(f"Expected tuple, list or string but got {type(vec_info_columns)}")
 
         _df = self.vec_info(
             module_name=module_name,
@@ -866,13 +872,13 @@ class CrownetSql(OppSql):
             vec_info_columns=["vectorId", "vectorName"],
             name_columns=["hostId"],
         )
-        vec_data = self.vec_data(ids=df)
+        vec_data = self.vec_data(ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value"))
         vec_data["vectorName"] = vec_data["vectorName"].map(
             {k: v["name"] for k, v in vector_name_map.items()}
         )
         vec_data = (
             vec_data.drop(columns=["vectorId"])
-            .pivot(index=["hostId", "time"], columns=["vectorName"])
+            .pivot(index=["hostId", "time", "eventNumber"], columns=["vectorName"])
             .droplevel(level=0, axis=1)
             .reset_index()
         )
@@ -883,7 +889,7 @@ class CrownetSql(OppSql):
         vec_data = vec_data.astype(col_dtypes)
         vec_data.columns.name = ""
         if index is None:
-            _idx = ["hostId", *append_index, "time"]
+            _idx = ["hostId", *append_index, "eventNumber", "time"]
             # ensure no duplicates added and keep order. https://stackoverflow.com/a/480227
             seen = set()
             _idx = [x for x in _idx if not (x in seen or seen.add(x))]
