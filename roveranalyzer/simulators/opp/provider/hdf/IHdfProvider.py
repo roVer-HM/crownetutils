@@ -44,6 +44,16 @@ class BaseHdfProvider:
         with self.ctx(mode="r") as store:
             df = store.get(key=_key)
         return pd.DataFrame(df)
+    
+    def write_frame(self, group, frame, index=True, index_data_columns=True):
+        with self.ctx() as store:
+            store.append(
+                key=group,
+                value=frame,
+                index=index,
+                format="table",
+                data_columns=index_data_columns
+            )
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
         import tables
@@ -77,6 +87,10 @@ class BaseHdfProvider:
             yield store
         finally:
             store.close()
+    
+    @property
+    def read(self) -> pd.HDFStore:
+        return self.ctx(mode="r")
 
 
 class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
