@@ -2,7 +2,7 @@ import abc
 import contextlib
 import os
 import warnings
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, ContextManager, Dict, List, Optional, Set, Tuple, Union, Iterator
 
 import pandas as pd
 from geopandas.geodataframe import GeoDataFrame
@@ -79,7 +79,7 @@ class BaseHdfProvider:
             return group in [g._v_name for g in ctx.groups()]
 
     @contextlib.contextmanager  # to ensure store closes after access
-    def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
+    def ctx(self, mode="a", **kwargs) -> Iterator[pd.HDFStore]:
         _args = dict(self._hdf_args)
         _args.update(kwargs)
         store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
@@ -89,7 +89,7 @@ class BaseHdfProvider:
             store.close()
     
     @property
-    def read(self) -> pd.HDFStore:
+    def query(self) -> Iterator[pd.HDFStore]:
         return self.ctx(mode="r")
 
 

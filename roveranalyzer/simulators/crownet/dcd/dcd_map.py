@@ -427,6 +427,7 @@ class DcdMap2D(DcdMap):
         agg_func: Union[Callable, str, list, dict] = "mean",
         drop_index: bool = False,
         name: Union[str, None] = None,
+        time_bin: Union[float, None] = None,
         *args,
         **kwargs,
     ) -> pd.DataFrame():
@@ -435,12 +436,14 @@ class DcdMap2D(DcdMap):
         """
         # select time slice. Do not select ground truth (ID = 0)
         df = self.count_p[pd.IndexSlice[time_slice, :, :, 1:], value]
+
         df = df.groupby(by=["x", "y"]).aggregate(func=agg_func, *args, **kwargs)
         if name is not None:
             df = df.rename(columns={value: name})
         if drop_index:
             df = df.reset_index(drop=True)
         return df
+    
 
     def update_error_over_distance(
         self,
@@ -513,9 +516,6 @@ class DcdMap2D(DcdMap):
             f"Time Quantil {i+1}": slice(time * i, time * i + time) for i in range(4)
         }
 
-        ax.set_title("Cell Error Histogram")
-        ax.set_xlabel(value)
-
         data = self.update_cell_error(
             slice(None), value, agg_func, name="All", drop_index=True
         )
@@ -525,15 +525,39 @@ class DcdMap2D(DcdMap):
         ]
         data = pd.concat([data, *quant], axis=1)
 
-        sns.histplot(
-            data=data,
-            stat=stat,
-            common_norm=False,
-            fill=fill,
-            legend=True,
-            **hist_kwargs,
-        )
-        return ax.get_figure(), ax
+        if isinstance(ax, plt.Axes):
+            ax.set_title("Cell Error Histogram")
+            ax.set_xlabel(value)
+
+            sns.histplot(
+                data=data,
+                stat=stat,
+                common_norm=False,
+                fill=fill,
+                legend=True,
+                ax=ax,
+                **hist_kwargs,
+            )
+            return ax.get_figure(), ax
+
+        elif isinstance(ax, np.ndarray) and len(ax) == 5:
+            for idx in range(len(ax)):
+                _ax = ax[idx]
+                _ax.set_title(f"Cell Error Histogram {data.iloc[:, idx].name}")
+                _ax.set_xlabel(value)
+                sns.histplot(
+                    data=data.iloc[:,idx],
+                    stat=stat,
+                    common_norm=False,
+                    fill=fill,
+                    legend=True,
+                    ax=_ax,
+                    **hist_kwargs,
+                )
+            return ax[0].get_figure(), ax
+        else:
+            raise ValueError(f"Expected ax or array of 5 axes but got {type(ax)}")
+
 
     @PlotUtil.savefigure
     @PlotUtil.plot_decorator

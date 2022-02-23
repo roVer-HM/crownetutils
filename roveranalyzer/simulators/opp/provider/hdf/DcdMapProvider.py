@@ -229,7 +229,9 @@ class DcdMapProvider(IHdfProvider):
         cell_size = self.get_attribute("cell_size")
 
         _index = df.index.to_frame().reset_index(drop=True)
-
+        df = df.reset_index(drop=True)
+        df["cell_x"] = _index["x"]
+        df["cell_y"] = _index["y"]
         _index["x"] = _index["x"] - offset[0]
         _index["y"] = _index["y"] - offset[1]
         df.index = pd.MultiIndex.from_frame(_index)

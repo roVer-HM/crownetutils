@@ -5,6 +5,7 @@ from functools import wraps
 from typing import List, Union
 
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 
 import roveranalyzer.utils.logging as _log
@@ -71,9 +72,12 @@ class _PlotUtil:
                 del method_kwargs["savefig"]
             fig, ax = method(self, *method_args, **method_kwargs)
             if savefig is not None:
-                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
-                logger.info(f"save figure: {savefig}")
-                fig.savefig(savefig)
+                if isinstance(savefig, PdfPages):
+                    savefig.savefig(fig)
+                else:
+                    os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+                    logger.info(f"save figure: {savefig}")
+                    fig.savefig(savefig)
             return fig, ax
 
         return savefigure_impl

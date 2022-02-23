@@ -713,13 +713,22 @@ class CrownetSql(OppSql):
         df["y"] = df["y"] - offset[1]
 
         if epsg_code_base is not None:
-            geometry = [Point(x, y) for x, y in zip(df["x"], df["y"])]
-            df = gpd.GeoDataFrame(df, crs=epsg_code_base, geometry=geometry)
+            df = self.apply_geo_position(df, epsg_code_base, epsg_code_to)
             cols = [*cols, "geometry"]
-            if epsg_code_to is not None:
-                df = df.to_crs(epsg=epsg_code_to.replace("EPSG:", ""))
 
         return df.loc[:, cols]
+    
+    def apply_geo_position(self, 
+        df: pd.DataFrame,
+        epsg_code_base: str | None = None,
+        epsg_code_to: str | None = None,
+        ) -> gpd.GeoDataFrame:
+            geometry = [Point(x, y) for x, y in zip(df["x"], df["y"])]
+            df = gpd.GeoDataFrame(df, crs=epsg_code_base, geometry=geometry)
+            if epsg_code_to is not None:
+                df = df.to_crs(epsg=epsg_code_to.replace("EPSG:", ""))
+            return df
+
 
     def get_column_types(self, existing_columns, **kwargs):
         _cols = dict(self._dtypes)
