@@ -9,13 +9,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pandas.core.frame import DataFrame
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.simulators.opp.scave import SqlOp
+from roveranalyzer.simulators.opp.scave import SqlOp, CrownetSql
 from roveranalyzer.utils.logging import logger, timing
 
 PlotUtil = _Plot.PlotUtil
+
+class _hdf_Extractor:
+
+    def __init__(self) -> None:
+        pass 
+
+    @classmethod
+    def extract_trajectories(cls, hdf_file:str, sql: CrownetSql):
+        _hdf = BaseHdfProvider(hdf_file, "trajectories")
+        pos = sql.host_position()
+        _hdf.write_frame(group="trajectories", frame=pos)
+    
+    @classmethod
+    def extract_packet_loss(cls, hdf_file:str, group_suffix:str, sql: CrownetSql, app:SqlOp):
+        pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
+        hdf_store = BaseHdfProvider(hdf_file)
+        hdf_store.write_frame(f"pkt_loss_{group_suffix}", pkt_loss)
+        hdf_store.write_frame(f"pkt_loss_raw_{group_suffix}", raw)
 
 
 class _OppAnalysis:
@@ -374,3 +393,4 @@ class _OppAnalysis:
 
 
 OppAnalysis = _OppAnalysis()
+HdfExtractor = _hdf_Extractor()
