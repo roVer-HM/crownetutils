@@ -19,3 +19,9 @@ fs~=2.4.13
 future~=0.18.2
 requests~=2.25.1
 folium
+classify
+mapclassify
+dash
+dash-leaflet
+dash-extensions
+geobuf

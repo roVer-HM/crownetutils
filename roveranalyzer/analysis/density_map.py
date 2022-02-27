@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Tuple, Union
 
 import folium
-import matplotlib.pyplot as plt
+import dash_leaflet as dl
 import pandas as pd
 from geopandas import GeoDataFrame
 from pandas.core.frame import DataFrame
@@ -73,6 +73,38 @@ class _DensityMap:
             time_slice=slice(time),
         )
         return self.get_interactive(cells, nodes)
+
+    def get_dash_tilelayer(
+        self,
+    ):
+        layer_ctr = []
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(
+                    url="https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png",
+                    attribution='Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom=20
+                ), name="toner", checked="toner"
+            ))
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(
+                    url="https://stamen-tiles-{s}.a.ssl.fastly.net/toner-background/{z}/{x}/{y}{r}.png",
+                    attribution='Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom=20
+                ), name="toner-background"
+            )
+        )
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(
+                    url="http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga",
+                    attribution="Google",
+                    maxZoom=20
+                ), name="Google Maps"
+            )
+        )
+        return layer_ctr
 
     def get_interactive(
         self,

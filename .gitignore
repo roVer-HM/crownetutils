@@ -7,6 +7,7 @@ tutorials/test_data.d
 .directory
 **/*.mp4
 analysis_loc
+roveranalyzer/analysis/assets/
 
 
 # Byte-compiled / optimized / DLL files

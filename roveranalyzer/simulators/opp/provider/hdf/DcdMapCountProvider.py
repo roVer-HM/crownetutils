@@ -182,6 +182,10 @@ class DcdMapCount(IHdfProvider):
         cell_size = self.get_attribute("cell_size")
 
         _index = df.index.to_frame().reset_index(drop=True)
+        # keep cell (ids)
+        df = df.reset_index(drop=True)
+        df["cell_x"] = _index["x"]
+        df["cell_y"] = _index["y"]
 
         _index["x"] = _index["x"] - offset[0]
         _index["y"] = _index["y"] - offset[1]
