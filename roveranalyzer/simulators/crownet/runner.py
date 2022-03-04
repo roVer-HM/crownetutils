@@ -353,6 +353,31 @@ def parse_args_as_dict(runner: Any, args=None) -> Dict:
         help="Any json file which contains the key 'cmd_args'. The value must be a List.",
     )
 
+    # post processing
+    post_parser: argparse.ArgumentParser = sub.add_parser(
+        "post-processing",
+        help="execute postprocessing on given output path",
+        parents=[parent],
+    )
+    post_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
+    post_parser.set_defaults(main_func=runner.run_post_only)
+    post_parser.add_argument(
+        "--override-hdf",
+        dest="hdf_override",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set override existing hdf files",
+    )
+    post_parser.add_argument(
+        "--selected-only",
+        dest="hdf_selected_cells_only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="only parse selected measures during hdf creation",
+    )
+
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
     if "cfg_file" in ns:
@@ -396,6 +421,7 @@ def read_config_file(runner: Any, cfg_file: str) -> Dict:
 
 def result_dir_with_opp(ns, working_dir) -> str:
     """
+    !Result directory callback
     set result dir based on OMNeT++
     """
     config = ns["opp_args"].get_value("-c")
@@ -413,6 +439,9 @@ def result_dir_with_opp(ns, working_dir) -> str:
 
 
 def result_dir_vadere_only(ns, working_dir):
+    """Used with vader only setup.
+    !Result directory callback
+    """
     if os.path.abspath(ns["result_dir"]):
         return ns["result_dir"]
     else:
@@ -485,6 +514,8 @@ class BaseRunner:
         method_list = [
             os.path.splitext(qoi)[0].replace("-", "_").lower() for qoi in method_list[0]
         ]
+        if len(method_list) == 1 and "all" in method_list:
+            method_list = [_f.__name__.lower() for _, _f in map]
         filtered_map = [
             [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
         ]
@@ -685,6 +716,10 @@ class BaseRunner:
         main_func = self.ns["main_func"]
         ret = main_func()
         return ret
+
+    def run_post_only(self):
+        # do nothing only run set postprocessing
+        return 0
 
     def run_vadere(self):
 
