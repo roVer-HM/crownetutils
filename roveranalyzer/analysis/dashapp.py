@@ -15,6 +15,7 @@ from flask_caching import Cache
 
 import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils.general import Project
 
 dash_app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -62,6 +63,9 @@ class OppModel:
         self.data_root: str = data_root
         self.builder: DcdHdfBuilder = builder
         self.sql: OMNeT.CrownetSql = sql
+        self.pos: BaseHdfProvider = BaseHdfProvider(
+            join(data_root, "trajectories.h5"), group="trajectories"
+        )
         self.ctx: Ctx = Ctx()
 
         with self.builder.count_p.query as ctx:
@@ -89,7 +93,24 @@ class OppModel:
     def get_selected_node(self, session):
         return self.ctx.get(session, "selected_node", self.map_node_index[0])
 
-    def get_geojson_for(self, time_value, node_id):
+    def get_node_tile_geojson_for(self, time_value, node_value):
+        with self.pos.query as ctx:
+            nodes = ctx.select(
+                "trajectories",
+                where=f"(time <= {time_value}) & (time > {time_value - 0.4})",
+            )
+        nodes = self.sql.apply_geo_position(
+            nodes, Project.UTM_32N, Project.WSG84_lat_lon
+        )
+        nodes["tooltip"] = nodes["hostId"].astype(str) + " " + nodes["host"]
+        nodes["color"] = "#0000bb"
+        nodes["color"] = nodes["color"].where(
+            nodes["hostId"] != node_value, other="#bb0000"
+        )
+        j = json.loads(nodes.reset_index().to_json())
+        return j
+
+    def get_cell_tile_geojson_for(self, time_value, node_id):
         # todo: cache map_data (Flask)
         map_data = self.builder.count_p.geo(Project.WSG84_lat_lon)[
             pd.IndexSlice[time_value, :, :, node_id]
@@ -178,10 +199,15 @@ class OppModel:
         # remove surrounding cells (copy!)
         bs = bs.loc[pd.IndexSlice[:, :, :, cell[0], cell[1]], :].copy()
 
-        bs = bs.reset_index().set_index(["table_owner", "event_time"]).sort_index()
+        bs = (
+            bs.reset_index()
+            .set_index(["table_owner", "event_time", "source_node"])
+            .sort_index()
+        )
         for g, df in bs.groupby(by=["table_owner", "cell_x", "cell_y"]):
             bs.loc[df.index, ["cell_change_cumsum"]] = df["cell_change_count"].cumsum()
         # _m = (bs["cell_x"] == int(cell[0])) & (bs["cell_y"] == int(cell[1]))
+        bs = bs.reset_index("source_node")
         return bs
 
     @property
@@ -222,22 +248,66 @@ class OppModel:
 
 class _DashUtil:
     @classmethod
-    def get_colorbar(cls, width=300, height=30, position="bottomleft", **kwargs):
-        classes = [0, 1, 2, 3, 4, 5, 6, 7]
-        colorscale = [
-            "#FFEDA0",
-            "#FED976",
-            "#FEB24C",
-            "#FD8D3C",
-            "#FC4E2A",
-            "#E31A1C",
-            "#BD0026",
-            "#800026",
-        ]
-        # Create colorbar.
-        ctg = [
-            "{}".format(cls, classes[i + 1]) for i, cls in enumerate(classes[:-1])
-        ] + ["{}+".format(classes[-1])]
+    def get_colorbar(
+        cls, width=300, height=30, position="bottomleft", value="count", **kwargs
+    ):
+        if value == "count":
+            classes = [0, 1, 2, 3, 4, 5, 6, 7]
+            colorscale = [
+                "#E5E5E5",
+                "#FED976",
+                "#FEB24C",
+                "#FD8D3C",
+                "#FC4E2A",
+                "#E31A1C",
+                "#BD0026",
+                "#800026",
+            ]
+            ctg = [
+                "{}".format(cls, classes[i + 1]) for i, cls in enumerate(classes[:-1])
+            ] + ["{}+".format(classes[-1])]
+        elif value == "err":
+            classes = [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7]
+            colorscale = [
+                "#083877",
+                "#0055FF",
+                "#3080BD",
+                "#57A0CE",
+                "#8DC1DD",
+                "#B5D4E9",
+                "#E5EFF9",
+                "#E5E5E5",  # 0
+                "#FED976",
+                "#FEB24C",
+                "#FD8D3C",
+                "#FC4E2A",
+                "#E31A1C",
+                "#BD0026",
+                "#800026",
+            ]
+            ctg = [
+                "{}<".format(classes[0]),
+                *[
+                    "{}".format(cls, classes[i + 1])
+                    for i, cls in enumerate(classes[1:-1])
+                ],
+                "{}>".format(classes[-1]),
+            ]
+        else:
+            classes = [0, 1, 4, 9, 16, 32]
+            colorscale = [
+                "#E5E5E5",  # 0
+                "#FED976",
+                "#FEB24C",
+                "#FD8D3C",
+                "#FC4E2A",
+                "#E31A1C",
+            ]
+            ctg = [
+                "{}".format(cls, classes[i + 1]) for i, cls in enumerate(classes[:-1])
+            ] + ["{}+".format(classes[-1])]
+
+        style = dict(weight=2, opacity=1, fillColor="red", fillOpacity=0.6)
         colorbar = dlx.categorical_colorbar(
             categories=ctg,
             colorscale=colorscale,
@@ -246,40 +316,86 @@ class _DashUtil:
             position=position,
             **kwargs,
         )
-        return classes, colorscale, colorbar
+        return classes, colorscale, colorbar, style
 
     _colorbar_style_clb = """function(feature, context){
             const {classes, colorscale, style, colorProp} = context.props.hideout;  // get props from hideout
             const value = feature.properties[colorProp];  // get value the determines the color
-            if (value < classes.length){
-                style.fillColor = colorscale[value];
-                style.color = colorscale[value];
-            } else {
-                style.fillColor = colorscale[classes.length];
-                style.color = colorscale[classes.length];
+            var ret = classes.findIndex(e => e == value);
+            if (ret == -1){
+                if (value < classes[0]){
+                    ret = 0;
+                } else {
+                    ret = classes[classes.length-1];
+                }
             }
+            style.fillColor = colorscale[ret];
+            style.color = colorscale[ret];
             return style;
         }
     """
 
-    @classmethod
-    def get_map_style(cls, ns: Namespace):
-        style = dict(weight=2, opacity=1, fillColor="red", fillOpacity=0.6)
-        clb = ns.add(cls._colorbar_style_clb, name="map_style_clb")
-        return style, clb
+    _node_point_to_layer = """function(feature, latlng, context){
+        const {circleOptions, colorProp} = context.props.hideout;
+        //const csc = chroma.scale(colorscale).domain([min, max]);  // chroma lib to construct colorscale
+        circleOptions.fillColor =  feature.properties[colorProp] //csc(feature.properties[colorProp]);  // set color based on color prop.
+        return L.circleMarker(latlng, circleOptions);  // sender a simple circle marker.
+        }
+    """
 
     @classmethod
     def module_header(cls, id, **kwargs):
         return dbc.Row(dbc.Col([html.H2(id=id, **kwargs)]))
 
-    # callback
-    def build_map(self, value=0):
-        ns = Namespace("dashExtensions", "default")
-        classes, colorscale, colorbar = DashUtil.get_colorbar()
-        # Create info control.
+    @classmethod
+    def build_node_layer(cls, ns: Namespace, id_builder):
+
+        clb = ns(ns.add(cls._node_point_to_layer, name="node_point_to_layer"))
+
+        nodes = dl.GeoJSON(
+            id=id_builder("node_tiles"),
+            format="geojson",
+            zoomToBounds=False,
+            options=dict(pointToLayer=clb),
+            hideout=dict(
+                colorProp="color",
+                circleOptions=dict(fillOpacity=1.0, stroke=False, radius=3),
+            ),
+        )
+        overlays = []
+
+        overlays.append(
+            dl.Overlay(
+                dl.LayerGroup(nodes),
+                checked=True,
+                name="nodes",
+            )
+        )
+        return overlays
+
+    def build_cell_layer(self, ns: Namespace, id_builder):
+
+        # colorbar
+        classes, colorscale, colorbar, style = DashUtil.get_colorbar(
+            id=id_builder("map-colorbar")
+        )
+        # cell color style
+        style_clb = ns(ns.add(self._colorbar_style_clb, name="map_style_clb"))
+        cells = dl.GeoJSON(
+            id=id_builder("cell_tiles"),
+            options=dict(style=style_clb),
+            zoomToBounds=False,
+            zoomToBoundsOnClick=True,
+            format="geojson",
+            hoverStyle=arrow_function(dict(weight=3, color="#222", dashArray="")),
+            hideout=dict(
+                colorscale=colorscale, classes=classes, style=style, colorProp="count"
+            ),
+        )
+        # cell over info box
         info = html.Div(
-            id="cell-info",
-            className="cell-info",
+            id=id_builder("cell_info"),
+            className="info-box",
             style={
                 "position": "absolute",
                 "bottom": "100px",
@@ -288,61 +404,24 @@ class _DashUtil:
             },
         )
 
-        style = dict(weight=2, opacity=1, fillColor="red", fillOpacity=0.6)
-        style_handle = ns.add(
-            """function(feature, context){
-            const {classes, colorscale, style, colorProp} = context.props.hideout;  // get props from hideout
-            const value = feature.properties[colorProp];  // get value the determines the color
-            if (value < classes.length){
-                style.fillColor = colorscale[value];
-                style.color = colorscale[value];
-            } else {
-                style.fillColor = colorscale[classes.length];
-                style.color = colorscale[classes.length];
-            }
-            return style;
-        }"""
-        )
-        ns.dump(assets_folder=dash_app.config.assets_folder)
-
-        self.update_map_node(value)
-        self.map_time_index = self.cells.index.get_level_values("simtime").unique()
-        print("split data")
-        self.map_geojson = json.loads(
-            self.cells.loc[self.map_time_index[0]].reset_index().to_json()
-        )
-        print("geojson created")
         overlays = []
-        geoj = dl.GeoJSON(
-            options=dict(style=ns(style_handle)),
-            # options=dict(style=arrow_function(style)),
-            data=self.map_geojson,
-            zoomToBounds=True,
-            zoomToBoundsOnClick=True,
-            format="geojson",
-            hoverStyle=arrow_function(dict(weight=3, color="#222", dashArray="")),
-            hideout=dict(
-                colorscale=colorscale, classes=classes, style=style, colorProp="count"
-            ),
-            id="cells",
-        )
-
         overlays.append(
             dl.Overlay(
-                dl.LayerGroup(geoj),
+                dl.LayerGroup(cells),
                 checked=True,
                 name="cells",
             )
         )
         overlays.append(
-            dl.Overlay(dl.LayerGroup(colorbar), checked=True, name="colorbar")
+            dl.Overlay(
+                dl.LayerGroup(colorbar, id=id_builder("map-colorbar-wrapper")),
+                checked=True,
+                name="colorbar",
+            )
         )
         overlays.append(dl.Overlay(dl.LayerGroup(info), checked=True, name="info"))
-        return dl.Map(
-            dl.LayersControl([*DensityMap.get_dash_tilelayer(), *overlays]),
-            center=(48.162, 11.586),
-            zoom=18,
-        )
+
+        return overlays
 
     def get_map_info(self, feature=None):
         header = [html.H4("Cell Info")]
@@ -376,7 +455,7 @@ class _DashUtil:
                 html.Br(),
                 f"Error: {feature['properties']['err']}",
                 html.Br(),
-                f"Owner Distance: {feature['properties']['owner_dist']:0.3f} m",
+                f"Owner Distance: {feature['properties']['owner_dist']:000.3f} m",
             ]
             return ret, storage
 

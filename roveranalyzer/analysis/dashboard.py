@@ -90,7 +90,7 @@ class CellErrorInsepctor(_DashApp):
                         ),
                     ],
                     align="center",
-                    className="map-ctrl",
+                    className="ctrl",
                 ),
                 dbc.Row(
                     [
@@ -102,7 +102,7 @@ class CellErrorInsepctor(_DashApp):
                         ),
                     ],
                     align="center",
-                    className="map-ctrl",
+                    className="ctrl",
                 ),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-err-graph")))),
                 dbc.Row(),
@@ -213,11 +213,16 @@ class _MapView(_DashApp):
 
         # ### callbacks
         dash_app.callback(
-            Output(self.id("geojson"), "data"),
+            Output(self.id("cell_tiles"), "data"),
+            Output(self.id("node_tiles"), "data"),
             Input(self.id("time_slider"), "value"),
             Input(self.id("map_node_input"), "value"),
-            Input("session-id", "data"),
         )(self.clb_map_time_slider)
+        dash_app.callback(
+            Output(self.id("cell_tiles"), "hideout"),
+            Output(self.id("map-colorbar-wrapper"), "children"),
+            Input(self.id("map-value-view-function"), "value"),
+        )(self.clb_cell_tile_update_colorbar)
         dash_app.callback(
             Output(self.id("map-time-in"), "value"),
             Input(self.id("time_slider"), "value"),
@@ -230,13 +235,31 @@ class _MapView(_DashApp):
         dash_app.callback(
             Output(self.id("cell_info"), "children"),
             Output(self.id("memory"), "data"),
-            Input(self.id("geojson"), "hover_feature"),
+            Input(self.id("cell_tiles"), "hover_feature"),
             State(self.id("memory"), "data"),
         )(DashUtil.get_cell_info)
 
+    def clb_cell_tile_update_colorbar(self, color_function):
+        # todo make colorbar dynamic?
+        classes, colorscale, colorbar, style = DashUtil.get_colorbar(
+            id=self.id("map-colorbar"), value=color_function
+        )
+        return (
+            dict(
+                colorscale=colorscale,
+                classes=classes,
+                style=style,
+                colorProp=color_function,
+            ),
+            colorbar,
+        )
+
     @timing
-    def clb_map_time_slider(self, time_value, node_id, session_id):
-        return self.m.get_geojson_for(time_value, node_id)
+    def clb_map_time_slider(self, time_value, node_id):
+        return (
+            self.m.get_cell_tile_geojson_for(time_value, node_id),
+            self.m.get_node_tile_geojson_for(time_value, node_id),
+        )
 
     @timing
     def clb_map_time_input(self, value):
@@ -267,11 +290,21 @@ class _MapView(_DashApp):
                         ),
                     ],
                     align="center",
-                    className="map-ctrl",
+                    className="ctrl",
                 ),
                 dbc.Row(
-                    dbc.Col([self._build_map_layout(ns=ns, id_prefix=self.id_prefix)])
+                    dbc.Col(
+                        dcc.RadioItems(
+                            ["count", "err", "sqerr"],
+                            "count",
+                            className="ctrl",
+                            labelClassName="ctrl-lbl",
+                            inline=True,
+                            id=self.id("map-value-view-function"),
+                        )
+                    )
                 ),
+                dbc.Row(dbc.Col([self._build_map_layout(ns=ns)])),
                 dbc.Row(
                     [
                         dbc.Col(
@@ -284,7 +317,7 @@ class _MapView(_DashApp):
                         ),
                         dbc.Col(self._build_map_time_slider(id_prefix=self.id_prefix)),
                     ],
-                    className="map-ctrl",
+                    className="ctrl",
                     align="center",
                 ),
             ],
@@ -325,51 +358,15 @@ class _MapView(_DashApp):
     def _build_map_layout(
         self,
         ns: Namespace,
-        id_prefix="map",
     ):
-        # colorbar
-        classes, colorscale, colorbar = DashUtil.get_colorbar(
-            id=f"{id_prefix}_colorbar"
-        )
-        # cell color style
-        style, style_clb = DashUtil.get_map_style(ns)
-        geoj = dl.GeoJSON(
-            options=dict(style=ns(style_clb)),
-            zoomToBounds=False,
-            zoomToBoundsOnClick=True,
-            format="geojson",
-            hoverStyle=arrow_function(dict(weight=3, color="#222", dashArray="")),
-            hideout=dict(
-                colorscale=colorscale, classes=classes, style=style, colorProp="count"
-            ),
-            id=f"{id_prefix}_geojson",
-        )
-        # cell over info box
-        info = html.Div(
-            id=f"{id_prefix}_cell_info",
-            className="info-box",
-            style={
-                "position": "absolute",
-                "bottom": "100px",
-                "left": "10px",
-                "z-index": "1000",
-            },
-        )
 
-        overlays = []
-        overlays.append(
-            dl.Overlay(
-                dl.LayerGroup(geoj),
-                checked=True,
-                name="cells",
-            )
-        )
-        overlays.append(
-            dl.Overlay(dl.LayerGroup(colorbar), checked=True, name="colorbar")
-        )
-        overlays.append(dl.Overlay(dl.LayerGroup(info), checked=True, name="info"))
+        cell_overlays = DashUtil.build_cell_layer(ns, self.id)
+        node_overlays = DashUtil.build_node_layer(ns, self.id)
+
         return dl.Map(
-            dl.LayersControl([*DensityMap.get_dash_tilelayer(), *overlays]),
+            dl.LayersControl(
+                [*DensityMap.get_dash_tilelayer(), *cell_overlays, *node_overlays]
+            ),
             center=(48.162, 11.586),
             zoom=18,
             style={
@@ -400,7 +397,7 @@ class _Combined(_DashApp):
                 layout.append(c.get_layout(ns, with_container=False))
             layout = html.Div([dcc.Store(data=str(_id), id="session-id"), *layout])
             layout = dbc.Container(layout)
-            # ns.dump(assets_folder=dash_app.config.assets_folder)
+            ns.dump(assets_folder=dash_app.config.assets_folder)
             return layout
 
         print("add layout callback")
