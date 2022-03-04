@@ -136,6 +136,7 @@ class DcdHdfBuilder(FrameConsumer):
         self.map_paths = map_paths
         self.global_path = global_path
         self._epsg = epsg
+        self._only_selected_cells = True
         # providers
         self.count_p = DcdMapCount(self.hdf_path)
         self.map_p = DcdMapProvider(self.hdf_path)
@@ -151,6 +152,10 @@ class DcdHdfBuilder(FrameConsumer):
 
     def epsg(self, epsg):
         self._epsg = epsg
+        return self
+
+    def only_selected_cells(self, val=True):
+        self._only_selected_cells = val
         return self
 
     def build(
@@ -199,7 +204,8 @@ class DcdHdfBuilder(FrameConsumer):
         y_slice: slice = slice(None),
         selection: str | int = "ymf",
     ):
-        self.add_df_filter(DcdUtil.remove_not_selected_cells)
+        if self._only_selected_cells:
+            self.add_df_filter(DcdUtil.remove_not_selected_cells)
         providers = self.build(time_slice, id_slice, x_slice, y_slice)
 
         if isinstance(selection, str):

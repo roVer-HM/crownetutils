@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from os.path import join
 from timeit import default_timer
 from typing import List, Tuple, Union
 
@@ -8,36 +9,41 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.backends.backend_pdf import PdfPages
 from pandas.core.frame import DataFrame
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 
+import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.simulators.opp.scave import SqlOp, CrownetSql
+from roveranalyzer.analysis.common import AnalysisBase
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
+from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
 from roveranalyzer.utils.logging import logger, timing
 
 PlotUtil = _Plot.PlotUtil
 
-class _hdf_Extractor:
 
+class _hdf_Extractor(AnalysisBase):
     def __init__(self) -> None:
-        pass 
+        pass
 
     @classmethod
-    def extract_trajectories(cls, hdf_file:str, sql: CrownetSql):
+    def extract_trajectories(cls, hdf_file: str, sql: CrownetSql):
         _hdf = BaseHdfProvider(hdf_file, "trajectories")
         pos = sql.host_position()
         _hdf.write_frame(group="trajectories", frame=pos)
-    
+
     @classmethod
-    def extract_packet_loss(cls, hdf_file:str, group_suffix:str, sql: CrownetSql, app:SqlOp):
+    def extract_packet_loss(
+        cls, hdf_file: str, group_suffix: str, sql: CrownetSql, app: SqlOp
+    ):
         pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
         hdf_store = BaseHdfProvider(hdf_file)
         hdf_store.write_frame(f"pkt_loss_{group_suffix}", pkt_loss)
         hdf_store.write_frame(f"pkt_loss_raw_{group_suffix}", raw)
 
 
-class _OppAnalysis:
+class _OppAnalysis(AnalysisBase):
     def __init__(self) -> None:
         pass
 
@@ -390,6 +396,24 @@ class _OppAnalysis:
         ].sum()
         lost_df["packet_loss_ratio"] = lost_df["packet_lost"] / lost_df["numPackets"]
         return lost_df, vec_data
+
+    @timing
+    def create_common_plots(
+        self,
+        data_root: str,
+        builder: Dcd.DcdHdfBuilder,
+        sql: Scave.CrownetSql,
+        selection: str = "yml",
+    ):
+        dmap = builder.build_dcdMap(selection=selection)
+        with PdfPages(join(data_root, "common_output.pdf")) as pdf:
+            dmap.plot_count_diff(savefig=pdf)
+
+            tmin, tmax = builder.count_p.get_time_interval()
+            time = (tmax - tmin) / 4
+            intervals = [slice(time * i, time * i + time) for i in range(4)]
+            for _slice in intervals:
+                dmap.plot_error_histogram(time_slice=_slice, savefig=pdf)
 
 
 OppAnalysis = _OppAnalysis()

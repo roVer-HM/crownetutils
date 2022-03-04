@@ -83,6 +83,7 @@ class DcdMapProvider(IHdfProvider):
             "mean": 3,
             "median": 4,
         }
+        self.used_selection = set()
         self.node_regex = re.compile(r"dcdMap_(?P<node>\d+)\.csv")
         # some filter callbacks to apply to parsed csv before any further processing
         self.csv_filters = []
@@ -140,6 +141,7 @@ class DcdMapProvider(IHdfProvider):
                 kind="full",
             )
         self.set_selection_mapping_attribute()
+        self.set_used_selection_attribute()
 
     def parse_node_id(self, path: str) -> int:
         grps = [m.groupdict() for m in self.node_regex.finditer(path)]
@@ -206,6 +208,8 @@ class DcdMapProvider(IHdfProvider):
                 self.selection_mapping[k] = next_idx
                 print(f"found new selection algorithm. Map {k} -> {next_idx}")
                 next_idx += 1
+            if self.selection_mapping[k] not in self.used_selection:
+                self.used_selection.add(self.selection_mapping[k])
 
     def get_dcd_file_paths(self, base_path: str) -> List[str]:
         dcd_files = []
@@ -220,6 +224,9 @@ class DcdMapProvider(IHdfProvider):
 
     def set_selection_mapping_attribute(self):
         self.set_attribute("selection_mapping", self.selection_mapping)
+
+    def set_used_selection_attribute(self):
+        self.set_attribute("used_selection", self.used_selection)
 
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None
