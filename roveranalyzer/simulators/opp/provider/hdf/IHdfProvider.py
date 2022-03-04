@@ -2,7 +2,17 @@ import abc
 import contextlib
 import os
 import warnings
-from typing import Any, ContextManager, Dict, List, Optional, Set, Tuple, Union, Iterator
+from typing import (
+    Any,
+    ContextManager,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import pandas as pd
 from geopandas.geodataframe import GeoDataFrame
@@ -44,7 +54,7 @@ class BaseHdfProvider:
         with self.ctx(mode="r") as store:
             df = store.get(key=_key)
         return pd.DataFrame(df)
-    
+
     def write_frame(self, group, frame, index=True, index_data_columns=True):
         with self.ctx() as store:
             store.append(
@@ -52,7 +62,7 @@ class BaseHdfProvider:
                 value=frame,
                 index=index,
                 format="table",
-                data_columns=index_data_columns
+                data_columns=index_data_columns,
             )
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
@@ -87,7 +97,7 @@ class BaseHdfProvider:
             yield store
         finally:
             store.close()
-    
+
     @property
     def query(self) -> Iterator[pd.HDFStore]:
         return self.ctx(mode="r")
@@ -215,7 +225,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         condition: List[str] = []
         for idx in range(len(self.idx_order)):
             tuple_item = value[idx] if len(value) > idx else None
-            if tuple_item:
+            if tuple_item is not None:
                 condition += self.dispatch(self.idx_order[idx], tuple_item)[
                     0
                 ]  # ignore columns
@@ -254,7 +264,9 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             dataframe = self.get_dataframe()
         else:
             dataframe = self._select_where(condition, columns)
-        if dataframe.empty:
+        if (
+            dataframe.empty and len(columns) > 0
+        ):  # if len(column) == 0 user only wants index!
             raise ValueError(
                 f"Returned dataframe was empty. Please check your index names.{condition=}"
             )
