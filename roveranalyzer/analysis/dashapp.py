@@ -1,14 +1,17 @@
 import collections
 import json
-from re import I
+from os.path import join
+from typing import Any
 
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import dash_leaflet.express as dlx
+import numpy as np
 import pandas as pd
 from dash import Dash, callback_context, dash_table, dcc, html
 from dash.dependencies import Input, Output
 from dash_extensions.javascript import Namespace, arrow_function
+from flask_caching import Cache
 
 import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
@@ -16,7 +19,40 @@ from roveranalyzer.utils.general import Project
 
 dash_app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 dash_app.config.suppress_callback_exceptions = True
+cache = Cache(
+    dash_app.server,
+    config={
+        "CACHE_TYPE": "filesystem",
+        "CACHE_DIR": "cache-directory",
+        "CACHE_THRESHOLD": 50,  # should be equal to maximum number of active users
+    },
+)
 i_ = pd.IndexSlice
+
+
+class Ctx:
+    def __init__(self):
+        self._data = {}
+
+    def __getitem__(self, name: str) -> Any:
+        if name not in self._data:
+            self._data.setdefault(name, {})
+        return self._data[name]
+
+    def __setitem__(self, __name: str, __value: Any) -> None:
+        self._data[__name] = __value
+
+    def set(self, session, key: str, value: Any):
+        _s = self.__getitem__(session)
+        _s[key] = value
+        self._data[session] = _s
+        return _s
+
+    def get(self, session, key: str, _default: Any):
+        _s = self.__getitem__(session)
+        if key not in _s:
+            _s = self.set(session, key, _default)
+        return _s[key]
 
 
 class OppModel:
@@ -26,6 +62,7 @@ class OppModel:
         self.data_root: str = data_root
         self.builder: DcdHdfBuilder = builder
         self.sql: OMNeT.CrownetSql = sql
+        self.ctx: Ctx = Ctx()
 
         with self.builder.count_p.query as ctx:
             # all time points present
@@ -45,35 +82,107 @@ class OppModel:
         self.host_ids = self.sql.host_ids()
         self.host_ids[0] = "Global View (Ground Truth)"
         self.host_ids = collections.OrderedDict(sorted(self.host_ids.items()))
-        self.selected_node = self.map_node_index[0]  # global
-        self.map_data = None
-        self.map_time_cache = None
 
-    def set_selected_node(self, value):
-        if self.selected_node != value:
-            self.selected_node = value
-            return True
-        return False
+    def set_selected_node(self, session, value):
+        self.ctx.set(session, "selected_node", value)
 
-    def get_geojson_for(self, time_value):
-        print("check")
-        if (
-            self.map_data is None
-            or self.map_time_cache is None
-            or time_value not in self.map_time_cache
-        ):
-            print(f"load from hdf")
-            self.map_data = self.builder.count_p.geo(Project.WSG84_lat_lon)[
-                pd.IndexSlice[
-                    time_value - 3 : time_value + 3, :, :, int(self.selected_node)
-                ]
-            ]
-            self.map_time_cache = (
-                self.map_data.index.get_level_values("simtime").unique().sort_values()
-            )
-        j = json.loads(self.map_data.loc[time_value].reset_index().to_json())
-        print(f"geojson for {time_value}")
+    def get_selected_node(self, session):
+        return self.ctx.get(session, "selected_node", self.map_node_index[0])
+
+    def get_geojson_for(self, time_value, node_id):
+        # todo: cache map_data (Flask)
+        map_data = self.builder.count_p.geo(Project.WSG84_lat_lon)[
+            pd.IndexSlice[time_value, :, :, node_id]
+        ]
+        j = json.loads(map_data.reset_index().to_json())
+        # j = json.loads(map_data.loc[time_value].reset_index().to_json())
+        print(f"geojson for time {time_value} node {self.host_ids[node_id]}")
         return j
+
+    def get_beacon_entry_exit(self, node_id: int, cell: tuple) -> pd.DataFrame:
+        b = self.beacon_df
+
+        c_size = self.builder.count_p.get_attribute("cell_size")
+        beacon_mask = (
+            (b["table_owner"] == node_id)
+            & (b["posX"] > (cell[0] - c_size))
+            & (b["posX"] < (cell[0] + 2 * c_size))
+            & (b["posY"] > (cell[1] - c_size))
+            & (b["posY"] < (cell[1] + 2 * c_size))
+        )
+        bs = b[beacon_mask]
+
+        bs = bs.set_index(
+            ["table_owner", "source_node", "event_time", "cell_x", "cell_y"]
+        ).sort_index()
+        bs["cell_change"] = 0
+        bs["cell_change_count"] = 0
+        bs["cell_change_cumsum"] = 0
+        bs_missing = []
+        bs_missing_idx = []
+        for g, df in bs.groupby(by=["table_owner", "source_node"]):
+            data = np.abs(df.index.to_frame()["cell_y"].diff()) + np.abs(
+                df.index.to_frame()["cell_x"].diff()
+            )
+            data = data.fillna(1)
+            data[data > 0] = -1
+            bs.loc[df.index, ["cell_change"]] = data.astype(int)
+            # use bs not data for change_log to use correct index..
+            cell_change_at = data[data == -1].index
+            change_iloc = []
+            for _loc in cell_change_at:
+                local_iloc = data.index.get_loc(_loc)
+                global_iloc = bs.index.get_loc(_loc)
+                if local_iloc > 0:
+                    global_prev_iloc = bs.index.get_loc(data.index[local_iloc - 1])
+                    change_iloc.append([global_iloc, global_prev_iloc])
+                else:
+                    change_iloc.append([global_iloc, None])
+
+            cell_c_iloc = bs.columns.get_loc("cell_change")
+            count_iloc = bs.columns.get_loc("cell_change_count")
+            cell_id_iloc = bs.columns.get_loc("cell_id")
+            for g_iloc, g_prev_iloc in change_iloc:
+                if g_prev_iloc is not None:
+                    # copy g_iloc,
+                    # replace cell_x, cell_y, cell_id with data from g_prev_iloc
+                    # add cell_id of g_iloc as positive value in 'cell_change'
+                    # do not change g_prev_iloc
+                    idx = bs.index[g_iloc]
+                    idx_prev = bs.index[g_prev_iloc]
+                    missing = bs.iloc[g_iloc].copy()
+                    missing_idx = (idx[0], idx[1], idx[2], idx_prev[3], idx_prev[4])
+                    missing["event"] = "move_out"
+                    missing["cell_id"] = bs.iloc[g_prev_iloc, cell_id_iloc]
+                    missing["cell_change"] = bs.iloc[g_iloc, cell_id_iloc]
+                    missing["cell_change_count"] = -1
+                    bs_missing.append(missing.to_list())
+                    bs_missing_idx.append(missing_idx)
+
+                    # negative cell_id: 'node comes from this cell i.e. it was there in the previous step' -> thus increment count now!
+                    #
+                    bs.iloc[g_iloc, cell_c_iloc] = (
+                        -1 * bs.iloc[g_prev_iloc, cell_id_iloc]
+                    )
+                    bs.iloc[g_iloc, count_iloc] = 1
+                else:
+                    # first occurrence no idea where that nodes was before set -1
+                    bs.iloc[g_iloc, cell_c_iloc] = -1
+                    bs.iloc[g_iloc, count_iloc] = 1
+        missing_df = pd.DataFrame(
+            bs_missing,
+            index=pd.MultiIndex.from_tuples(bs_missing_idx, names=bs.index.names),
+            columns=bs.columns,
+        )
+        bs = pd.concat([bs, missing_df])
+        # remove surrounding cells (copy!)
+        bs = bs.loc[pd.IndexSlice[:, :, :, cell[0], cell[1]], :].copy()
+
+        bs = bs.reset_index().set_index(["table_owner", "event_time"]).sort_index()
+        for g, df in bs.groupby(by=["table_owner", "cell_x", "cell_y"]):
+            bs.loc[df.index, ["cell_change_cumsum"]] = df["cell_change_count"].cumsum()
+        # _m = (bs["cell_x"] == int(cell[0])) & (bs["cell_y"] == int(cell[1]))
+        return bs
 
     @property
     def erroneous_cells(self):
@@ -95,6 +204,20 @@ class OppModel:
             .sort_values("count", ascending=False)
             .reset_index()
         )
+
+    @property
+    def beacon_df(self):
+        if hasattr(self, "_beacon_df"):
+            return self._beacon_df
+
+        b = pd.read_csv(join(self.data_root, "beacons.csv"), delimiter=";")
+        if any(b["cell_x"] > 0x0FFF_FFFF) or any(b["cell_y"] > 0x0FFF_FFFF):
+            raise ValueError("cell positions exceed 28 bit.")
+        bound = self.builder.count_p.get_attribute("cell_bound")
+        b["posY"] = bound[1] - b["posY"]  # fix translation !
+        b["cell_id"] = (b["cell_x"].values << 28) + b["cell_y"]
+        self._beacon_df = b
+        return self._beacon_df
 
 
 class _DashUtil:
@@ -142,7 +265,7 @@ class _DashUtil:
     @classmethod
     def get_map_style(cls, ns: Namespace):
         style = dict(weight=2, opacity=1, fillColor="red", fillOpacity=0.6)
-        clb = ns.add(cls._colorbar_style_clb)
+        clb = ns.add(cls._colorbar_style_clb, name="map_style_clb")
         return style, clb
 
     @classmethod
@@ -156,7 +279,7 @@ class _DashUtil:
         # Create info control.
         info = html.Div(
             id="cell-info",
-            className="info",
+            className="cell-info",
             style={
                 "position": "absolute",
                 "bottom": "100px",
@@ -234,11 +357,16 @@ class _DashUtil:
         ]
 
     @classmethod
-    def get_cell_info(cls, feature=None):
+    def get_cell_info(cls, feature, storage, **kwargs):
+        storage = {} if storage is None else storage
         header = [html.H4("Cell Info")]
-        if not feature:
-            return header + [html.P("Hoover over a cell")]
+        if feature is None and "last_cell_hovered" not in storage:
+            return header + [html.P("Hoover over a cell")], storage
         else:
+            if feature is None:
+                feature = storage["last_cell_hovered"]
+            else:
+                storage["last_cell_hovered"] = feature
             ret = header + [
                 html.B(
                     f"[{feature['properties']['cell_x']}, {feature['properties']['cell_y']}]"
@@ -250,7 +378,7 @@ class _DashUtil:
                 html.Br(),
                 f"Owner Distance: {feature['properties']['owner_dist']:0.3f} m",
             ]
-            return ret
+            return ret, storage
 
     @classmethod
     def cell_dropdown(cls, id, m: OppModel, **kwargs):
