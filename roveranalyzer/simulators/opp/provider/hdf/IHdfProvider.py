@@ -1,6 +1,7 @@
 import abc
 import contextlib
 import os
+import threading
 import warnings
 from typing import (
     Any,
@@ -15,7 +16,9 @@ from typing import (
 )
 
 import pandas as pd
+import tables
 from geopandas.geodataframe import GeoDataFrame
+from matplotlib.pyplot import table
 
 from roveranalyzer.simulators.opp.provider.hdf.IHdfGeoProvider import GeoProvider
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
@@ -44,6 +47,7 @@ class BaseHdfProvider:
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
+        self._lock = threading.Lock()
 
     def get_dataframe(self, group=None) -> pd.DataFrame:
         """
@@ -66,19 +70,19 @@ class BaseHdfProvider:
             )
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
-        import tables
 
         _key = self.group if group is None else group
-        with tables.open_file(self._hdf_path, "a") as hdf_file:
+        with self.tables_file(self._hdf_path, "a") as hdf_file:
+            # with tables.open_file(self._hdf_path, "a") as hdf_file:
             if _key not in hdf_file.root:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
 
     def get_attribute(self, attr_key: str, group=None):
-        import tables
 
         _key = self.group if group is None else group
-        with tables.open_file(self._hdf_path, "r") as hdf_file:
+        with self.tables_file(self._hdf_path, "r") as hdf_file:
+            # with tables.open_file(self._hdf_path, "r") as hdf_file:
             return hdf_file.root[_key].table.attrs[attr_key]
 
     def get_time_interval(self):
@@ -90,13 +94,29 @@ class BaseHdfProvider:
 
     @contextlib.contextmanager  # to ensure store closes after access
     def ctx(self, mode="a", **kwargs) -> Iterator[pd.HDFStore]:
-        _args = dict(self._hdf_args)
-        _args.update(kwargs)
-        store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
         try:
-            yield store
+            self._lock.acquire()
+            _args = dict(self._hdf_args)
+            _args.update(kwargs)
+            store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
+            try:
+                yield store
+            finally:
+                store.close()
         finally:
-            store.close()
+            self._lock.release()
+
+    @contextlib.contextmanager
+    def tables_file(self, path, mode="r", **kwargs) -> Iterator[tables.File]:
+        try:
+            self._lock.acquire()
+            file = tables.open_file(path, mode)
+            try:
+                yield file
+            finally:
+                file.close()
+        finally:
+            self._lock.release()
 
     @property
     def query(self) -> Iterator[pd.HDFStore]:
