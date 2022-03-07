@@ -284,12 +284,13 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             dataframe = self.get_dataframe()
         else:
             dataframe = self._select_where(condition, columns)
-        if (
-            dataframe.empty and len(columns) > 0
-        ):  # if len(column) == 0 user only wants index!
-            raise ValueError(
-                f"Returned dataframe was empty. Please check your index names.{condition=}"
-            )
+        # if (
+        #     dataframe.empty and columns is None
+        # ):  # if len(column) == 0 user only wants index!
+        #     raise ValueError(
+        #         f"Returned dataframe was empty. Please check your index names.{condition=}"
+        #     )
+        # allow empty frames
         return dataframe
 
     def __setitem__(self, key, value):
