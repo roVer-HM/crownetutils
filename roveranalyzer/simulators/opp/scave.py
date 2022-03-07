@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import glob
 import io
 import os
@@ -297,9 +298,7 @@ class OppSql:
 
     def __init__(self, vec_path=None, sca_path=None):
         self._vec_path = vec_path
-        self._vec_con = None
         self._sca_path = sca_path
-        self._sca_con = None
         self._file = {
             "vec": lambda: self.vec_con,
             "sca": lambda: self.sca_con,
@@ -319,31 +318,36 @@ class OppSql:
 
     @property
     def vec_con(self):
-        if self._vec_con is None:
+        try:
             if not os.path.exists(self.vec_path):
                 raise FileNotFoundError(self.vec_path)
-            self._vec_con = sq.connect(self.vec_path)
-        return self._vec_con
+            _vec_con = sq.connect(self.vec_path)
+            yield _vec_con
+        finally:
+            _vec_con.close()
 
-    @property
+    @contextlib.contextmanager
     def sca_con(self):
-        if self._sca_con is None:
+        try:
             if not os.path.exists(self.sca_path):
                 raise FileNotFoundError(self.sca_path)
-            self._sca_con = sq.connect(self.sca_path)
-        return self._sca_con
+            _sca_con = sq.connect(self.sca_path)
+            yield _sca_con
+        finally:
+            _sca_con.close()
 
     def _query(
         self, sql_str, file="vec", type="df", **kwargs
     ) -> Union[pd.DataFrame, sq.Cursor]:
-        _con = self._file[file]()
+        sql_file = self._file[file]()
         logger.debug(f"execute sql on db {file}: {sql_str}")
-        if type == "df":
-            return pd.read_sql_query(sql_str, _con, **kwargs)
-        elif type == "cursor":
-            return _con.execute(sql_str, **kwargs)
-        else:
-            raise RuntimeError("Expected df or cursor as type")
+        with sql_file() as _con:
+            if type == "df":
+                return pd.read_sql_query(sql_str, _con, **kwargs)
+            elif type == "cursor":
+                return _con.execute(sql_str, **kwargs)
+            else:
+                raise RuntimeError("Expected df or cursor as type")
 
     def query_vec(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="vec", type=type, **kwargs)
@@ -611,6 +615,29 @@ class CrownetSql(OppSql):
         _df = _df.reset_index(drop=True).set_index(keys="scalarValue")
         return _df.to_dict()["moduleName"]
 
+    def get_run_config(self, name: str, full_match: bool = True):
+        if full_match:
+            _sql = f'select *, Min(r.configOrder) from runConfig as r where r.configKey == "{name}"'
+        else:
+            _sql = f'select *, Min(r.configOrder) from runConfig as r where r.configKey like "%{name}%"'
+
+        df = self.query_sca(_sql)
+        if not df.empty:
+            val = df.iloc[0]["configValue"]
+            if isinstance(val, str):
+                val = val.replace('"', "")
+            return val
+        else:
+            return None
+
+    @property
+    def sim_time_limit(self):
+        return self.get_run_config("sim-time-limit")
+
+    @property
+    def vadere_scenario(self):
+        return self.get_run_config("vadereScenarioPath", full_match=False)
+
     def module_to_host_ids(self):
         return {v: k for k, v in self.host_ids().items()}
 
@@ -717,18 +744,18 @@ class CrownetSql(OppSql):
             cols = [*cols, "geometry"]
 
         return df.loc[:, cols]
-    
-    def apply_geo_position(self, 
+
+    def apply_geo_position(
+        self,
         df: pd.DataFrame,
         epsg_code_base: str | None = None,
         epsg_code_to: str | None = None,
-        ) -> gpd.GeoDataFrame:
-            geometry = [Point(x, y) for x, y in zip(df["x"], df["y"])]
-            df = gpd.GeoDataFrame(df, crs=epsg_code_base, geometry=geometry)
-            if epsg_code_to is not None:
-                df = df.to_crs(epsg=epsg_code_to.replace("EPSG:", ""))
-            return df
-
+    ) -> gpd.GeoDataFrame:
+        geometry = [Point(x, y) for x, y in zip(df["x"], df["y"])]
+        df = gpd.GeoDataFrame(df, crs=epsg_code_base, geometry=geometry)
+        if epsg_code_to is not None:
+            df = df.to_crs(epsg=epsg_code_to.replace("EPSG:", ""))
+        return df
 
     def get_column_types(self, existing_columns, **kwargs):
         _cols = dict(self._dtypes)
@@ -809,7 +836,9 @@ class CrownetSql(OppSql):
             elif isinstance(vec_info_columns, str):
                 vec_info_columns = ["moduleName", vec_info_columns]
             else:
-                raise ValueError(f"Expected tuple, list or string but got {type(vec_info_columns)}")
+                raise ValueError(
+                    f"Expected tuple, list or string but got {type(vec_info_columns)}"
+                )
 
         _df = self.vec_info(
             module_name=module_name,
@@ -881,7 +910,9 @@ class CrownetSql(OppSql):
             vec_info_columns=["vectorId", "vectorName"],
             name_columns=["hostId"],
         )
-        vec_data = self.vec_data(ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value"))
+        vec_data = self.vec_data(
+            ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value")
+        )
         vec_data["vectorName"] = vec_data["vectorName"].map(
             {k: v["name"] for k, v in vector_name_map.items()}
         )
