@@ -134,7 +134,7 @@ class OppModel:
             .sort_values("count", ascending=False)
             .reset_index()
             .set_index(["x", "y"])
-            .iloc[0:10]
+            .iloc[0:30]
             .copy()
         )
         _err_ret["node_ids"] = ""

@@ -630,6 +630,13 @@ class CrownetSql(OppSql):
         else:
             return None
 
+    def get_all_run_config(self):
+        df = self.query_sca(
+            "select r.configOrder, r.configKey, r.configValue from runConfig as r ORDER By r.configOrder ASC"
+        )
+        df["configValue"] = df["configValue"].apply(lambda x: x.strip())
+        return df
+
     @property
     def sim_time_limit(self):
         return self.get_run_config("sim-time-limit")

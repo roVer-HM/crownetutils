@@ -92,7 +92,7 @@ class CellErrorInsepctor(_DashApp):
 
     def clb_tbl(self, data):
         self.m.data_changed(data)
-        df = self.m.erroneous_cells.iloc[0:10]
+        df = self.m.erroneous_cells.iloc[0:30]
         cols = [dict(name=i, id=i) for i in df.columns]
         return df.to_dict("records"), cols
 
@@ -125,7 +125,15 @@ class CellErrorInsepctor(_DashApp):
                     align="center",
                     className="ctrl",
                 ),
-                dbc.Row(dbc.Col(dash_table.DataTable(id=self.id("cell-tbl")))),
+                dbc.Row(
+                    dbc.Col(
+                        dash_table.DataTable(
+                            id=self.id("cell-tbl"),
+                            page_action="none",
+                            style_table=dict(height="300px", overflowY="auto"),
+                        )
+                    )
+                ),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-err-graph")))),
                 dbc.Row(),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-beacon-graph")))),
@@ -238,6 +246,16 @@ class _DataSelector(_DashApp):
             Input("data-selector", "value"),
             # prevent_initial_call=True
         )(self.clb_pdf)
+        dash_app.callback(
+            Output(self.id("config-tbl"), "data"),
+            Output(self.id("config-tbl"), "columns"),
+            Input("data-selector", "value"),
+        )(self.clb_config_tbl)
+
+    def clb_config_tbl(self, data):
+        self.m.data_changed(data)
+        df = self.m.sql.get_all_run_config()
+        return df.to_dict("records"), [dict(id=i, name=i) for i in df.columns]
 
     def clb_pdf(self, data):
         return self.m.asset_pdf_path(data, relative=True)
@@ -262,6 +280,22 @@ class _DataSelector(_DashApp):
                         src="assets/example.pdf",
                         style={"width": "100%", "height": "600px"},
                     ),
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dash_table.DataTable(
+                                id=self.id("config-tbl"),
+                                page_action="none",
+                                style_cell=dict(textAlgin="left"),
+                                style_cell_conditional=[
+                                    {"if": {"column_id": c}, "textAlign": "left"}
+                                    for c in ["configKey", "configValue"]
+                                ],
+                                style_table=dict(height="300px", overflowY="auto"),
+                            )
+                        )
+                    ]
                 ),
             ],
             id=self.id("wrapper"),
