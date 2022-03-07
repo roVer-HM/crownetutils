@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import collections
 import json
-from os.path import join
+import shutil
+import threading
+from os.path import basename, dirname, join, split
 from typing import Any
 
 import dash_bootstrap_components as dbc
@@ -14,8 +18,10 @@ from dash_extensions.javascript import Namespace, arrow_function
 from flask_caching import Cache
 
 import roveranalyzer.simulators.opp as OMNeT
+from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
+from roveranalyzer.simulators.vadere.plots.scenario import Scenario
 from roveranalyzer.utils.general import Project
 
 dash_app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -63,10 +69,36 @@ class OppModel:
         self.data_root: str = data_root
         self.builder: DcdHdfBuilder = builder
         self.sql: OMNeT.CrownetSql = sql
-        self.pos: BaseHdfProvider = BaseHdfProvider(
-            join(data_root, "trajectories.h5"), group="trajectories"
-        )
         self.ctx: Ctx = Ctx()
+        self.load()
+        self._lock = threading.Lock()
+
+    def reload(self, data_root: str):
+        self.data_root = data_root
+        r, b, s = OppAnalysis.builder_from_output_folder(self.data_root)
+        self.builder = b
+        self.sql = s
+        self.load()
+
+    @classmethod
+    def asset_pdf_path(cls, root_path, relative=False):
+        b_name = basename(root_path)
+        if relative:
+            p = join("assets", f"{b_name}.pdf")
+        else:
+            p = join(dash_app.config.assets_folder, f"{b_name}.pdf")
+        return p
+
+    @classmethod
+    def copy_common_pdf(cls, data: dict):
+        for path in data:
+            pdf = join(path["value"], "common_output.pdf")
+            shutil.copyfile(src=pdf, dst=cls.asset_pdf_path(path["value"]))
+
+    def load(self):
+        self.pos: BaseHdfProvider = BaseHdfProvider(
+            join(self.data_root, "trajectories.h5"), group="trajectories"
+        )
 
         with self.builder.count_p.query as ctx:
             # all time points present
@@ -86,6 +118,64 @@ class OppModel:
         self.host_ids = self.sql.host_ids()
         self.host_ids[0] = "Global View (Ground Truth)"
         self.host_ids = collections.OrderedDict(sorted(self.host_ids.items()))
+
+        with self.builder.count_p.query as ctx:
+            self.erroneous_cells = ctx.select(
+                key=self.builder.count_p.group,
+                where="(ID>0) & (err > 0)",
+                columns=["count", "err"],
+            )
+
+        _mask = self.erroneous_cells["count"] == self.erroneous_cells["err"]
+        self.erroneous_cells = self.erroneous_cells[_mask]
+        _err_ret = (
+            self.erroneous_cells.groupby(by=["x", "y"])
+            .sum()
+            .sort_values("count", ascending=False)
+            .reset_index()
+            .set_index(["x", "y"])
+            .iloc[0:10]
+            .copy()
+        )
+        _err_ret["node_ids"] = ""
+        for g, _ in _err_ret.groupby(["x", "y"]):
+            l = (
+                self.erroneous_cells.groupby(by=["x", "y", "ID"])
+                .sum()
+                .loc[g]
+                .nlargest(5, "err")
+                .index.to_list()
+            )
+            _d = ", ".join([str(i) for i in l])
+            _err_ret.loc[g, "node_ids"] = _d
+
+        self.erroneous_cells = _err_ret.reset_index()
+
+        b = pd.read_csv(join(self.data_root, "beacons.csv"), delimiter=";")
+        if any(b["cell_x"] > 0x0FFF_FFFF) or any(b["cell_y"] > 0x0FFF_FFFF):
+            raise ValueError("cell positions exceed 28 bit.")
+        bound = self.builder.count_p.get_attribute("cell_bound")
+        b["posY"] = bound[1] - b["posY"]  # fix translation !
+        b["cell_id"] = (b["cell_x"].values << 28) + b["cell_y"]
+        self.beacon_df = b
+
+    def data_changed(self, data):
+        # todo: make session aware!!!!
+        try:
+            self._lock.acquire()
+            if self.data_root != data:
+                print(f"load new data: {data}")
+                self.reload(data)
+                return True
+            return False
+        finally:
+            self._lock.release()
+
+    def topo_json(self, to_crs=Project.WSG84_lat_lon):
+        name = split(self.sql.vadere_scenario)[-1]
+        s = Scenario(join(self.data_root, f"vadere.d/{name}"))
+        df = s.topography_frame(to_crs=to_crs)
+        return json.loads(df.reset_index().to_json())
 
     def set_selected_node(self, session, value):
         self.ctx.set(session, "selected_node", value)
@@ -139,6 +229,8 @@ class OppModel:
         bs["cell_change"] = 0
         bs["cell_change_count"] = 0
         bs["cell_change_cumsum"] = 0
+        if bs.empty:
+            return bs
         bs_missing = []
         bs_missing_idx = []
         for g, df in bs.groupby(by=["table_owner", "source_node"]):
@@ -209,41 +301,6 @@ class OppModel:
         # _m = (bs["cell_x"] == int(cell[0])) & (bs["cell_y"] == int(cell[1]))
         bs = bs.reset_index("source_node")
         return bs
-
-    @property
-    def erroneous_cells(self):
-        if hasattr(self, "_erroneous_cells"):
-            return self._erroneous_cells
-
-        with self.builder.count_p.query as ctx:
-            self._erroneous_cells = ctx.select(
-                key=self.builder.count_p.group,
-                where="(ID>0) & (err > 0)",
-                columns=["count", "err"],
-            )
-
-        _mask = self._erroneous_cells["count"] == self._erroneous_cells["err"]
-        self._erroneous_cells = self._erroneous_cells[_mask]
-        self._erroneous_cells = (
-            self._erroneous_cells.groupby(by=["x", "y"])
-            .sum()
-            .sort_values("count", ascending=False)
-            .reset_index()
-        )
-
-    @property
-    def beacon_df(self):
-        if hasattr(self, "_beacon_df"):
-            return self._beacon_df
-
-        b = pd.read_csv(join(self.data_root, "beacons.csv"), delimiter=";")
-        if any(b["cell_x"] > 0x0FFF_FFFF) or any(b["cell_y"] > 0x0FFF_FFFF):
-            raise ValueError("cell positions exceed 28 bit.")
-        bound = self.builder.count_p.get_attribute("cell_bound")
-        b["posY"] = bound[1] - b["posY"]  # fix translation !
-        b["cell_id"] = (b["cell_x"].values << 28) + b["cell_y"]
-        self._beacon_df = b
-        return self._beacon_df
 
 
 class _DashUtil:
@@ -335,6 +392,11 @@ class _DashUtil:
         }
     """
 
+    _poly_style_clb = """function(feature, context){
+            return feature.properties['style'];
+        }
+    """
+
     _node_point_to_layer = """function(feature, latlng, context){
         const {circleOptions, colorProp} = context.props.hideout;
         //const csc = chroma.scale(colorscale).domain([min, max]);  // chroma lib to construct colorscale
@@ -373,6 +435,24 @@ class _DashUtil:
         )
         return overlays
 
+    def build_topography_layer(self, ns: Namespace, id_builder):
+        topo_clb = ns(ns.add(self._poly_style_clb, name="ploy_styler"))
+        topo = dl.GeoJSON(
+            id=id_builder("topo_tiles"),
+            options=dict(style=topo_clb),
+            zoomToBounds=False,
+            format="geojson",
+            # hoverStyle=arrow_function(dict(weight=2, color="#222", dashArray="")),
+            hideout=dict(style=dict(), styleProp=["fillColor"]),
+        )
+        return [
+            dl.Overlay(
+                dl.LayerGroup(topo),
+                checked=True,
+                name="topo",
+            )
+        ]
+
     def build_cell_layer(self, ns: Namespace, id_builder):
 
         # colorbar
@@ -387,11 +467,12 @@ class _DashUtil:
             zoomToBounds=False,
             zoomToBoundsOnClick=True,
             format="geojson",
-            hoverStyle=arrow_function(dict(weight=3, color="#222", dashArray="")),
+            hoverStyle=arrow_function(dict(weight=2, color="#222", dashArray="")),
             hideout=dict(
                 colorscale=colorscale, classes=classes, style=style, colorProp="count"
             ),
         )
+
         # cell over info box
         info = html.Div(
             id=id_builder("cell_info"),
@@ -487,6 +568,18 @@ class _DashUtil:
             value=0,
             style={"position": "relative", "zIndex": "999"},
             **kwargs,
+        )
+
+    @classmethod
+    def data_dropdown(cls, id, m: OppModel, opt):
+
+        return dcc.Dropdown(
+            id=id,
+            options=opt,
+            multi=False,
+            searchable=True,
+            value=opt[0]["value"],
+            style={"position": "relative", "zIndex": "999"},
         )
 
 

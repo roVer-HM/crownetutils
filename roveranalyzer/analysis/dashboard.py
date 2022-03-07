@@ -15,6 +15,7 @@ import plotly.express as px
 from click import option
 from dash import callback_context, dash_table, dcc, html
 from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
 from dash_extensions.javascript import Namespace, arrow_function
 from mercantile import children
 
@@ -22,6 +23,7 @@ import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.analysis.dashapp import DashUtil, OppModel, dash_app
 from roveranalyzer.analysis.density_map import DensityMap
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
+from roveranalyzer.simulators.vadere.plots import scenario
 from roveranalyzer.utils.general import Project
 from roveranalyzer.utils.logging import timing
 
@@ -47,8 +49,11 @@ class _DashApp:
         ns.dump(assets_folder=dash_app.config.assets_folder)
         dash_app.run_server(debug=True, use_reloader=False)
 
-    def id(self, name):
-        return f"{self.id_prefix}_{name}"
+    def id(self, name, attr=None):
+        if attr is None:
+            return f"{self.id_prefix}_{name}"
+        else:
+            return f"{self.id_prefix}_{name}.{attr}"
 
 
 class CellErrorInsepctor(_DashApp):
@@ -61,19 +66,35 @@ class CellErrorInsepctor(_DashApp):
             Output(self.id("cell-node-id-dropdown"), "value"),
             Input(self.id("cell-dropdown"), "value"),
             Input("session-id", "data"),
+            Input("data-selector", "value"),
+            # prevent_initial_call=True
         )(self.clb_update_id_dropdown)
+
+        dash_app.callback(
+            Output(self.id("cell-tbl"), "data"),
+            Output(self.id("cell-tbl"), "columns"),
+            Input("data-selector", "value"),
+        )(self.clb_tbl)
 
         dash_app.callback(
             Output(self.id("cell-err-graph"), "figure"),
             Input(self.id("cell-node-id-dropdown"), "value"),
             Input("session-id", "data"),
+            prevent_initial_call=True,
         )(self.clb_update_error_figure)
 
         dash_app.callback(
             Output(self.id("cell-beacon-graph"), "figure"),
             Input(self.id("cell-node-id-dropdown"), "value"),
             State(self.id("cell-dropdown"), "value"),
+            prevent_initial_call=True,
         )(self.clb_update_beacon_figure)
+
+    def clb_tbl(self, data):
+        self.m.data_changed(data)
+        df = self.m.erroneous_cells.iloc[0:10]
+        cols = [dict(name=i, id=i) for i in df.columns]
+        return df.to_dict("records"), cols
 
     def get_layout(self, ns: Namespace, with_container: bool = False):
 
@@ -104,6 +125,7 @@ class CellErrorInsepctor(_DashApp):
                     align="center",
                     className="ctrl",
                 ),
+                dbc.Row(dbc.Col(dash_table.DataTable(id=self.id("cell-tbl")))),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-err-graph")))),
                 dbc.Row(),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-beacon-graph")))),
@@ -164,8 +186,8 @@ class CellErrorInsepctor(_DashApp):
 
     # callback
     @timing
-    def clb_update_id_dropdown(self, cell_id, session):
-
+    def clb_update_id_dropdown(self, cell_id, session, data):
+        self.m.data_changed(data)
         ids = self.read_ids_for_cell_index(cell_id, session)["ID"].unique()
         # ids = sself.ca["ID"].unique()
         ids = ids[ids > 0]
@@ -207,6 +229,50 @@ class CellErrorInsepctor(_DashApp):
         # self.read_ids_for_cell_index(cell_id=None)  # todo...
 
 
+class _DataSelector(_DashApp):
+    def __init__(self, m: OppModel, data) -> None:
+        super().__init__("Data Selector", "data", m)
+        self.data = data
+        dash_app.callback(
+            Output(self.id("pdf-view"), "src"),
+            Input("data-selector", "value"),
+            # prevent_initial_call=True
+        )(self.clb_pdf)
+
+    def clb_pdf(self, data):
+        return self.m.asset_pdf_path(data, relative=True)
+
+    def get_layout(self, ns: Namespace, with_container: bool = False):
+        layout = html.Div(
+            children=[
+                dcc.Store(id=self.id("memory")),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            DashUtil.data_dropdown("data-selector", self.m, self.data)
+                        )
+                    ],
+                    align="center",
+                    className="ctrl",
+                ),
+                dbc.Row(
+                    html.Iframe(
+                        # To my recollection you need to put your static files in the 'assets' folder
+                        id=self.id("pdf-view"),
+                        src="assets/example.pdf",
+                        style={"width": "100%", "height": "600px"},
+                    ),
+                ),
+            ],
+            id=self.id("wrapper"),
+            className="module-wrapper",
+        )
+        if with_container:
+            layout = dbc.Container(layout)
+
+        return layout
+
+
 class _MapView(_DashApp):
     def __init__(self, m: OppModel) -> None:
         super().__init__("Map View", "map", m)
@@ -217,26 +283,42 @@ class _MapView(_DashApp):
             Output(self.id("node_tiles"), "data"),
             Input(self.id("time_slider"), "value"),
             Input(self.id("map_node_input"), "value"),
+            Input("data-selector", "value"),
+            # prevent_initial_call=True
         )(self.clb_map_time_slider)
+        dash_app.callback(
+            Output(self.id("topo_tiles"), "data"),
+            Input("data-selector", "value"),
+            #    prevent_initial_call=True
+        )(self.clb_topo)
         dash_app.callback(
             Output(self.id("cell_tiles"), "hideout"),
             Output(self.id("map-colorbar-wrapper"), "children"),
             Input(self.id("map-value-view-function"), "value"),
+            prevent_initial_call=True,
         )(self.clb_cell_tile_update_colorbar)
+
         dash_app.callback(
-            Output(self.id("map-time-in"), "value"),
+            Output(self.id("time_slider"), "value"),
             Input(self.id("time_slider"), "value"),
-        )(self.clb_map_time_input)
+            Input(self.id("time-back"), "n_clicks"),
+            Input(self.id("time-forward"), "n_clicks"),
+            prevent_initial_call=True,
+        )(self.clb_time_click)
+
         dash_app.callback(
             Output(self.id("map_title"), "children"),
             Input(self.id("map_node_input"), "value"),
             Input("session-id", "data"),
+            Input("data-selector", "value"),
+            # prevent_initial_call=True
         )(self.clb_map_node_input)
         dash_app.callback(
             Output(self.id("cell_info"), "children"),
             Output(self.id("memory"), "data"),
             Input(self.id("cell_tiles"), "hover_feature"),
             State(self.id("memory"), "data"),
+            prevent_initial_call=True,
         )(DashUtil.get_cell_info)
 
     def clb_cell_tile_update_colorbar(self, color_function):
@@ -255,18 +337,25 @@ class _MapView(_DashApp):
         )
 
     @timing
-    def clb_map_time_slider(self, time_value, node_id):
+    def clb_map_time_slider(self, time_value, node_id, data):
+        self.m.data_changed(data)
         return (
             self.m.get_cell_tile_geojson_for(time_value, node_id),
             self.m.get_node_tile_geojson_for(time_value, node_id),
         )
 
     @timing
+    def clb_topo(self, data):
+        self.m.data_changed(data)
+        return self.m.topo_json()
+
+    @timing
     def clb_map_time_input(self, value):
         return value
 
     @timing
-    def clb_map_node_input(self, value, session_id):
+    def clb_map_node_input(self, value, session_id, data):
+        self.m.data_changed(data)
         value = 0 if value is None else value
         self.m.set_selected_node(session_id, value)
         print(f"selected node {value}")
@@ -276,6 +365,23 @@ class _MapView(_DashApp):
     def clb_bar(self, value):
         # print(f"got drag value: {value}")
         return value
+
+    def clb_time_click(self, slider, backward, forward):
+        trigger = callback_context.triggered[0]["prop_id"]
+        if (
+            trigger == self.id("time-back", "n_clicks")
+            and slider > self.m.map_time_index[0]
+        ):
+            i = self.m.map_time_index.to_list().index(slider)
+            return i
+        elif (
+            trigger == self.id("time-forward", "n_clicks")
+            and slider < self.m.map_time_index[-1]
+        ):
+            i = self.m.map_time_index.to_list().index(slider)
+            return i + 2
+        else:
+            raise PreventUpdate("")
 
     def get_layout(self, ns: Namespace, with_container: bool = False):
         layout = html.Div(
@@ -310,9 +416,10 @@ class _MapView(_DashApp):
                         dbc.Col(
                             width=1,
                             children=[
-                                dcc.Input(
-                                    id=self.id("map-time-in"), style={"width": "100%"}
-                                )
+                                html.Button("<", id=self.id("time-back"), n_clicks=0),
+                                html.Button(
+                                    ">", id=self.id("time-forward"), n_clicks=0
+                                ),
                             ],
                         ),
                         dbc.Col(self._build_map_time_slider(id_prefix=self.id_prefix)),
@@ -360,18 +467,25 @@ class _MapView(_DashApp):
         ns: Namespace,
     ):
 
+        topo_overlays = DashUtil.build_topography_layer(ns, self.id)
         cell_overlays = DashUtil.build_cell_layer(ns, self.id)
         node_overlays = DashUtil.build_node_layer(ns, self.id)
 
         return dl.Map(
             dl.LayersControl(
-                [*DensityMap.get_dash_tilelayer(), *cell_overlays, *node_overlays]
+                [
+                    *DensityMap.get_dash_tilelayer(),
+                    *cell_overlays,
+                    *node_overlays,
+                    *topo_overlays,
+                ]
             ),
             center=(48.162, 11.586),
             zoom=18,
             style={
                 "width": "100%",
                 "height": "50vh",
+                "background-color": "white",
                 "margin": "auto",
                 "display": "block",
             },
@@ -383,8 +497,8 @@ class _Combined(_DashApp):
         super().__init__(name, id_prefix, m)
         self.components: List[_DashApp] = []
 
-    def add(self, _cls):
-        self.components.append(_cls(self.m))
+    def add(self, _cls, *args):
+        self.components.append(_cls(self.m, *args))
 
     def run_app(self, ns: Namespace | None = None):
         def layout():
@@ -409,6 +523,7 @@ class _DashBoard:
     cell_err_app = CellErrorInsepctor
     map_view = _MapView
     combined = _Combined
+    data_selector = _DataSelector
 
 
 DashBoard = _DashBoard()
