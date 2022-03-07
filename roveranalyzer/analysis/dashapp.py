@@ -406,6 +406,42 @@ class _DashUtil:
     """
 
     @classmethod
+    def build_measurement_tbl(cls, m: OppModel, tbl_id, slider_id):
+        return [
+            dbc.Row(
+                dbc.Col(
+                    dash_table.DataTable(
+                        id=tbl_id,
+                        page_action="none",
+                        style_table=dict(height="300px", overflowY="auto"),
+                    )
+                )
+            ),
+            dbc.Row(dbc.Col(cls.build_time_slider(m, slider_id))),
+        ]
+
+    @classmethod
+    def build_time_slider(cls, m: OppModel, slider_id):
+        opt = {
+            k: {"label": f"{k}s", "style": {"display": "none"}}
+            for k in m.map_time_index
+        }
+        for k in range(0, m.map_time_index.shape[0], 10):
+            t = m.map_time_index[k]
+            del opt[t]["style"]["display"]
+        # del m[self.m.map_time_index[-1]]["style"]["display"]
+        return dcc.Slider(
+            # 0, 100, 10,
+            step=None,
+            id=slider_id,
+            marks=opt,
+            value=m.map_time_index[0],
+            # dots= False,
+            included=False,
+            tooltip={"placement": "bottom", "always_visible": True},
+        )
+
+    @classmethod
     def module_header(cls, id, **kwargs):
         return dbc.Row(dbc.Col([html.H2(id=id, **kwargs)]))
 

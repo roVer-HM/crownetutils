@@ -90,6 +90,58 @@ class CellErrorInsepctor(_DashApp):
             prevent_initial_call=True,
         )(self.clb_update_beacon_figure)
 
+        dash_app.callback(
+            Output(self.id("cell-dropdown"), "options"),
+            Input(("data-selector"), "value"),
+        )(self.clb_update_cell_dropdown_options)
+
+        dash_app.callback(
+            Output(self.id("cell-measurements-tbl"), "data"),
+            Output(self.id("cell-measurements-tbl"), "columns"),
+            Input(self.id("measurement-time-slider"), "value"),
+            Input(self.id("cell-node-id-dropdown"), "value"),
+            Input(self.id("cell-dropdown"), "value"),
+            prevent_initial_call=True,
+        )(self.clb_update_measurement_table)
+        # input node-id, cell, time (slider)
+        # output table of measurements present at time
+
+        dash_app.callback(
+            Output(self.id("measurement-time-slider"), "marks"),
+            Input("data-selector", "value"),
+        )(self.clb_update_time_slider_option)
+
+    def clb_update_cell_dropdown_options(self, data):
+        self.m.data_changed(data)
+        cell_map = {k: tuple(v) for k, v in enumerate(self.m.cells)}
+        return [{"value": k, "label": f"[{v[0]},{v[1]}]"} for k, v in cell_map.items()]
+
+    def clb_update_time_slider_option(self, data):
+        self.m.data_changed(data)
+        opt = {
+            k: {"label": f"{k}s", "style": {"display": "none"}}
+            for k in self.m.map_time_index
+        }
+        for k in range(0, self.m.map_time_index.shape[0], 10):
+            t = self.m.map_time_index[k]
+            del opt[t]["style"]["display"]
+        return opt
+
+    def clb_update_measurement_table(self, time, node_id, cell_id):
+        x, y = self.m.cells[cell_id]
+        df = self.m.builder.map_p[
+            pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
+        ]
+        cols = [dict(id=i, name=i) for i in df.columns]
+        cols.append(dict(id="source", name="source"))
+
+        df = (
+            df.reset_index(["simtime", "x", "y", "ID"], drop=True)
+            .reset_index()
+            .to_dict("records")
+        )
+        return df, cols
+
     def clb_tbl(self, data):
         self.m.data_changed(data)
         df = self.m.erroneous_cells.iloc[0:30]
@@ -135,8 +187,12 @@ class CellErrorInsepctor(_DashApp):
                     )
                 ),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-err-graph")))),
-                dbc.Row(),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-beacon-graph")))),
+                *DashUtil.build_measurement_tbl(
+                    self.m,
+                    self.id("cell-measurements-tbl"),
+                    self.id("measurement-time-slider"),
+                ),
             ],
             id=self.id("wrapper"),
             className="module-wrapper",
@@ -341,6 +397,10 @@ class _MapView(_DashApp):
         )(self.clb_time_click)
 
         dash_app.callback(
+            Output(self.id("time_slider"), "marks"), Input("data-selector", "value")
+        )(self.clb_update_time_slider_option)
+
+        dash_app.callback(
             Output(self.id("map_title"), "children"),
             Input(self.id("map_node_input"), "value"),
             Input("session-id", "data"),
@@ -354,6 +414,17 @@ class _MapView(_DashApp):
             State(self.id("memory"), "data"),
             prevent_initial_call=True,
         )(DashUtil.get_cell_info)
+
+    def clb_update_time_slider_option(self, data):
+        self.m.data_changed(data)
+        opt = {
+            k: {"label": f"{k}s", "style": {"display": "none"}}
+            for k in self.m.map_time_index
+        }
+        for k in range(0, self.m.map_time_index.shape[0], 10):
+            t = self.m.map_time_index[k]
+            del opt[t]["style"]["display"]
+        return opt
 
     def clb_cell_tile_update_colorbar(self, color_function):
         # todo make colorbar dynamic?
@@ -456,7 +527,9 @@ class _MapView(_DashApp):
                                 ),
                             ],
                         ),
-                        dbc.Col(self._build_map_time_slider(id_prefix=self.id_prefix)),
+                        dbc.Col(
+                            DashUtil.build_time_slider(self.m, self.id("time_slider"))
+                        ),
                     ],
                     className="ctrl",
                     align="center",
@@ -475,26 +548,6 @@ class _MapView(_DashApp):
             layout = dbc.Container(layout)
 
         return layout
-
-    def _build_map_time_slider(self, id_prefix="map"):
-        m = {
-            k: {"label": f"{k}s", "style": {"display": "none"}}
-            for k in self.m.map_time_index
-        }
-        for k in range(0, self.m.map_time_index.shape[0], 10):
-            t = self.m.map_time_index[k]
-            del m[t]["style"]["display"]
-        # del m[self.m.map_time_index[-1]]["style"]["display"]
-        return dcc.Slider(
-            # 0, 100, 10,
-            step=None,
-            id=f"{id_prefix}_time_slider",
-            marks=m,
-            value=self.m.map_time_index[0],
-            # dots= False,
-            included=False,
-            tooltip={"placement": "bottom", "always_visible": True},
-        )
 
     def _build_map_layout(
         self,
@@ -549,8 +602,8 @@ class _Combined(_DashApp):
             return layout
 
         print("add layout callback")
-        dash_app.layout = layout
-        dash_app.run_server(debug=True, use_reloader=False)
+        dash_app.layout = layout()
+        dash_app.run_server(debug=False, use_reloader=False)
 
 
 class _DashBoard:
