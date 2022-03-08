@@ -73,11 +73,15 @@ class DcdMapProviderTest(unittest.TestCase):
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.set_selection_mapping_attribute"
     )
+    @patch(
+        "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.set_used_selection_attribute"
+    )
     @patch("pandas.HDFStore")
     def test_create_from_csv(
         self,
         mock_store: MagicMock,
         mock_set_attribute: MagicMock,
+        mock_set_attribute2: MagicMock,
         mock_build_dataframe: MagicMock,
     ):
         dcd_path_1 = "any/path/dcdMap_42.csv"
@@ -108,6 +112,7 @@ class DcdMapProviderTest(unittest.TestCase):
             ]
         )
         mock_set_attribute.assert_called_once()
+        mock_set_attribute2.assert_called_once()
 
     def test_parse_node_id(self):
         node_id = 42
