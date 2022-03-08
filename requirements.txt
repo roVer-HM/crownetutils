@@ -12,7 +12,7 @@ numpy<1.22,>=1.20.2
 scikit-learn>=0.23.2
 scikit-optimize>=0.8.1,<0.9.0
 scipy~=1.6.3
-shapley
+shapley==1.8.0
 geopandas
 contextily
 fs~=2.4.13
