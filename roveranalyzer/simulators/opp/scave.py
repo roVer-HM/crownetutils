@@ -316,7 +316,7 @@ class OppSql:
             raise RuntimeError("scalar path not set")
         return self._sca_path
 
-    @property
+    @contextlib.contextmanager
     def vec_con(self):
         try:
             if not os.path.exists(self.vec_path):
