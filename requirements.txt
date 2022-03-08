@@ -8,7 +8,7 @@ tables>=3.6.1
 drawnow
 seaborn
 pandas>=1.2.4
-numpy>=1.20.2
+numpy<1.22,>=1.20.2
 scikit-learn>=0.23.2
 scikit-optimize>=0.8.1,<0.9.0
 scipy~=1.6.3
