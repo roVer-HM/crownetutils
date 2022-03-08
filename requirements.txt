@@ -24,4 +24,6 @@ mapclassify
 dash
 dash-leaflet
 dash-extensions
+dash-bootstrap-components
+Flask-Caching
 geobuf
