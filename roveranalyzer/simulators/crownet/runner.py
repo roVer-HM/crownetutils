@@ -524,11 +524,20 @@ class BaseRunner:
 
     def post(self):
         method_list = self.ns["qoi"]
+        err = False
         if method_list:
             _post_map = self.sort_processing("post", method_list)
             for prio, _f in _post_map:
                 print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
-                _f()
+                try:
+                    _f()
+                except Exception as e:
+                    print(f"Error while executing post processing {_f.__name__}")
+                    err = True
+                    print(e)
+
+            if err:
+                raise RuntimeError("Error in Postprocessing")
 
     def pre(self):
         method_list = self.ns["pre"]

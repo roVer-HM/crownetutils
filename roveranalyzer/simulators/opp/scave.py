@@ -25,6 +25,10 @@ from roveranalyzer.utils import Timer, logger
 from roveranalyzer.utils.logging import timing
 
 
+class SqlEmptyResult(Exception):
+    pass
+
+
 class ScaveData:
     @classmethod
     def build_time_series(
@@ -507,6 +511,61 @@ class OppSql:
         df = self.query_sca(_sql)
         return df
 
+    def get_run_attr(self, name, full_match: bool = True, run_id=1):
+        if full_match:
+            _sql = f'select * from runAttr as r where r.attrName == "{name}" and r.runId=={run_id}'
+        else:
+            _sql = f'select * from runAttr as r where r.attrName like "%{name}%" and r.runId=={run_id}'
+
+        df = self.query_sca(_sql)
+        if not df.empty:
+            return df.iloc[0]["attrValue"]
+        return None
+
+    def get_run_config(self, name: str, full_match: bool = True, run_id=1):
+        if full_match:
+            _sql = f'select *, Min(r.configOrder) from runConfig as r where r.configKey == "{name}" and r.runId=={run_id}'
+        else:
+            _sql = f'select *, Min(r.configOrder) from runConfig as r where r.configKey like "%{name}%" and r.runId=={run_id}'
+
+        df = self.query_sca(_sql)
+        if not df.empty:
+            val = df.iloc[0]["configValue"]
+            if isinstance(val, str):
+                val = val.replace('"', "")
+            return val
+        else:
+            return None
+
+    def get_all_run_config(self, run_id=1, order="ASC"):
+        df = self.query_sca(
+            f"select r.configOrder, r.configKey, r.configValue from runConfig as r where r.runId=={run_id} ORDER By r.configOrder {order}"
+        )
+        df["configValue"] = df["configValue"].apply(lambda x: x.strip())
+        return df
+
+    def extract_ini_file(self, path: str | None, run_id=1) -> List[str] | None:
+        df = self.get_all_run_config(run_id=run_id, order="DESC")
+        lines = []
+        lines.extend(
+            [
+                "[General]\n",
+                "\n",
+                "\n",
+                f"[Config {self.get_run_attr('configname')}]\n\n",
+            ]
+        )
+        for i in range(df.shape[0]):
+            if df.iloc[i]["configKey"] != "extends":
+                lines.append(f"{df.iloc[i]['configKey']}={df.iloc[i]['configValue']}\n")
+
+        if path is None:
+            return lines
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            return None
+
     @timing
     def vec_data(
         self,
@@ -614,28 +673,6 @@ class CrownetSql(OppSql):
         _df["scalarValue"] = pd.to_numeric(_df["scalarValue"], downcast="integer")
         _df = _df.reset_index(drop=True).set_index(keys="scalarValue")
         return _df.to_dict()["moduleName"]
-
-    def get_run_config(self, name: str, full_match: bool = True):
-        if full_match:
-            _sql = f'select *, Min(r.configOrder) from runConfig as r where r.configKey == "{name}"'
-        else:
-            _sql = f'select *, Min(r.configOrder) from runConfig as r where r.configKey like "%{name}%"'
-
-        df = self.query_sca(_sql)
-        if not df.empty:
-            val = df.iloc[0]["configValue"]
-            if isinstance(val, str):
-                val = val.replace('"', "")
-            return val
-        else:
-            return None
-
-    def get_all_run_config(self):
-        df = self.query_sca(
-            "select r.configOrder, r.configKey, r.configValue from runConfig as r ORDER By r.configOrder ASC"
-        )
-        df["configValue"] = df["configValue"].apply(lambda x: x.strip())
-        return df
 
     @property
     def sim_time_limit(self):
@@ -917,6 +954,8 @@ class CrownetSql(OppSql):
             vec_info_columns=["vectorId", "vectorName"],
             name_columns=["hostId"],
         )
+        if df.empty:
+            raise SqlEmptyResult("")
         vec_data = self.vec_data(
             ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value")
         )
