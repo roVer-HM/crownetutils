@@ -174,6 +174,8 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             self._version = self.get_attribute(
                 "version", default=ProviderVersion.current()
             )
+            if not isinstance(self._version, ProviderVersion):
+                self._version = ProviderVersion(self._version)
         else:
             if self.hdf_file_exists and version != self.get_attribute("version"):
                 raise ValueError(
