@@ -204,7 +204,7 @@ def read_csv(
     read csv and set index
     """
     _df = LazyDataFrame.from_path(csv_path)
-    _df.dtype = z = {**_index_types, **_col_types}
+    _df.dtype = {**_index_types, **_col_types}
     select_columns = list(_df.dtype.keys())
     index_names = list(_index_types.keys())
     df_raw: pd.DataFrame = _df.df(set_index=False, column_selection=select_columns)
