@@ -6,11 +6,13 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 from fs.tempfs import TempFS
 
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import (
     DcdMapKey,
     DcdMapProvider,
 )
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
 from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
     create_dcd_csv_dataframe,
     create_tmp_fs,
@@ -23,7 +25,9 @@ class DcdMapProviderTest(unittest.TestCase):
     fs: TempFS = create_tmp_fs("DcdMapCountProviderTest")
     test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
-    provider: DcdMapProvider = DcdMapProvider(sample_file_dir)
+    provider: DcdMapProvider = DcdMapProvider(
+        sample_file_dir, version=ProviderVersion.V0_1
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -34,7 +38,7 @@ class DcdMapProviderTest(unittest.TestCase):
         # close temporary filesystem
         cls.fs.close()
 
-    def test_DcdMapProperties(self):
+    def test_DcdMapProperties_v1(self):
         sample_grp_key = HdfGroups.DCD_MAP
         sample_default_index = DcdMapKey.SIMTIME
         sample_index_order = {
@@ -57,10 +61,52 @@ class DcdMapProviderTest(unittest.TestCase):
             DcdMapKey.MEASURE_AGE,
             DcdMapKey.UPDATE_AGE,
         ]
-        result_grp_key = self.provider.group_key()
-        result_index_order = self.provider.index_order()
-        result_default_index = self.provider.default_index_key()
-        result_columns = self.provider.columns()
+        p: DcdMapProvider = DcdMapProvider(
+            self.sample_file_dir, version=ProviderVersion.V0_1
+        )
+        result_grp_key = p.group_key()
+        result_index_order = p.index_order()
+        result_default_index = p.default_index_key()
+        result_columns = p.columns()
+
+        self.assertEqual(result_grp_key, sample_grp_key)
+        self.assertEqual(result_index_order, sample_index_order)
+        self.assertEqual(result_default_index, sample_default_index)
+        self.assertEqual(result_columns, sample_columns)
+
+    def test_DcdMapProperties_v2(self):
+        sample_grp_key = HdfGroups.DCD_MAP
+        sample_default_index = DcdMapKey.SIMTIME
+        sample_index_order = {
+            0: DcdMapKey.SIMTIME,
+            1: DcdMapKey.X,
+            2: DcdMapKey.Y,
+            3: DcdMapKey.SOURCE,
+            4: DcdMapKey.NODE,
+        }
+        sample_columns = [
+            DcdMapKey.COUNT,
+            DcdMapKey.MEASURE_TIME,
+            DcdMapKey.RECEIVED_TIME,
+            DcdMapKey.SELECTION,
+            DcdMapKey.OWN_CELL,
+            DcdMapKey.SOURCE_HOST,
+            DcdMapKey.SOURCE_ENTRY,
+            DcdMapKey.HOST_ENTRY,
+            DcdMapKey.X_OWNER,
+            DcdMapKey.Y_OWNER,
+            DcdMapKey.OWNER_DIST,
+            DcdMapKey.DELAY,
+            DcdMapKey.MEASURE_AGE,
+            DcdMapKey.UPDATE_AGE,
+        ]
+        p: DcdMapProvider = DcdMapProvider(
+            self.sample_file_dir, version=ProviderVersion.V0_2
+        )
+        result_grp_key = p.group_key()
+        result_index_order = p.index_order()
+        result_default_index = p.default_index_key()
+        result_columns = p.columns()
 
         self.assertEqual(result_grp_key, sample_grp_key)
         self.assertEqual(result_index_order, sample_index_order)
@@ -135,15 +181,22 @@ class DcdMapProviderTest(unittest.TestCase):
     @patch(
         "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.parse_node_id"
     )
+    @patch("roveranalyzer.utils.dataframe.LazyDataFrame.read_meta_data")
     @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdUtil.read_csv")
     def test_build_dcd_dataframe(
-        self, mock_read_csv: MagicMock, mock_parse_node_id: MagicMock
+        self,
+        mock_read_csv: MagicMock,
+        mock_meta: MagicMock,
+        mock_parse_node_id: MagicMock,
     ):
         own_node_id = 42
         csv_path = f"/any/path/dcdMap_{own_node_id}.csv"
         mock_parse_node_id.return_value = own_node_id
         mock_read_csv.return_value = create_dcd_csv_dataframe(
             number_entries=50, node_id=45
+        )
+        mock_meta.return_value = dict(
+            CELLSIZE=5.0, XSIZE=5, YSIZE=5, NODE_ID=0, version=ProviderVersion.V0_1
         )
         result = self.provider.build_dcd_dataframe(csv_path)
         self.assertEqual(

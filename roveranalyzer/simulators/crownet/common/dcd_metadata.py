@@ -6,6 +6,8 @@ from geopandas import GeoDataFrame
 from pandas import IndexSlice as Idx
 from shapely.geometry import Point, box
 
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
+
 
 class DcdMetaData:
     expected_keys = ["XSIZE", "YSIZE", "CELLSIZE", "NODE_ID"]
@@ -26,7 +28,12 @@ class DcdMetaData:
         cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
         node_id = meta["NODE_ID"]
         _meta = cls(
-            cell_size, cell_count, bound, node_id, map_type=meta.get("MAP_TYPE", "")
+            cell_size,
+            cell_count,
+            bound,
+            node_id,
+            map_type=meta.get("MAP_TYPE", ""),
+            version=meta.get("VERSION", "0.1"),
         )
         if all([k in meta for k in ["XOFFSET", "YOFFSET"]]):
             _meta.offset = [float(meta["XOFFSET"]), float(meta["YOFFSET"])]
@@ -43,6 +50,7 @@ class DcdMetaData:
         map_extend_x=[0, 0],
         map_extend_y=[0, 0],
         map_type="",
+        version="0.1",
     ):
         self.cell_size = cell_size
         self.cell_count = cell_count
@@ -53,6 +61,7 @@ class DcdMetaData:
         self.map_extend_x = map_extend_x
         self.map_extend_y = map_extend_y
         self.map_type = map_type
+        self.version = ProviderVersion(version)
 
     def is_global(self):
         return self.node_id == "global" or self.node_id == -1

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import abc
 import contextlib
 import os
 import threading
 import warnings
+from enum import Enum
 from typing import (
     Any,
     ContextManager,
@@ -44,10 +47,10 @@ class FrameConsumer(metaclass=abc.ABCMeta):
 
 class BaseHdfProvider:
     def __init__(self, hdf_path: str, group: str = "root"):
+        self._lock = threading.Lock()
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
-        self._lock = threading.Lock()
 
     def get_dataframe(self, group=None) -> pd.DataFrame:
         """
@@ -78,12 +81,22 @@ class BaseHdfProvider:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
 
-    def get_attribute(self, attr_key: str, group=None):
+    def get_attribute(self, attr_key: str, group=None, default: Any = None):
+
+        if not self.hdf_file_exists:
+            return default
 
         _key = self.group if group is None else group
         with self.tables_file(self._hdf_path, "r") as hdf_file:
             # with tables.open_file(self._hdf_path, "r") as hdf_file:
-            return hdf_file.root[_key].table.attrs[attr_key]
+            if attr_key in hdf_file.root[_key].table.attrs:
+                return hdf_file.root[_key].table.attrs[attr_key]
+            else:
+                return default
+
+    @property
+    def hdf_file_exists(self):
+        return os.path.exists(self._hdf_path)
 
     def get_time_interval(self):
         return self.get_attribute("time_interval")
@@ -123,13 +136,23 @@ class BaseHdfProvider:
         return self.ctx(mode="r")
 
 
+class ProviderVersion(Enum):
+
+    V0_1 = "0.1"
+    V0_2 = "0.2"
+
+    @classmethod
+    def current(cls):
+        return list(cls.__members__.values())[-1]
+
+
 class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     """
     Wrap access to a given HDF store (hdf_path) in a context manager. Wrapper is lazy and checks if store exist
     are *Not* done. Caller must ensure file exists
     """
 
-    def __init__(self, hdf_path: str):
+    def __init__(self, hdf_path: str, version: str | None = None):
         super().__init__(hdf_path, group=self.group_key())
         # self._hdf_path: str = hdf_path
         # self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
@@ -146,6 +169,23 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         }
         self._filters = set()
         self.operators = Operation
+        if version is None:
+            # use version of provided hdf-file or default to current  version.
+            self._version = self.get_attribute(
+                "version", default=ProviderVersion.current()
+            )
+        else:
+            if self.hdf_file_exists and version != self.get_attribute("version"):
+                raise ValueError(
+                    f"Version missmatch. hdf file reports version {self.get_attribute('version')} but object expected {version}"
+                )
+            self._version = version
+
+        print(f"HDF version: {self.version}")
+
+    @property
+    def version(self):
+        return self._version
 
     @abc.abstractmethod
     def group_key(self) -> str:

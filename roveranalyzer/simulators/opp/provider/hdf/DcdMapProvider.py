@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import re
 from typing import Dict, List, Union
@@ -9,11 +11,14 @@ from pandas.core.indexing import IndexSlice
 from shapely.geometry.geo import box
 
 import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
     FrameConsumer,
     IHdfProvider,
+    ProviderVersion,
 )
+from roveranalyzer.utils.dataframe import LazyDataFrame
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import ProgressCmd
 
@@ -31,6 +36,10 @@ class DcdMapKey:
     RECEIVED_TIME = "received_t"
     SELECTION = "selection"
     OWN_CELL = "own_cell"
+    # v 0.2
+    SOURCE_HOST = "sourceHost"
+    SOURCE_ENTRY = "sourceEntry"
+    HOST_ENTRY = "hostEntry"
     # feature
     X_OWNER = "x_owner"
     Y_OWNER = "y_owner"
@@ -40,19 +49,40 @@ class DcdMapKey:
     UPDATE_AGE = "update_age"
 
     types_csv_index = {
-        SIMTIME: float,
-        X: float,
-        Y: float,
-        SOURCE: int,
-        # node id is added later
+        ProviderVersion.V0_1: {
+            SIMTIME: float,
+            X: float,
+            Y: float,
+            SOURCE: int,
+            # node id is added later
+        },
+        ProviderVersion.V0_2: {
+            SIMTIME: float,
+            X: float,
+            Y: float,
+            SOURCE: int,
+            # node id is added later
+        },
     }
 
     types_csv_columns = {
-        COUNT: float,
-        MEASURE_TIME: float,
-        RECEIVED_TIME: float,
-        SELECTION: str,
-        OWN_CELL: int,
+        ProviderVersion.V0_1: {
+            COUNT: float,
+            MEASURE_TIME: float,
+            RECEIVED_TIME: float,
+            SELECTION: str,
+            OWN_CELL: int,
+        },
+        ProviderVersion.V0_2: {
+            COUNT: float,
+            MEASURE_TIME: float,
+            RECEIVED_TIME: float,
+            SELECTION: str,
+            OWN_CELL: int,
+            SOURCE_HOST: float,
+            SOURCE_ENTRY: float,
+            HOST_ENTRY: float,
+        },
     }
 
     types_features = {
@@ -65,23 +95,25 @@ class DcdMapKey:
     }
 
     @classmethod
-    def columns(cls):
-        return {**cls.types_csv_columns, **cls.types_features}
+    def columns(cls, version: ProviderVersion = ProviderVersion.current()):
+        v = ProviderVersion.current() if version is None else version
+        return {**cls.types_csv_columns[v], **cls.types_features}
 
     @classmethod
-    def col_list(cls):
-        return list(cls.columns().keys())
+    def col_list(cls, version: str | None = None):
+        return list(cls.columns(version).keys())
 
 
 class DcdMapProvider(IHdfProvider):
-    def __init__(self, hdf_path):
-        super().__init__(hdf_path)
+    def __init__(self, hdf_path, version: str | None = None):
+        super().__init__(hdf_path, version)
         self.selection_mapping = {
             "NaN": 0,
             "ymf": 1,
             "invSourceDist": 2,
             "mean": 3,
             "median": 4,
+            "ymfPlusDist": 5,
         }
         self.used_selection = set()
         self.node_regex = re.compile(r"dcdMap_(?P<node>\d+)\.csv")
@@ -101,7 +133,7 @@ class DcdMapProvider(IHdfProvider):
         }
 
     def columns(self) -> List[str]:
-        return DcdMapKey.col_list()
+        return DcdMapKey.col_list(self.version)
 
     def default_index_key(self) -> str:
         return DcdMapKey.SIMTIME
@@ -151,10 +183,16 @@ class DcdMapProvider(IHdfProvider):
         return node_id
 
     def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
+        _df = LazyDataFrame.from_path(path)
+        meta = _df.read_meta_data()
+        meta = DcdMetaData.from_dict(meta)
+        if meta.version != self.version:
+            logger.warn(f"version missmatch {meta.version}!={self.version} in {path}")
+
         df, meta = DcdUtil.read_csv(
             csv_path=path,
-            _index_types=DcdMapKey.types_csv_index,
-            _col_types=DcdMapKey.types_csv_columns,
+            _index_types=DcdMapKey.types_csv_index[meta.version],
+            _col_types=DcdMapKey.types_csv_columns[meta.version],
             real_coords=True,
             df_filter=self.csv_filters,
         )

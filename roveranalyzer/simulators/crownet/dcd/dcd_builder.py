@@ -182,6 +182,7 @@ class DcdHdfBuilder(FrameConsumer):
             bound=self.position_p.get_attribute("cell_bound"),
             offset=self.position_p.get_attribute("offset"),
             epsg=self.position_p.get_attribute("epsg"),
+            version=self.position_p.get_attribute("version"),
             node_id=0,
         )
         return DcdProviders(
@@ -290,6 +291,7 @@ class DcdHdfBuilder(FrameConsumer):
             p.set_attribute("cell_bound", meta.bound)
             p.set_attribute("offset", meta.offset)
             p.set_attribute("epsg", self._epsg)
+            p.set_attribute("version", meta.version)
             p.set_attribute(
                 "time_interval", [np.min(self._all_times), np.max(self._all_times)]
             )
