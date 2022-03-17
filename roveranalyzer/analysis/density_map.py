@@ -75,15 +75,13 @@ class _DensityMap:
         )
         return self.get_interactive(cells, nodes)
 
-    def get_dash_tilelayer(
-        self,
-    ):
+    def get_dash_tilelayer(self, checked="empty"):
         layer_ctr = []
         layer_ctr.append(
             dl.BaseLayer(
                 dl.TileLayer(url="", maxZoom=20, id="empty-layer"),
                 name="empty",
-                checked="toner",
+                checked=checked,
             )
         )
         layer_ctr.append(
@@ -94,7 +92,6 @@ class _DensityMap:
                     maxZoom=20,
                 ),
                 name="toner",
-                checked="toner",
             )
         )
         layer_ctr.append(
