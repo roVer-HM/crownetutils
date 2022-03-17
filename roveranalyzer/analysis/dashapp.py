@@ -17,6 +17,7 @@ from dash_extensions.javascript import Namespace, arrow_function
 from flask_caching import Cache
 
 import roveranalyzer.simulators.opp as OMNeT
+from roveranalyzer.analysis.density_map import DensityMap
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
@@ -25,14 +26,6 @@ from roveranalyzer.utils.general import Project
 
 dash_app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 dash_app.config.suppress_callback_exceptions = True
-cache = Cache(
-    dash_app.server,
-    config={
-        "CACHE_TYPE": "filesystem",
-        "CACHE_DIR": "cache-directory",
-        "CACHE_THRESHOLD": 50,  # should be equal to maximum number of active users
-    },
-)
 i_ = pd.IndexSlice
 
 _decimal_04 = dash_table.Format.Format(precision=4)
@@ -532,6 +525,32 @@ class _DashUtil:
         return dbc.Row(dbc.Col([html.H2(id=id, **kwargs)]))
 
     @classmethod
+    def map_view(cls, ns: Namespace, id_builder):
+        topo_overlays = cls.build_topography_layer(ns, id_builder)
+        cell_overlays = cls.build_cell_layer(ns, id_builder)
+        node_overlays = cls.build_node_layer(ns, id_builder)
+
+        return dl.Map(
+            dl.LayersControl(
+                [
+                    *DensityMap.get_dash_tilelayer(),
+                    *cell_overlays,
+                    *node_overlays,
+                    *topo_overlays,
+                ]
+            ),
+            center=(48.162, 11.586),
+            zoom=18,
+            style={
+                "width": "100%",
+                "height": "55vh",
+                "background-color": "white",
+                "margin": "auto",
+                "display": "block",
+            },
+        )
+
+    @classmethod
     def build_node_layer(cls, ns: Namespace, id_builder):
 
         clb = ns(ns.add(cls._node_point_to_layer, name="node_point_to_layer"))
@@ -557,8 +576,9 @@ class _DashUtil:
         )
         return overlays
 
-    def build_topography_layer(self, ns: Namespace, id_builder):
-        topo_clb = ns(ns.add(self._poly_style_clb, name="ploy_styler"))
+    @classmethod
+    def build_topography_layer(cls, ns: Namespace, id_builder):
+        topo_clb = ns(ns.add(cls._poly_style_clb, name="ploy_styler"))
         topo = dl.GeoJSON(
             id=id_builder("topo_tiles"),
             options=dict(style=topo_clb),
@@ -575,14 +595,15 @@ class _DashUtil:
             )
         ]
 
-    def build_cell_layer(self, ns: Namespace, id_builder):
+    @classmethod
+    def build_cell_layer(cls, ns: Namespace, id_builder):
 
         # colorbar
         classes, colorscale, colorbar, style = DashUtil.get_colorbar(
             id=id_builder("map-colorbar")
         )
         # cell color style
-        style_clb = ns(ns.add(self._colorbar_style_clb, name="map_style_clb"))
+        style_clb = ns(ns.add(cls._colorbar_style_clb, name="map_style_clb"))
         cells = dl.GeoJSON(
             id=id_builder("cell_tiles"),
             options=dict(style=style_clb),

@@ -1,0 +1,62 @@
+.rc-slider-dot {
+    display: none;
+}
+
+.info-box {
+    background-color: #fbffff;
+    fill-opacity: .80;
+    padding: 4pt;
+    border: 1px solid black;
+}
+
+.ctrl {
+    padding-top: 10pt;
+    padding-bottom: 10pt;
+}
+
+.row {
+    padding-top: 5pt;
+}
+
+.ctrl-lbl {
+    padding-right: 10pt;
+}
+
+.ctrl-lbl > input {
+    margin-right: 5pt;
+}
+
+.leaflet-control-colorbar {
+    background-color: white;
+}
+
+
+.module-wrapper {
+    height: fit-content;
+    border: 2px solid black;
+    margin: 5pt;
+    padding: 5pt;
+}
+
+/*
+#cell_cell-measurements-tbl  th.dash-header {
+    height: 140px;
+    white-space: nowrap;
+}
+
+#cell_cell-measurements-tbl  th.dash-header > div {
+  transform: 
+    translate(25px, 51px)
+    rotate(270deg);
+  width: 30px;
+}
+
+#cell_cell-measrements-tbl  th.dash-header > div > span {
+  border-bottom: 1px solid #ccc;
+  padding: 5px 10px;
+}
+*/
+
+h2 {
+    text-align: left;
+}

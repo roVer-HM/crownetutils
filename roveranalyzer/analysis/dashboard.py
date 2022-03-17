@@ -576,7 +576,7 @@ class _MapView(_DashApp):
                         )
                     )
                 ),
-                dbc.Row(dbc.Col([self._build_map_layout(ns=ns)])),
+                dbc.Row(dbc.Col([DashUtil.map_view(ns=ns, id_builder=self.id)])),
                 dbc.Row(
                     [
                         dbc.Col(
@@ -610,14 +610,11 @@ class _MapView(_DashApp):
 
         return layout
 
-    def _build_map_layout(
-        self,
-        ns: Namespace,
-    ):
+    def _build_map_layout(self, ns: Namespace, id_builder):
 
-        topo_overlays = DashUtil.build_topography_layer(ns, self.id)
-        cell_overlays = DashUtil.build_cell_layer(ns, self.id)
-        node_overlays = DashUtil.build_node_layer(ns, self.id)
+        topo_overlays = DashUtil.build_topography_layer(ns, id_builder)
+        cell_overlays = DashUtil.build_cell_layer(ns, id_builder)
+        node_overlays = DashUtil.build_node_layer(ns, id_builder)
 
         return dl.Map(
             dl.LayersControl(
