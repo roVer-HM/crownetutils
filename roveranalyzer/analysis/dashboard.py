@@ -1,30 +1,20 @@
 from __future__ import annotations
 
-import json
 import uuid
-from re import I
 from typing import List
 
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
-import dash_leaflet.express as dlx
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from click import option
 from dash import callback_context, dash_table, dcc, html
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
-from dash_extensions.javascript import Namespace, arrow_function
-from mercantile import children
+from dash_extensions.javascript import Namespace
 
-import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.analysis.dashapp import DashUtil, OppModel, dash_app
 from roveranalyzer.analysis.density_map import DensityMap
-from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
-from roveranalyzer.simulators.vadere.plots import scenario
-from roveranalyzer.utils.general import Project
 from roveranalyzer.utils.logging import timing
 
 
@@ -91,6 +81,13 @@ class CellErrorInsepctor(_DashApp):
         )(self.clb_update_beacon_figure)
 
         dash_app.callback(
+            Output(self.id("measurement-count-graph"), "figure"),
+            Input(self.id("cell-node-id-dropdown"), "value"),
+            State(self.id("cell-dropdown"), "value"),
+            prevent_initial_call=True,
+        )(self.clb_update_measurement_count)
+
+        dash_app.callback(
             Output(self.id("cell-dropdown"), "options"),
             Input(("data-selector"), "value"),
         )(self.clb_update_cell_dropdown_options)
@@ -98,6 +95,10 @@ class CellErrorInsepctor(_DashApp):
         dash_app.callback(
             Output(self.id("cell-measurements-tbl"), "data"),
             Output(self.id("cell-measurements-tbl"), "columns"),
+            Output(self.id("cell-measurements-tbl"), "tooltip_header"),
+            Output(self.id("cell-measurement-header"), "children"),
+            Output(self.id("cell-measurement-hist-time"), "figure"),
+            Output(self.id("cell-measurement-hist-dist"), "figure"),
             Input(self.id("measurement-time-slider"), "value"),
             Input(self.id("cell-node-id-dropdown"), "value"),
             Input(self.id("cell-dropdown"), "value"),
@@ -127,20 +128,64 @@ class CellErrorInsepctor(_DashApp):
             del opt[t]["style"]["display"]
         return opt
 
-    def clb_update_measurement_table(self, time, node_id, cell_id):
+    def clb_update_measurement_count(self, node_id, cell_id):
         x, y = self.m.cells[cell_id]
         df = self.m.builder.map_p[
-            pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
+            pd.IndexSlice[:, float(x), float(y), :, node_id], ["count"]
         ]
-        cols = [dict(id=i, name=i) for i in df.columns]
-        cols.append(dict(id="source", name="source"))
+        df = df.groupby(by=["simtime", "x", "y"]).count().reset_index()
+        fig = px.scatter(
+            df,
+            x="simtime",
+            y="count",
+            title=f"Number of measuremtens from which to choose",
+            # hover_data=["count"],
+        )
+        fig.update_xaxes(
+            range=[self.m.map_time_index.min(), self.m.map_time_index.max()]
+        )
+        fig.update_layout(hovermode="x unified")
+        fig.update_traces(
+            mode="markers+lines",
+            hovertemplate="count: %{y}",
+        )
+        return fig
 
-        df = (
+    def clb_update_measurement_table(self, time, node_id, cell_id):
+        x, y = self.m.cells[cell_id]
+        # df = self.m.builder.map_p[
+        #     pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
+        # ]
+
+        # dist_sum = df["sourceEntry"].sum()
+        # time_sum = df["measurement_age"].sum()
+        # alpha = 0.5
+
+        # t_min = df["measurement_age"].min()
+        # time_sum_new = df["measurement_age"].sum() - df["measurement_age"].shape[0]*t_min
+
+        # df["ymfD_t"] = alpha*((df["measurement_age"] - t_min)/time_sum_new)
+
+        # df["ymfD_d"] = (1-alpha)* (df["sourceEntry"]/dist_sum)
+        # df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
+        df = self.m.get_measurements(time, node_id, cell_id)
+
+        cols = DashUtil.cols(
+            df.columns, ignore=["delay", "update_age", "x_owner", "y_owner"]
+        )
+        cols.insert(0, dict(id="source", name="source"))
+
+        h3 = f"Density measurements for cell [{x},{y}] for time {time} from point of view of {self.m.host_ids[node_id]}"
+
+        records = (
             df.reset_index(["simtime", "x", "y", "ID"], drop=True)
             .reset_index()
             .to_dict("records")
         )
-        return df, cols
+
+        hist1 = px.histogram(df, x="ymfD_t", title="age factor")
+        hist2 = px.histogram(df, x="ymfD_d", title="distance factor")
+        return records, cols, {i["id"]: i["id"] for i in cols}, h3, hist1, hist2
 
     def clb_tbl(self, data):
         self.m.data_changed(data)
@@ -182,16 +227,28 @@ class CellErrorInsepctor(_DashApp):
                         dash_table.DataTable(
                             id=self.id("cell-tbl"),
                             page_action="none",
+                            filter_action="native",
+                            sort_action="native",
+                            sort_mode="multi",
+                            fixed_rows={"headers": True},
                             style_table=dict(height="300px", overflowY="auto"),
                         )
                     )
                 ),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-err-graph")))),
+                dbc.Row(dbc.Col(dcc.Graph(id=self.id("measurement-count-graph")))),
                 dbc.Row(dbc.Col(dcc.Graph(id=self.id("cell-beacon-graph")))),
                 *DashUtil.build_measurement_tbl(
                     self.m,
                     self.id("cell-measurements-tbl"),
                     self.id("measurement-time-slider"),
+                    self.id("cell-measurement-header"),
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(dcc.Graph(id=self.id("cell-measurement-hist-time"))),
+                        dbc.Col(dcc.Graph(id=self.id("cell-measurement-hist-dist"))),
+                    ]
                 ),
             ],
             id=self.id("wrapper"),
@@ -311,7 +368,7 @@ class _DataSelector(_DashApp):
     def clb_config_tbl(self, data):
         self.m.data_changed(data)
         df = self.m.sql.get_all_run_config()
-        return df.to_dict("records"), [dict(id=i, name=i) for i in df.columns]
+        return df.to_dict("records"), DashUtil.cols(df.columns)
 
     def clb_pdf(self, data):
         return self.m.asset_pdf_path(data, relative=True)
@@ -343,6 +400,10 @@ class _DataSelector(_DashApp):
                             dash_table.DataTable(
                                 id=self.id("config-tbl"),
                                 page_action="none",
+                                filter_action="native",
+                                sort_action="native",
+                                sort_mode="multi",
+                                fixed_rows={"headers": True},
                                 style_cell=dict(textAlgin="left"),
                                 style_cell_conditional=[
                                     {"if": {"column_id": c}, "textAlign": "left"}
@@ -603,7 +664,7 @@ class _Combined(_DashApp):
 
         print("add layout callback")
         dash_app.layout = layout()
-        dash_app.run_server(debug=False, use_reloader=False)
+        dash_app.run_server(debug=True, use_reloader=False)
 
 
 class _DashBoard:

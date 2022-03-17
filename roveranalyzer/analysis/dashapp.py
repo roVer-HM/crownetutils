@@ -4,7 +4,7 @@ import collections
 import json
 import shutil
 import threading
-from os.path import basename, dirname, join, split
+from os.path import basename, join, split
 from typing import Any
 
 import dash_bootstrap_components as dbc
@@ -12,8 +12,7 @@ import dash_leaflet as dl
 import dash_leaflet.express as dlx
 import numpy as np
 import pandas as pd
-from dash import Dash, callback_context, dash_table, dcc, html
-from dash.dependencies import Input, Output
+from dash import Dash, dash_table, dcc, html
 from dash_extensions.javascript import Namespace, arrow_function
 from flask_caching import Cache
 
@@ -35,6 +34,23 @@ cache = Cache(
     },
 )
 i_ = pd.IndexSlice
+
+_decimal_04 = dash_table.Format.Format(precision=4)
+_decimal_06 = dash_table.Format.Format(precision=4)
+_col_types = {
+    "measured_t": {"format": _decimal_06, "type": "numeric"},
+    "received_t": {"format": _decimal_04, "type": "numeric"},
+    "sourceHost": {"format": _decimal_04, "type": "numeric"},
+    "sourceEntry": {"format": _decimal_06, "type": "numeric"},
+    "owner_dist": {"format": _decimal_04, "type": "numeric"},
+    "delay": {"format": _decimal_04, "type": "numeric"},
+    "measurement_age": {"format": _decimal_04, "type": "numeric"},
+    "update_age": {"format": _decimal_04, "type": "numeric"},
+    "ymfD_d": {"format": _decimal_04, "type": "numeric"},
+    "ymfD_t": {"format": _decimal_04, "type": "numeric"},
+    "ymfD_t_old": {"format": _decimal_04, "type": "numeric"},
+    "ymfD": {"format": _decimal_04, "type": "numeric"},
+}
 
 
 class Ctx:
@@ -302,6 +318,63 @@ class OppModel:
         bs = bs.reset_index("source_node")
         return bs
 
+    def get_measurements(self, time, node_id, cell_id, alpha=0.5):
+
+        x, y = self.cells[cell_id]
+        df = self.builder.map_p[
+            pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
+        ]
+        dist_sum = df["sourceEntry"].sum()
+        time_sum = df["measurement_age"].sum()
+        # df["ymfD_t_old"] = alpha*(df["measurement_age"]/time_sum)
+
+        t_min = df["measurement_age"].min()
+        time_sum_new = (
+            df["measurement_age"].sum() - df["measurement_age"].shape[0] * t_min
+        )
+
+        df["ymfD_t"] = alpha * ((df["measurement_age"] - t_min) / time_sum_new)
+        df["ymfD_d"] = (1 - alpha) * (df["sourceEntry"] / dist_sum)
+        df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
+
+        return df
+
+    def cell_ymfD_value(self, df: pd.DataFrame, alpha=0.5):
+
+        sum_df: pd.DataFrame = (
+            df[["measurement_age", "sourceEntry"]]
+            .groupby(by=["simtime"])
+            .agg(["sum", "min", "max", "count"])
+        )
+        sum_df[("measurement_age", "sum_min_norm")] = (
+            sum_df[("measurement_age", "sum")]
+            - sum_df[("measurement_age", "min")] * sum_df[("measurement_age", "count")]
+        )
+        sum_df = sum_df.sort_index(axis=1)
+        sum_df.columns = [f"{l0}_{l1}" for l0, l1 in sum_df.columns]
+        sum_df = sum_df.drop(columns=["sourceEntry_count"])
+        sum_df = sum_df.rename(columns={"measurement_age_count": "count"})
+        _df = sum_df
+
+        df["ymfD_t"] = 0.0
+        df["ymfD_d"] = 0.0
+        df["ymfD"] = 0.0
+        for time, _df in df.groupby(by=["simtime"]):
+            df.loc[_df.index, ["ymfD_t"]] = (
+                alpha
+                * (_df["measurement_age"] - df.loc[time, ["measurement_age_min"]][0])
+                / df.loc[time, ["measurement_age_sum_min_norm"]][0]
+            )
+            df.loc[_df.index, ["ymfD_t"]] = (
+                (1 - alpha)
+                * (_df["sourceEntry"])
+                / df.loc[time, ["sourceEntry_sum"]][0]
+            )
+
+        df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
+
+        return sum_df, df
+
 
 class _DashUtil:
     @classmethod
@@ -406,14 +479,27 @@ class _DashUtil:
     """
 
     @classmethod
-    def build_measurement_tbl(cls, m: OppModel, tbl_id, slider_id):
+    def cols(cls, cols, ignore=()):
         return [
+            dict(id=i, name=i, **_col_types.get(i, {})) for i in cols if i not in ignore
+        ]
+
+    @classmethod
+    def build_measurement_tbl(cls, m: OppModel, tbl_id, slider_id, h3_id):
+        return [
+            dbc.Row(dbc.Col(html.H4(id=h3_id))),
             dbc.Row(
                 dbc.Col(
                     dash_table.DataTable(
                         id=tbl_id,
                         page_action="none",
-                        style_table=dict(height="300px", overflowY="auto"),
+                        filter_action="native",
+                        sort_action="native",
+                        sort_mode="multi",
+                        fixed_rows={"headers": True},
+                        style_table=dict(
+                            height="600px", overflowY="auto", overflowX="scroll"
+                        ),
                     )
                 )
             ),
@@ -614,7 +700,7 @@ class _DashUtil:
             options=opt,
             multi=False,
             searchable=True,
-            value=opt[0]["value"],
+            value=opt[-1]["value"],
             style={"position": "relative", "zIndex": "999"},
         )
 
