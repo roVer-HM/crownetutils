@@ -205,8 +205,8 @@ def data_selector_view(ids: IdProvider | None = None):
         full_row(
             html.Iframe(
                 id=ids("pdf-view"),
-                src="assets/pdf/example.pdf",
-                style={"width": "100%", "height": "600px"},
+                src="",
+                style={"visibility": "hidden", "width": "100%", "height": "600px"},
             )
         ),
         full_row(

@@ -87,6 +87,7 @@ def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
 
     @app.callback(
         selector_ids.out_("pdf-view", "src"),
+        selector_ids.out_("pdf-view", "style"),
         selector_ids.sig_in,
         prevent_initial_call=True,
     )
@@ -94,7 +95,8 @@ def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
         if signal and "sim" in signal:
             print(f"signal: {signal}")
             sim = signal["sim"]
-            return sims[sim].asset_pdf_path("common_output", suffix=sim)
+            style = {"width": "100%", "height": "600px"}
+            return sims[sim].asset_pdf_path("common_output", suffix=sim), style
         raise ValueError("not set")
 
     @app.callback(
