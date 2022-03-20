@@ -2,7 +2,7 @@ import copy
 from os import getsid
 from os.path import join
 from re import I
-from typing import Dict, List
+from typing import Dict
 
 import dash_bootstrap_components as dbc
 import plotly.express as px
@@ -20,7 +20,7 @@ from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.logging import timing
 
 
-def create_dashboard(server: Flask, simulations: List[m.Simulation]):
+def create_dashboard(server: Flask, simulations: Dict[str, m.Simulation]):
     dash_app = Dash(
         server=server,
         routes_pathname_prefix="/dash/",

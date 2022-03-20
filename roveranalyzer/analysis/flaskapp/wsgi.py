@@ -1,10 +1,10 @@
-from typing import List
+from typing import Dict
 
 from roveranalyzer.analysis.flaskapp.application import init_app
 from roveranalyzer.analysis.flaskapp.application.model import Simulation
 
 
-def run_app(simulations: List[Simulation]):
+def run_app(simulations: Dict[str, Simulation]):
     app = init_app(simulations)
     print("run Flask app !!")
     app.run(host="127.0.0.1", port=5051, debug=True, use_reloader=False)

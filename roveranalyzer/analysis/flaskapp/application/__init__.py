@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict
 
 from flask import Flask
 from flask_caching import Cache
@@ -9,7 +9,7 @@ from roveranalyzer.analysis.flaskapp.config import CacheConfig, FlaskConfigDbg
 # cache = Cache(config=CacheConfig)
 
 
-def init_app(simulations: List[Simulation]):
+def init_app(simulations: Dict[str, Simulation]):
     app = Flask(__name__, instance_relative_config=False)
 
     app.config.from_object(FlaskConfigDbg())
