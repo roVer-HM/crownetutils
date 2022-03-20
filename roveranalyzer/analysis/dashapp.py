@@ -90,19 +90,24 @@ class OppModel:
         self.load()
 
     @classmethod
-    def asset_pdf_path(cls, root_path, relative=False):
+    def asset_pdf_path(cls, root_path, relative=False, suffix=""):
         b_name = basename(root_path)
         if relative:
-            p = join("assets", f"{b_name}.pdf")
+            p = join("assets", f"{b_name}{suffix}.pdf")
         else:
-            p = join(dash_app.config.assets_folder, f"{b_name}.pdf")
+            p = join(dash_app.config.assets_folder, f"{b_name}{suffix}.pdf")
         return p
 
     @classmethod
-    def copy_common_pdf(cls, data: dict):
+    def copy_common_pdf(cls, data: dict, append_label=False):
         for path in data:
             pdf = join(path["value"], "common_output.pdf")
-            shutil.copyfile(src=pdf, dst=cls.asset_pdf_path(path["value"]))
+            if append_label:
+                shutil.copyfile(
+                    src=pdf, dst=cls.asset_pdf_path(path["value"], suffix=path["label"])
+                )
+            else:
+                shutil.copyfile(src=pdf, dst=cls.asset_pdf_path(path["value"]))
 
     def load(self):
         self.pos: BaseHdfProvider = BaseHdfProvider(

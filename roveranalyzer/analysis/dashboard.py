@@ -357,6 +357,7 @@ class _DataSelector(_DashApp):
         dash_app.callback(
             Output(self.id("pdf-view"), "src"),
             Input("data-selector", "value"),
+            Input("data-selector", "options"),
             # prevent_initial_call=True
         )(self.clb_pdf)
         dash_app.callback(
@@ -368,10 +369,15 @@ class _DataSelector(_DashApp):
     def clb_config_tbl(self, data):
         self.m.data_changed(data)
         df = self.m.sql.get_all_run_config()
+        df = df[df["configKey"] == "*.pNode[*].app[1].app.mapCfg"]
         return df.to_dict("records"), DashUtil.cols(df.columns)
 
-    def clb_pdf(self, data):
-        return self.m.asset_pdf_path(data, relative=True)
+    def clb_pdf(self, data, options):
+        for o in options:
+            if data == o["value"]:
+                p = self.m.asset_pdf_path(data, relative=True, suffix=o["label"])
+                print(p)
+                return p
 
     def get_layout(self, ns: Namespace, with_container: bool = False):
         layout = html.Div(
