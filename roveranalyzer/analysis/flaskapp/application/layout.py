@@ -21,11 +21,14 @@ class IdProvider:
         self.keys.add(var)
         return f"{self.prefix}-{var}-{self.suffix}"
 
-    def out_(self, var, opt) -> Output:
-        return Output(self(var), opt)
+    def out_(self, var, opt, prefix="") -> Output:
+        return Output(f"{prefix}{self(var)}", opt)
 
-    def in_(self, var, opt) -> Input:
-        return Input(self(var), opt)
+    def in_(self, var, opt, prefix="") -> Input:
+        return Input(f"{prefix}{self(var)}", opt)
+
+    def state(self, var, opt, prefix="") -> State:
+        return State(f"{prefix}{self(var)}", opt)
 
     def insert_layout_defaults(self, layout):
         return html.Div(
@@ -41,6 +44,10 @@ class IdProvider:
     @property
     def sig_in(self):
         return self.in_("signal", "data")
+
+    @property
+    def sig_state(self):
+        return self.state("signal", "data")
 
     @property
     def signal(self):
@@ -63,7 +70,7 @@ def build_layout(dash_app: Dash):
         ]
     )
 
-    dash_app.sel_ids = selector_ids
+    dash_app.selector_ids = selector_ids
     dash_app.cell_err_ids = cell_error_ids
     dash_app.scenario_ids = scenario_ids
     return dash_app
@@ -95,17 +102,19 @@ def slider_btn(id):
     return dbc.Row(
         [
             dbc.Col(
-                width=2,
+                width=1,
                 children=[
                     html.Button("<", id=f"t_back-{id}", n_clicks=0),
                     html.Button(">", id=f"t_forward-{id}", n_clicks=0),
                 ],
             ),
             dbc.Col(
-                width=10,
+                width=11,
                 children=[
                     dcc.Slider(
                         id=id,
+                        step=None,
+                        marks={0: {"label": "0s"}},
                         included=False,
                         tooltip={"placement": "bottom", "always_visible": True},
                     )
@@ -146,11 +155,12 @@ def scenario_view(ns: Namespace, ids: IdProvider | None = None):
                 className="ctrl",
                 labelClassName="ctrl-lbl",
                 inline=True,
-                id=ids("map-value-view-function"),
+                id=ids("map-view-function"),
             )
         ),
         full_row(DashUtil.map_view(ns=ns, id_builder=ids)),
         slider_btn(ids("time-slider")),
+        dcc.Store(id=ids("hover-store")),
     ]
 
     return ids.insert_layout_defaults(layout), ids
@@ -171,7 +181,7 @@ def cell_errors_view(ids: IdProvider | None = None):
         #
         full_row(html.H4(id=ids("cell-measurement-header"))),
         tbl_row(ids("cell-measurement-tbl")),
-        slider_btn(ids("cell-measurement-time-slider")),
+        slider_btn(ids("time-slider")),
         #
         dbc.Row(
             [
