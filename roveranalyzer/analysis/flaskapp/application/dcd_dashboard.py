@@ -1,4 +1,5 @@
 import copy
+from email import contentmanager
 from os import getsid
 from os.path import join
 from re import I
@@ -74,6 +75,20 @@ def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
         signal["sim"] = sim_selection
         # todo start thread to load stuff
         return signal
+
+    @app.callback(
+        cell_err_ids.out_("load", "style"),
+        cell_err_ids.in_("load", "n_clicks"),
+        selector_ids.sig_in,
+        prevent_initial_call=True,
+    )
+    def update_load_btn(click, signal):
+
+        trigger = callback_context.triggered[0]["prop_id"]
+        if "signal" in trigger:
+            return {"background-color": "red", "width": "100%", "height": "100%"}
+        else:
+            return {"width": "100%", "height": "100%"}
 
     @app.callback(
         selector_ids.out_("pdf-view", "src"),
@@ -261,10 +276,14 @@ def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
     @app.callback(
         cell_err_ids.out_("cell-tbl", "data"),
         cell_err_ids.out_("cell-tbl", "columns"),
-        selector_ids.sig_in,
+        selector_ids.sig_state,
+        cell_err_ids.in_("load", "n_clicks"),
         prevent_initial_call=True,
     )
-    def set_erroneous_cells(signal):
+    def set_erroneous_cells(signal, load):
+        if load is None:
+            print("STOP")
+            raise PreventUpdate
         sim = get_sim(signal)
         df = m.get_erroneous_cells(sim)
         cols = [dict(name=i, id=i) for i in df.columns]
@@ -273,10 +292,14 @@ def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
     @app.callback(
         cell_err_ids.out_("cell-dropdown", "options"),
         cell_err_ids.out_("cell-dropdown", "value"),
-        selector_ids.sig_in,
+        selector_ids.sig_state,
+        cell_err_ids.in_("load", "n_clicks"),
         prevent_initial_call=True,
     )
-    def set_cell_dropdown(signal):
+    def set_cell_dropdown(signal, load):
+        if load is None:
+            print("STOP")
+            raise PreventUpdate
         sim = get_sim(signal)
         cells = m.get_cells(sim)
         cell_map = {k: tuple(v) for k, v in enumerate(cells)}
@@ -287,10 +310,14 @@ def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
         cell_err_ids.out_("node-id-dropdown", "options"),
         cell_err_ids.out_("node-id-dropdown", "value"),
         cell_err_ids.in_("cell-dropdown", "value"),
-        selector_ids.sig_in,
+        selector_ids.sig_state,
+        cell_err_ids.in_("load", "n_clicks"),
         prevent_initial_call=True,
     )
-    def set_id_dropdown(cell_id, signal):
+    def set_id_dropdown(cell_id, signal, load):
+        if load is None:
+            print("STOP")
+            raise PreventUpdate
         sim = get_sim(signal)
         cell_id = 0 if cell_id is None else cell_id
         ids = m.get_node_ids_for_cell(sim, cell_id)

@@ -172,6 +172,15 @@ def cell_errors_view(ids: IdProvider | None = None):
 
     layout = [
         DashUtil.module_header(id=ids("title"), children=["Cell Error View"]),
+        dbc.Row(
+            dbc.Col(
+                html.Button(
+                    id=ids("load"),
+                    children="Load",
+                    style={"width": "100%", "height": "100%"},
+                )
+            )
+        ),
         lbl_dropdown("Select Cell:", 3, ids("cell-dropdown")),
         lbl_dropdown("Select Id:", 3, ids("node-id-dropdown")),
         tbl_row(ids("cell-tbl")),

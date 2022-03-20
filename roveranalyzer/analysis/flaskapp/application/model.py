@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import collections
 import json
+import re
 import shutil
 from os.path import basename, join, split
 
 import numpy as np
 import pandas as pd
+from omnetinireader.config_parser import ObjectValue
 from pandas import DataFrame, MultiIndex
 
 from roveranalyzer.analysis.dashapp import DashUtil
@@ -317,7 +319,13 @@ def get_measurement_count_df(sim: Simulation, node_id, cell_id):
 @threaded_lru(maxsize=64)
 @timing
 def get_measurements(sim: Simulation, time, node_id, cell_id):
-    alpha = 0.5
+    # alpha = 0.5
+    map_cfg = sim.sql.get_run_config("*.pNode[*].app[1].app.mapCfg", full_match=True)
+    m = re.compile(r".*alpha: (?P<a>.*?),").match(map_cfg)
+    if m:
+        alpha = float(m.groups()[0])
+    else:
+        ValueError(f"alpha not found in {map_cfg}")
     # todo
     # alpha = sim.get_config()[".....mapCfg"]["alpha"]
     x, y = get_cells(sim)[cell_id]
