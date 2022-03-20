@@ -2,7 +2,7 @@ import copy
 from os import getsid
 from os.path import join
 from re import I
-from typing import Dict
+from typing import Dict, List
 
 import dash_bootstrap_components as dbc
 import plotly.express as px
@@ -15,13 +15,12 @@ from numpy import sign
 
 import roveranalyzer.analysis.flaskapp.application.model as m
 from roveranalyzer.analysis.dashapp import DashUtil
-from roveranalyzer.analysis.flaskapp.application import cache
 from roveranalyzer.analysis.flaskapp.application.layout import IdProvider, build_layout
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.logging import timing
 
 
-def create_dashboard(server: Flask):
+def create_dashboard(server: Flask, simulations: List[m.Simulation]):
     dash_app = Dash(
         server=server,
         routes_pathname_prefix="/dash/",
@@ -30,24 +29,15 @@ def create_dashboard(server: Flask):
     )
 
     print(f"first: {m.get_count_index.cache_info()}")
-    sims = {
-        "sim1": m.Simulation(
-            "/mnt/data1tb/results/ymfDistDbg2/simulation_runs/outputs/Sample_0_0/final_out/",
-            "sim1",
-        ),
-        "sim2": m.Simulation(
-            "/mnt/data1tb/results/ymfDistDbg2/simulation_runs/outputs/Sample_1_0/final_out/",
-            "sim2",
-        ),
-    }
-    for sim in sims.values():
+
+    for sim in simulations.values():
         sim.copy_pdf(
             "common_output.pdf", sim, join(dash_app.config.assets_folder, "pdf")
         )
 
     build_layout(dash_app)
 
-    init_callbacks(dash_app, sims)
+    init_callbacks(dash_app, simulations)
 
     return dash_app.server
 

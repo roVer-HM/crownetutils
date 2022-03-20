@@ -3,16 +3,13 @@ from __future__ import annotations
 import collections
 import json
 import shutil
-from functools import lru_cache
 from os.path import basename, join, split
 
 import numpy as np
 import pandas as pd
-from numpy import maximum
 from pandas import DataFrame, MultiIndex
 
 from roveranalyzer.analysis.dashapp import DashUtil
-from roveranalyzer.analysis.flaskapp.application import cache
 from roveranalyzer.analysis.flaskapp.application.utils import threaded_lru
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
