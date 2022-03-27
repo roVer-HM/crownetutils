@@ -548,7 +548,7 @@ class _DashUtil:
             zoom=18,
             style={
                 "width": "100%",
-                "height": "55vh",
+                "height": "85vh",
                 "background-color": "white",
                 "margin": "auto",
                 "display": "block",

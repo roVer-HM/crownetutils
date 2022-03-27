@@ -303,10 +303,14 @@ class OppSql:
     def __init__(self, vec_path=None, sca_path=None):
         self._vec_path = vec_path
         self._sca_path = sca_path
-        self._file = {
-            "vec": lambda: self.vec_con,
-            "sca": lambda: self.sca_con,
-        }
+
+    def _file(self, key):
+        if key == "vec":
+            return self.vec_con
+        elif key == "sca":
+            return self.sca_con
+        else:
+            raise ValueError(f"No file for key '{key}'")
 
     @property
     def vec_path(self):
@@ -343,7 +347,7 @@ class OppSql:
     def _query(
         self, sql_str, file="vec", type="df", **kwargs
     ) -> Union[pd.DataFrame, sq.Cursor]:
-        sql_file = self._file[file]()
+        sql_file = self._file(file)
         logger.debug(f"execute sql on db {file}: {sql_str}")
         with sql_file() as _con:
             if type == "df":

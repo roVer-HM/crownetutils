@@ -20,7 +20,7 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMap
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
 from roveranalyzer.utils.misc import intersect
-from roveranalyzer.utils.plot import check_ax, update_dict
+from roveranalyzer.utils.plot import Style, check_ax, update_dict
 
 PlotUtil = _Plot.PlotUtil
 
@@ -39,13 +39,7 @@ class DcdMap:
         self.position_df = position_df
         self.scenario_plotter = plotter
         self.plot_wrapper = None
-        self.font_dict = {
-            "title": {"fontsize": 24},
-            "xlabel": {"fontsize": 20},
-            "ylabel": {"fontsize": 20},
-            "legend": {"size": 20},
-            "tick_size": 16,
-        }
+        self.style = Style()
         self.data_base_dir = data_base_dir
 
     # def _load_or_create(self, pickle_name, create_f, *create_args):
@@ -117,7 +111,7 @@ class DcdMap2D(DcdMap):
         self._count_p = count_p
         self._count_slice = count_slice
 
-        self._map_p = map_p
+        self._map_p: DcdMapProvider = map_p
         self._map_slice = map_slice
 
     def iter_nodes_d2d(self, first_node_id=0):
@@ -418,7 +412,7 @@ class DcdMap2D(DcdMap):
 
     def apply_ax_props(self, ax: plt.Axes, ax_prop: dict):
         for k, v in ax_prop.items():
-            getattr(ax, f"set_{k}", None)(v, **self.font_dict[k])
+            getattr(ax, f"set_{k}", None)(v, **self.style.font_dict[k])
 
     def update_cell_error(
         self,
@@ -443,7 +437,6 @@ class DcdMap2D(DcdMap):
         if drop_index:
             df = df.reset_index(drop=True)
         return df
-    
 
     def update_error_over_distance(
         self,
@@ -470,6 +463,19 @@ class DcdMap2D(DcdMap):
             line.set_xdata(df["owner_dist"].to_numpy())
         return df
 
+    def error_hist(
+        self,
+        time_slice: slice = slice(None),
+        value="err",
+        agg_func="mean",
+    ):
+
+        if time_slice == slice(None):
+            _ts = self.count_p.get_time_interval()
+            time_slice = slice(_ts[0], _ts[1])
+        data = self.update_cell_error(time_slice, value, agg_func, drop_index=True)
+        return data, time_slice
+
     @PlotUtil.savefigure
     @PlotUtil.with_axis
     @PlotUtil.plot_decorator
@@ -478,22 +484,24 @@ class DcdMap2D(DcdMap):
         time_slice: slice = slice(None),
         value="err",
         agg_func="mean",
+        data_source=None,
         *,
         stat: str = "count",  # "percent"
         fill: bool = True,
         ax: plt.Axes = None,
         **hist_kwargs,
     ):
-        if time_slice == slice(None):
-            _ts = self.count_p.get_time_interval()
-            time_slice = slice(_ts[0], _ts[1])
+        if data_source is not None:
+            data, time_slice = data_source(time_slice, value, agg_func)
+        else:
+            data, time_slice = self.error_hist(time_slice, value, agg_func)
+
         _t = f"Cell count Error ('{value}') for Time {time_slice.start}"
         if time_slice.stop is not None:
             _t += f" - {time_slice.stop}"
         ax.set_title(_t)
         ax.set_xlabel(f"{value}")
 
-        data = self.update_cell_error(time_slice, value, agg_func, drop_index=True)
         ax = sns.histplot(data=data, stat=stat, fill=fill, ax=ax, **hist_kwargs)
         return ax.get_figure(), ax
 
@@ -546,7 +554,7 @@ class DcdMap2D(DcdMap):
                 _ax.set_title(f"Cell Error Histogram {data.iloc[:, idx].name}")
                 _ax.set_xlabel(value)
                 sns.histplot(
-                    data=data.iloc[:,idx],
+                    data=data.iloc[:, idx],
                     stat=stat,
                     common_norm=False,
                     fill=fill,
@@ -557,7 +565,6 @@ class DcdMap2D(DcdMap):
             return ax[0].get_figure(), ax
         else:
             raise ValueError(f"Expected ax or array of 5 axes but got {type(ax)}")
-
 
     @PlotUtil.savefigure
     @PlotUtil.plot_decorator
@@ -672,16 +679,16 @@ class DcdMap2D(DcdMap):
 
         cell = self.get_location(time_step, node_id, cell_id=False)
         if "title" in kwargs:
-            ax.set_title(kwargs["title"], **self.font_dict["title"])
+            ax.set_title(kwargs["title"], **self.style.font_dict["title"])
         else:
             ax.set_title(
                 f"Area plot of '{value}'. node: {node_id} time: "
                 f"{time_step} cell [{cell[0]}, {cell[1]}]",
-                **self.font_dict["title"],
+                **self.style.font_dict["title"],
             )
         ax.set_aspect("equal")
-        ax.tick_params(axis="x", labelsize=self.font_dict["tick_size"])
-        ax.tick_params(axis="y", labelsize=self.font_dict["tick_size"])
+        ax.tick_params(axis="x", labelsize=self.style.font_dict["tick_size"])
+        ax.tick_params(axis="y", labelsize=self.style.font_dict["tick_size"])
 
         # if self.scenario_plotter is not None:
         #     self.scenario_plotter.add_obstacles(ax)
@@ -693,7 +700,7 @@ class DcdMap2D(DcdMap):
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         cax.set_label("colorbar")
-        cax.tick_params(axis="y", labelsize=self.font_dict["tick_size"])
+        cax.tick_params(axis="y", labelsize=self.style.font_dict["tick_size"])
         f.colorbar(pcm, cax=cax)
 
         ax.update(ax_prop if ax_prop is not None else {})
@@ -701,9 +708,9 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @PlotUtil.savefigure
+    @PlotUtil.with_axis
     @PlotUtil.plot_decorator
     def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
-        f, ax = check_ax(ax, **kwargs)
         ax.set_title("Total node count over time", **self.font_dict["title"])
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
         ax.set_ylabel("total node count", **self.font_dict["ylabel"])
@@ -719,42 +726,169 @@ class DcdMap2D(DcdMap):
             label=f"0",
         )
         ax.legend()
-        return f, ax
+        return ax.get_figure(), ax
+
+    def count_diff(self, val: set = {}, agg: set = {}):
+        def percentile(n):
+            def _percentil(x):
+                return np.percentile(x, n)
+
+            _percentil.__name__ = f"p_{n*100:2.0f}"
+            return _percentil
+
+        if len(agg) == 0:
+            agg = {
+                "count",
+                "mean",
+                "std",
+                "min",
+                percentile(0.25),
+                percentile(0.50),
+                percentile(0.75),
+                "max",
+            }
+        if len(val) == 0:
+            val = {"count", "err", "sqerr"}
+
+        if self._map_p.contains_group("count_diff"):
+            nodes = self._map_p.get_dataframe(group="count_diff")
+        else:
+            _i = pd.IndexSlice
+            df = []
+            if "abs_err" in val:
+                val.remove(abs_err)
+                abs_err = np.abs(self.count_p[_i[:, :, :, 1:], _i["err"]])
+                abs_err.columns = ["abs_err"]
+                abs_err = (
+                    abs_err.groupby(
+                        level=[self.tsc_id_idx_name, self.tsc_time_idx_name]
+                    )
+                    .sum()
+                    .groupby(level="simtime")
+                    .agg(list(agg))
+                )
+                abs_err.columns = [f"{c}_{stat}" for c, stat in abs_err.columns]
+
+            stat_list = list(val)
+            nodes = (
+                self.count_p[_i[:, :, :, 1:], stat_list]  # all put ground truth
+                .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
+                .sum()
+                .groupby(level="simtime")
+                .agg(list(agg))
+            )
+            nodes.columns = [f"{c}_{stat}" for c, stat in nodes.columns]
+            df.insert(0, nodes)
+
+            glb = (
+                self.count_p[_i[:, :, :, 0], _i["count"]]  # all put ground truth
+                .groupby(level=[self.tsc_time_idx_name])
+                .sum()
+            )
+            glb.columns = ["glb_count"]
+            df.insert(0, glb)  # at front!
+
+            # glb = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()["count"]
+            nodes = pd.concat(df, axis=1)
+
+        return nodes
 
     @PlotUtil.savefigure
+    @PlotUtil.with_axis
     @PlotUtil.plot_decorator
     def plot_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
-        f, ax = check_ax(ax, **kwargs)
-        ax.set_title("Node Count over Time", **self.font_dict["title"])
-        ax.set_xlabel("Time [s]", **self.font_dict["xlabel"])
-        ax.set_ylabel("Pedestrian Count", **self.font_dict["ylabel"])
-        _i = pd.IndexSlice
-        nodes = (
-            self.map.loc[_i[:], _i["count"]]
+        if "data_source" in kwargs:
+            nodes = kwargs["data_source"]()
+        else:
+            nodes = self.count_diff(val={"count"}, agg={"mean", "std"})
+
+        font_dict = self.style.font_dict
+        ax.set_title("Node Count over Time", **font_dict["title"])
+        ax.set_xlabel("Time [s]", **font_dict["xlabel"])
+        ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
+        n = nodes.loc[:, ["count_mean", "count_std"]].dropna().reset_index()
+        ax.plot("simtime", "count_mean", data=n, label="Mean count")
+
+        ax.fill_between(
+            n["simtime"],
+            n["count_mean"] + n["count_std"],
+            n["count_mean"] - n["count_std"],
+            alpha=0.35,
+            interpolate=True,
+            label="Count +/- 1 std",
+        )
+        glb = nodes.loc[:, ["glb_count"]].dropna().reset_index()
+        ax.plot("simtime", "glb_count", data=glb, label="Actual count")
+        if self.style.create_legend:
+            ax.get_figure().legend()
+        return ax.get_figure(), ax
+
+    def err_box_over_time(self, bin_width=10.0):
+        i = pd.IndexSlice
+        data = (
+            self._count_p[i[:, :, :, 1:], ["err"]]
             .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
             .sum()
             .groupby(level="simtime")
             .mean()
         )
-        nodes_std = (
-            self.map.loc[_i[:], _i["count"]]
-            .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
-            .sum()
-            .groupby(level="simtime")
-            .std()
+        bins = int(np.floor(data.index.max() / bin_width))
+        _cut = pd.cut(data.index, bins)
+        return data, _cut
+
+    @PlotUtil.savefigure
+    @PlotUtil.plot_decorator
+    def plot_err_box_over_time(
+        self, bin_width=10.0, xtick_sep=5, *, ax=None, **kwargs
+    ) -> Tuple[Figure, Axes]:
+
+        if "data_source" in kwargs:
+            data, _cut = kwargs["data_source"](bin_width)
+        else:
+            data, _cut = self.err_box_over_time(bin_width)
+
+        f, ax = check_ax(ax, **kwargs)
+        font_dict = self.style.font_dict
+        ax.set_title("Node Count over Time", **font_dict["title"])
+        ax.set_xlabel("Time [s]", **font_dict["xlabel"])
+        ax.set_ylabel("Count Err", **font_dict["ylabel"])
+
+        flierprops = kwargs.get(
+            "flierprops",
+            dict(
+                marker=".",
+                color="black",
+                markerfacecolor="black",
+                markersize=3,
+                linestyle="none",
+            ),
         )
-        glb = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()["count"]
-        ax.plot(nodes.index, nodes, label="Mean count")
-        ax.fill_between(
-            nodes.index,
-            nodes + nodes_std,
-            nodes - nodes_std,
-            alpha=0.35,
-            interpolate=True,
-            label="Count +/- 1 std",
+        boxprops = kwargs.get("boxprops", dict(color="black"))
+        whiskerprops = kwargs.get("whiskerprops", dict(color="black"))
+
+        ax = data.groupby(_cut).boxplot(
+            subplots=False,
+            sharey=True,
+            grid=False,
+            ax=ax,
+            zorder=100,
+            flierprops=flierprops,
+            boxprops=boxprops,
+            whiskerprops=whiskerprops,
         )
-        ax.plot(glb.index, glb, label="Actual count")
-        f.legend()
+        xlabels = data.reset_index().groupby(_cut)["simtime"].max().to_list()
+        ax.set_xticklabels(xlabels)
+        for idx, lbl in enumerate(ax.get_xticklabels()):
+            if (
+                idx == 0
+                or idx == (len(ax.get_xticklabels()) - 1)
+                or (idx % (xtick_sep - 1) == 0)
+            ):
+                lbl.set_visible(True)
+            else:
+                lbl.set_visible(False)
+        ax.grid(alpha=0.2, zorder=10)
+        ax.axhline(y=0.0, color="red", alpha=0.3, zorder=20)
         return f, ax
 
 

@@ -52,6 +52,16 @@ class BaseHdfProvider:
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
 
+    # allow pickling of hdf providers
+    def __getstate__(self):
+        _state = self.__dict__.copy()
+        del _state["_lock"]  # remove unpicklable entry
+        return _state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     def get_dataframe(self, group=None) -> pd.DataFrame:
         """
         Select the entire dataframe behind given key or the default location.

@@ -51,11 +51,11 @@ logger.setLevel(logging.INFO)
 
 def timing(func):
     @wraps(func)
-    def _func(*args, **kwargs):
+    def _timing(*args, **kwargs):
         ts = it.default_timer()
         logger.debug(f"{func.__name__}>")
         result = func(*args, **kwargs)
         logger.info(f"{func.__name__}: took {it.default_timer() - ts:2.4f} seconds")
         return result
 
-    return _func
+    return _timing

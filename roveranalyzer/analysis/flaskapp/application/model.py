@@ -2,56 +2,20 @@ from __future__ import annotations
 
 import collections
 import json
-import re
-import shutil
-from os.path import basename, join, split
+from os.path import join, split
 
 import numpy as np
 import pandas as pd
 from omnetinireader.config_parser import ObjectValue
-from pandas import DataFrame, MultiIndex
 
-from roveranalyzer.analysis.dashapp import DashUtil
+from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.flaskapp.application.utils import threaded_lru
-from roveranalyzer.analysis.omnetpp import OppAnalysis
-from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
-    DcdGlobalDensity,
-    DcdGlobalPosition,
-    pos_density_from_csv,
-)
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
-    BaseHdfProvider,
-    FrameConsumer,
-)
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
 from roveranalyzer.utils.general import Project
 from roveranalyzer.utils.logging import timing
-
-
-class Simulation:
-    def __init__(self, data_root, label):
-        self.label = label
-        self.data_root, self.builder, self.sql = OppAnalysis.builder_from_output_folder(
-            data_root
-        )
-        self.pos: BaseHdfProvider = BaseHdfProvider(
-            join(self.data_root, "trajectories.h5"), group="trajectories"
-        )
-
-    @staticmethod
-    def asset_pdf_path(name, base="assets/pdf", suffix=""):
-        base_name = basename(name).replace(".pdf", "")
-        return join(base, f"{base_name}{suffix}.pdf")
-
-    @classmethod
-    def copy_pdf(cls, name, sim: Simulation, base):
-        shutil.copyfile(
-            src=join(sim.data_root, name),
-            dst=cls.asset_pdf_path(name, base=base, suffix=sim.label),
-        )
 
 
 @threaded_lru(maxsize=16)
@@ -316,31 +280,54 @@ def get_measurement_count_df(sim: Simulation, node_id, cell_id):
     return df.groupby(by=["simtime", "x", "y"]).count().reset_index()
 
 
+def ymfDist(df, map_cfg: ObjectValue):
+    dist_sum = df["sourceEntry"].sum()
+
+    t_min = df["measurement_age"].min()
+    time_sum = df["measurement_age"].sum() - df["measurement_age"].shape[0] * t_min
+    alpha = map_cfg["alpha"]
+    df["ymfD_t"] = alpha * ((df["measurement_age"] - t_min) / time_sum)
+    df["ymfD_d"] = (1 - alpha) * (df["sourceEntry"] / dist_sum)
+    df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
+    return df
+
+
+def ymfDistStep(df, map_cfg: ObjectValue):
+    dist_sum = df["sourceEntry"].sum()
+    dist_th = map_cfg["stepDist"]
+    _val = 0 if map_cfg["zeroStep"] else dist_th
+    df["sourceEntry*"] = df["sourceEntry"]
+    _mask = df["sourceEntry*"] < dist_th
+    df.loc[_mask, ["sourceEntry*"]] = _val
+
+    t_min = df["measurement_age"].min()
+    time_sum = df["measurement_age"].sum() - df["measurement_age"].shape[0] * t_min
+    alpha = map_cfg["alpha"]
+    df["ymfD_t"] = alpha * ((df["measurement_age"] - t_min) / time_sum)
+    df["ymfD_d"] = (1 - alpha) * (df["sourceEntry*"] / dist_sum)
+    df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
+    return df
+
+
 @threaded_lru(maxsize=64)
 @timing
 def get_measurements(sim: Simulation, time, node_id, cell_id):
     # alpha = 0.5
-    map_cfg = sim.sql.get_run_config("*.pNode[*].app[1].app.mapCfg", full_match=True)
-    m = re.compile(r".*alpha: (?P<a>.*?),").match(map_cfg)
-    if m:
-        alpha = float(m.groups()[0])
-    else:
-        ValueError(f"alpha not found in {map_cfg}")
-    # todo
-    # alpha = sim.get_config()[".....mapCfg"]["alpha"]
     x, y = get_cells(sim)[cell_id]
     df = sim.builder.map_p[
         pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
     ]
-    dist_sum = df["sourceEntry"].sum()
-    time_sum = df["measurement_age"].sum()
-    # df["ymfD_t_old"] = alpha*(df["measurement_age"]/time_sum)
+    df["ymfD_t"] = 0
+    df["ymfD_d"] = 0
+    df["ymfD"] = 0
+    if df.empty:
+        return df
 
-    t_min = df["measurement_age"].min()
-    time_sum_new = df["measurement_age"].sum() - df["measurement_age"].shape[0] * t_min
-
-    df["ymfD_t"] = alpha * ((df["measurement_age"] - t_min) / time_sum_new)
-    df["ymfD_d"] = (1 - alpha) * (df["sourceEntry"] / dist_sum)
-    df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
+    map_cfg = sim.sql.get_run_config("*.pNode[*].app[1].app.mapCfg", full_match=True)
+    map_cfg = ObjectValue.fromString(map_cfg)
+    if map_cfg.name == "MapCfgYmfPlusDistStep":
+        df = ymfDistStep(df, map_cfg)
+    elif map_cfg.name == "MapCfgYmfDist":
+        df = ymfDist(df, map_cfg)
 
     return df

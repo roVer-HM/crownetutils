@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import itertools
 from os.path import join
-from timeit import default_timer
-from typing import List, Tuple, Union
+from typing import List
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
-from pandas.core.frame import DataFrame
+from omnetinireader.config_parser import ObjectValue
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.analysis.common import AnalysisBase
+from roveranalyzer.analysis.common import AnalysisBase, Simulation
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
+from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 
 PlotUtil = _Plot.PlotUtil
@@ -414,6 +414,192 @@ class _OppAnalysis(AnalysisBase):
             intervals = [slice(time * i, time * i + time) for i in range(4)]
             for _slice in intervals:
                 dmap.plot_error_histogram(time_slice=_slice, savefig=pdf)
+
+    @timing
+    def append_count_diff_to_hdf(
+        self,
+        sim: Simulation,
+    ):
+        group_name = "count_diff"
+        _hdf = sim.get_base_provider(group_name, path=sim.builder.count_p._hdf_path)
+        if not _hdf.contains_group(group_name):
+            print(f"group '{group_name}' not found. Append to {_hdf._hdf_path}")
+            sel = sim.builder.map_p.get_attribute("used_selection")
+            if sel is None:
+                raise ValueError("selection not set!")
+            df = sim.builder.build_dcdMap(selection=list(sel)[0]).count_diff()
+            _hdf.write_frame(group=group_name, frame=df)
+        else:
+            print(f"group '{group_name}' found. Nothing to do for {_hdf._hdf_path}")
+
+    @timing
+    def get_data_001(self, sim: Simulation):
+        """
+        collect data for given simulation
+        """
+        print(f"get data for {sim.data_root} ...")
+        sel = sim.builder.map_p.get_attribute("used_selection")
+        if sel is None:
+            raise ValueError("selection not set!")
+        dmap = sim.builder.build_dcdMap(selection=list(sel)[0])
+
+        print("diff")
+        count_diff = DataSource.provide_result("count_diff", sim, dmap.count_diff())
+
+        print("box")
+        err_box = DataSource.provide_result(
+            "err_box", sim, dmap.err_box_over_time(bin_width=10)
+        )
+
+        print("hist")
+        err_hist = DataSource.provide_result(
+            "err_hist",
+            sim,
+            dmap.error_hist(),
+        )
+
+        print(f"done for {sim.data_root}")
+
+        return count_diff, err_box, err_hist
+        # return count_diff, err_hist
+
+    @timing
+    def create_plot_count_diff(self, sim: Simulation, title: str, ax: plt.Axes):
+
+        s = _Plot.Style()
+        s.font_dict = {
+            "title": {"fontsize": 14},
+            "xlabel": {"fontsize": 10},
+            "ylabel": {"fontsize": 10},
+            "legend": {"size": 14},
+            "tick_size": 10,
+        }
+        s.create_legend = False
+
+        m = sim.builder.global_p.get_meta_object()
+        sel = sim.builder.map_p.get_attribute("used_selection")
+        if sel is None:
+            raise ValueError("selection not set!")
+        dmap = sim.builder.build_dcdMap(selection=list(sel)[0])
+        dmap.style = s
+        # _, ax = dmap.plot_count_diff(ax=ax)
+        _, ax = dmap.plot_err_box_over_time(ax=ax, xtick_sep=10)
+        ax.set_title(title)
+        return ax
+
+    def err_hist_plot(self, s: _Plot.Style, data: List[DataSource]):
+        def title(sim: Simulation):
+            cfg = sim.run_context.oppini
+            map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]
+            run_name = sim.run_context.args.get_value("--run-name")
+            if all(i in map for i in ["alpha", "stepDist", "zeroStep"]):
+                return f"{run_name[0:-7]}\nalpha:{map['alpha']} distance threshold: {map['stepDist']} use zero: {map['zeroStep']}"
+            else:
+                return f"{run_name[0:-7]}\n Youngest measurement first"
+
+        fig, ax = plt.subplots(ncols=3, nrows=3, figsize=(16, 9))
+
+        axes = [a for aa in ax for a in aa]
+        for a in axes[len(data) :]:
+            a.remove()
+
+        for idx, run in enumerate(data):
+            sim: Simulation = run.source
+            dmap = sim.get_dcdMap()
+            dmap.style = s
+            # provide data from run cache
+            _, a = dmap.plot_error_histogram(ax=axes[idx], data_source=run)
+            a.set_title(title(sim))
+
+        PlotUtil.equalize_axis(fig.get_axes(), "y")
+        PlotUtil.equalize_axis(fig.get_axes(), "x")
+        fig.suptitle("Count Error Histogram")
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0))
+
+        return fig
+
+    def box_plot(self, data: pd.DataFrame, bin_width, bin_key):
+
+        if bin_key in data.columns:
+            data = data.set_index(bin_key, verify_integrity=False)
+
+        bins = int(np.floor(data.index.max() / bin_width))
+        _cut = pd.cut(data.index, bins)
+        return data.groupby(_cut), _cut
+
+    def err_box_plot(self, s: _Plot.Style, data: List[DataSource]):
+        def title(sim: Simulation):
+            cfg = sim.run_context.oppini
+            map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]
+            run_name = sim.run_context.args.get_value("--run-name")
+            if all(i in map for i in ["alpha", "stepDist", "zeroStep"]):
+                return f"{run_name[0:-7]}\nalpha:{map['alpha']} distance threshold: {map['stepDist']} use zero: {map['zeroStep']}"
+            else:
+                return f"{run_name[0:-7]}\n Youngest measurement first"
+
+        fig, ax = plt.subplots(ncols=3, nrows=3, figsize=(16, 9))
+
+        axes = [a for aa in ax for a in aa]
+        for a in axes[len(data) :]:
+            a.remove()
+
+        for idx, run in enumerate(data):
+            sim: Simulation = run.source
+            dmap = sim.get_dcdMap()
+            dmap.style = s
+            # provide data from run cache
+            _, a = dmap.plot_err_box_over_time(
+                ax=axes[idx], xtick_sep=10, data_source=run
+            )
+            a.set_title(title(sim))
+
+        PlotUtil.equalize_axis(fig.get_axes(), "y")
+        PlotUtil.equalize_axis(fig.get_axes(), "x")
+        fig.suptitle("Count Error over time")
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0))
+
+        return fig
+
+    def diff_plot(self, s: _Plot.Style, data: List[DataSource]):
+        def title(sim: Simulation):
+            cfg = sim.run_context.oppini
+            map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]
+            run_name = sim.run_context.args.get_value("--run-name")
+            if all(i in map for i in ["alpha", "stepDist", "zeroStep"]):
+                return f"{run_name[0:-7]}\nalpha:{map['alpha']} distance threshold: {map['stepDist']} use zero: {map['zeroStep']}"
+            else:
+                return f"{run_name[0:-7]}\n Youngest measurement first"
+
+        fig, ax = plt.subplots(ncols=3, nrows=3, figsize=(16, 9))
+
+        axes = [a for aa in ax for a in aa]
+        for a in axes[len(data) :]:
+            a.remove()
+
+        for idx, run in enumerate(data):
+            sim: Simulation = run.source
+            dmap = sim.get_dcdMap()
+            dmap.style = s
+            # provide data from run cache
+            _, a = dmap.plot_count_diff(ax=axes[idx], data_source=run)
+            a.set_title(title(sim))
+
+        # fix legends
+        x = axes[0].legend()
+        axes[0].get_legend().remove()
+        PlotUtil.equalize_axis(fig.get_axes(), "y")
+        PlotUtil.equalize_axis(fig.get_axes(), "x")
+        fig.suptitle("Comparing Map count with ground truth over time")
+        fig.tight_layout(rect=(0.0, 0.05, 1.0, 1.0))
+        fig.legend(
+            x.legendHandles,
+            [i._text for i in x.texts],
+            ncol=3,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.0),
+        )
+
+        return fig
 
 
 OppAnalysis = _OppAnalysis()

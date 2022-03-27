@@ -1,7 +1,7 @@
 from typing import Dict
 
+from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.flaskapp.application import init_app
-from roveranalyzer.analysis.flaskapp.application.model import Simulation
 
 
 def run_app(simulations: Dict[str, Simulation]):

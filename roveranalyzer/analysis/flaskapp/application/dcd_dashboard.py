@@ -1,23 +1,16 @@
-import copy
-from email import contentmanager
-from os import getsid
 from os.path import join
-from re import I
 from typing import Dict
 
 import dash_bootstrap_components as dbc
 import plotly.express as px
-import rasterio
 from dash import Dash, callback_context, html
-from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from flask import Flask
-from numpy import sign
 
 import roveranalyzer.analysis.flaskapp.application.model as m
+from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.dashapp import DashUtil
 from roveranalyzer.analysis.flaskapp.application.layout import IdProvider, build_layout
-from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.logging import timing
 
 
@@ -43,13 +36,13 @@ def create_dashboard(server: Flask, simulations: Dict[str, m.Simulation]):
     return dash_app.server
 
 
-def init_callbacks(app: Dash, sims: Dict[str, m.Simulation]):
+def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
 
     selector_ids: IdProvider = app.selector_ids
     cell_err_ids: IdProvider = app.cell_err_ids
     scenario_ids: IdProvider = app.scenario_ids
 
-    def get_sim(signal):
+    def get_sim(signal) -> Simulation:
         if signal is None or "sim" not in signal:
             raise ValueError("Sim not set")
         return sims[signal["sim"]]

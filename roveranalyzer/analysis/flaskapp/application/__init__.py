@@ -3,7 +3,7 @@ from typing import Dict
 from flask import Flask
 from flask_caching import Cache
 
-from roveranalyzer.analysis.flaskapp.application.model import Simulation
+from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.flaskapp.config import CacheConfig, FlaskConfigDbg
 
 # cache = Cache(config=CacheConfig)

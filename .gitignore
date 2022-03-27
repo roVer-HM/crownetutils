@@ -8,6 +8,7 @@ tutorials/test_data.d
 **/*.mp4
 analysis_loc
 roveranalyzer/analysis/assets/
+roveranalyzer/analysis/flaskapp/application/static/*
 **/cache-directory
 
 
