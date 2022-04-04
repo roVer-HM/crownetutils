@@ -14,6 +14,7 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMap
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
+from roveranalyzer.utils.dataframe import LazyDataFrame
 from roveranalyzer.utils.general import Project
 from roveranalyzer.utils.logging import timing
 
@@ -169,7 +170,13 @@ def get_node_ids_for_cell(sim: Simulation, cell_id):
 @threaded_lru(maxsize=16)
 @timing
 def get_beacon_df(sim: Simulation):
-    b = pd.read_csv(join(sim.data_root, "beacons.csv"), delimiter=";")
+
+    df = LazyDataFrame.from_path(join(sim.data_root, "beacons.csv"))
+    m = df.read_meta_data(default={})
+    b = df.df()
+    if "version" in m:
+        b.user_version = float(m["version"])
+
     if any(b["cell_x"] > 0x0FFF_FFFF) or any(b["cell_y"] > 0x0FFF_FFFF):
         raise ValueError("cell positions exceed 28 bit.")
     bound = sim.builder.count_p.get_attribute("cell_bound")
@@ -178,11 +185,9 @@ def get_beacon_df(sim: Simulation):
     return b
 
 
-@threaded_lru(maxsize=64)
-@timing
-def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
-
-    b = get_beacon_df(sim)
+def _get_beacon_entry_exit_v0(
+    b: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple
+):
 
     c_size = sim.builder.count_p.get_attribute("cell_size")
     beacon_mask = (
@@ -195,19 +200,28 @@ def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
     bs = b[beacon_mask]
 
     bs = bs.set_index(
-        ["table_owner", "source_node", "event_time", "cell_x", "cell_y"]
+        ["table_owner", "source_node", "event_time", "cell_x", "cell_y", "pkt_count"]
     ).sort_index()
     bs["cell_change"] = 0
     bs["cell_change_count"] = 0
     bs["cell_change_cumsum"] = 0
+    _m = bs["event"] == "ttl_reached"
+    bs.loc[_m, ["cell_change_count"]] = -1
     if bs.empty:
         return bs
     bs_missing = []
     bs_missing_idx = []
+    if not bs.index.is_unique:
+        raise RuntimeError(
+            f"Beacons csv is not unique for node {node_id} and cell {cell}"
+        )
+
     for g, df in bs.groupby(by=["table_owner", "source_node"]):
+        # find rows where a changes  between cells happens (i.e. cell_y or cell_x differ)
         data = np.abs(df.index.to_frame()["cell_y"].diff()) + np.abs(
             df.index.to_frame()["cell_x"].diff()
         )
+        # the first entry from some source
         data = data.fillna(1)
         data[data > 0] = -1
         bs.loc[df.index, ["cell_change"]] = data.astype(int)
@@ -235,7 +249,7 @@ def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
                 idx = bs.index[g_iloc]
                 idx_prev = bs.index[g_prev_iloc]
                 missing = bs.iloc[g_iloc].copy()
-                missing_idx = (idx[0], idx[1], idx[2], idx_prev[3], idx_prev[4])
+                missing_idx = (idx[0], idx[1], idx[2], idx_prev[3], idx_prev[4], idx[5])
                 missing["event"] = "move_out"
                 missing["cell_id"] = bs.iloc[g_prev_iloc, cell_id_iloc]
                 missing["cell_change"] = bs.iloc[g_iloc, cell_id_iloc]
@@ -262,14 +276,57 @@ def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
 
     bs = (
         bs.reset_index()
-        .set_index(["table_owner", "event_time", "source_node"])
+        .set_index(["table_owner", "event_time", "source_node", "pkt_count"])
         .sort_index()
     )
     for g, df in bs.groupby(by=["table_owner", "cell_x", "cell_y"]):
         bs.loc[df.index, ["cell_change_cumsum"]] = df["cell_change_count"].cumsum()
     # _m = (bs["cell_x"] == int(cell[0])) & (bs["cell_y"] == int(cell[1]))
-    bs = bs.reset_index("source_node")
+    bs = bs.reset_index(["source_node", "pkt_count"])
     return bs
+
+
+def _get_beacon_entry_exit_v2(
+    b: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple
+):
+    c_size = sim.builder.count_p.get_attribute("cell_size")
+    beacon_mask = (
+        (b["table_owner"] == node_id)
+        & (b["cell_x"] == cell[0])
+        & (b["cell_y"] == cell[1])
+    )
+    bs = b[beacon_mask]
+    bs.loc[bs["event"] == "pre_change", ["event_id"]] = int(1)
+    bs.loc[bs["event"] == "post_change", ["event_id"]] = int(2)
+    bs.loc[bs["event"] == "ttl_reached", ["event_id"]] = int(3)
+    bs = bs.set_index(
+        ["table_owner", "event_time", "source_node", "event_id", "event_number"]
+    ).sort_index()
+    bs["cell_change_cumsum"] = bs["beacon_value"].cumsum()
+
+    return (
+        bs.groupby("event_time")["beacon_value"]
+        .sum()
+        .cumsum()
+        .reset_index()
+        .rename(columns=dict(beacon_value="cell_change_cumsum"))
+    )
+
+
+@threaded_lru(maxsize=64)
+@timing
+def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
+
+    b = get_beacon_df(sim)
+    version = 0.0
+    if hasattr(b, "user_version"):
+        version = b.user_version
+
+    print("use beacon export version {version}")
+    if version < 2.0:
+        return _get_beacon_entry_exit_v0(b, sim, node_id, cell)
+    else:
+        return _get_beacon_entry_exit_v2(b, sim, node_id, cell)
 
 
 @threaded_lru(maxsize=64)

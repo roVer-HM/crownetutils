@@ -222,6 +222,22 @@ class _OppAnalysis(AnalysisBase):
         return ax.get_figure(), ax
 
     @timing
+    def get_cumulative_received_packet_delay(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        delay_resolution: float = 1.0,
+    ) -> pd.DataFrame:
+        df = sql.vec_data(
+            module_name=module_name,
+            vector_name="rcvdPkLifetime:vector",
+            value_name="delay",
+            index=("time"),
+            index_sort=True,
+        )
+        return df
+
+    @timing
     def get_received_packet_delay(
         self,
         sql: Scave.CrownetSql,
@@ -396,6 +412,18 @@ class _OppAnalysis(AnalysisBase):
         ].sum()
         lost_df["packet_loss_ratio"] = lost_df["packet_lost"] / lost_df["numPackets"]
         return lost_df, vec_data
+
+    def get_received_packet_bytes(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+    ) -> pd.DataFrame:
+
+        df = sql.vec_data(
+            module_name=module_name,
+            vector_name="packetReceived:vector(packetBytes)",
+        )
+        return df
 
     @timing
     def create_common_plots(
