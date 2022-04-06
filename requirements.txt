@@ -27,3 +27,5 @@ dash-extensions
 dash-bootstrap-components
 Flask-Caching
 geobuf
+omnetinireader==1.8.1
+
