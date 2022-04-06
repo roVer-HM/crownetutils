@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import json
+from copy import deepcopy
 from os.path import join, split
 
 import numpy as np
@@ -313,6 +314,35 @@ def _get_beacon_entry_exit_v2(
     )
 
 
+def _get_beacon_entry_exit_v3(
+    b: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple
+):
+    c_size = sim.builder.count_p.get_attribute("cell_size")
+    beacon_mask = (
+        (b["table_owner"] == node_id)
+        & (b["cell_x"] == cell[0])
+        & (b["cell_y"] == cell[1])
+    )
+    bs = b[beacon_mask].copy(deep=True)
+    bs.loc[bs["event"] == "pre_change", ["event_id"]] = int(1)
+    bs.loc[bs["event"] == "post_change", ["event_id"]] = int(2)
+    bs.loc[bs["event"] == "ttl_reached", ["event_id"]] = int(3)
+    bs.loc[bs["event"] == "dropped", ["event_id"]] = int(4)
+    bs = bs.set_index(
+        ["table_owner", "event_time", "source_node", "event_id", "event_number"]
+    ).sort_index()
+
+    bs["cell_change_cumsum"] = bs["beacon_value"].cumsum()
+
+    return (
+        bs.groupby("event_time")["beacon_value"]
+        .sum()
+        .cumsum()
+        .reset_index()
+        .rename(columns=dict(beacon_value="cell_change_cumsum"))
+    )
+
+
 @threaded_lru(maxsize=64)
 @timing
 def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
@@ -322,11 +352,13 @@ def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
     if hasattr(b, "user_version"):
         version = b.user_version
 
-    print("use beacon export version {version}")
+    print(f"use beacon export version {version}")
     if version < 2.0:
         return _get_beacon_entry_exit_v0(b, sim, node_id, cell)
-    else:
+    elif version == 2.0:
         return _get_beacon_entry_exit_v2(b, sim, node_id, cell)
+    else:
+        return _get_beacon_entry_exit_v3(b, sim, node_id, cell)
 
 
 @threaded_lru(maxsize=64)
