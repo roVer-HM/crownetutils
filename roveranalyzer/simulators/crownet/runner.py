@@ -1,10 +1,11 @@
 import argparse
+import json
 import os
 import signal
 import sys
 import time
 from datetime import datetime
-from typing import Any, List
+from typing import Any, Dict, List
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -96,7 +97,7 @@ def add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--reuse-policy",
         dest="reuse_policy",
-        type=DockerCleanup,
+        type=DockerReuse,
         choices=list(DockerReuse),
         default=DockerReuse.REMOVE_RUNNING,
         required=False,
@@ -269,7 +270,7 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     )
 
 
-def parse_args_as_dict(runner: Any, args=None):
+def parse_args_as_dict(runner: Any, args=None) -> Dict:
     _args: List[str] = sys.argv[1:] if args is None else args
 
     # parse arguments
@@ -330,8 +331,58 @@ def parse_args_as_dict(runner: Any, args=None):
     sumo_parser.set_defaults(main_func=runner.run_simulation_omnet_sumo)
     sumo_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
+    # omnet
+    omnet_parser: argparse.ArgumentParser = sub.add_parser(
+        "omnet", help="omnet subparser", parents=[parent]
+    )
+    add_omnet_arguments(parser=omnet_parser, args=_args)
+    omnet_parser.set_defaults(main_func=runner.run_simulation_omnet)
+    omnet_parser.set_defaults(result_dir_callback=result_dir_with_opp)
+
+    # config file
+    cfg_parser: argparse.ArgumentParser = sub.add_parser(
+        "config",
+        help="read configuration from json file",
+    )
+    cfg_parser.add_argument(
+        "-f",
+        "--file",
+        dest="cfg_file",
+        required=True,
+        nargs=1,
+        help="Any json file which contains the key 'cmd_args'. The value must be a List.",
+    )
+
+    # post processing
+    post_parser: argparse.ArgumentParser = sub.add_parser(
+        "post-processing",
+        help="execute postprocessing on given output path",
+        parents=[parent],
+    )
+    post_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
+    post_parser.set_defaults(main_func=runner.run_post_only)
+    post_parser.add_argument(
+        "--override-hdf",
+        dest="hdf_override",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set override existing hdf files",
+    )
+    post_parser.add_argument(
+        "--selected-only",
+        dest="hdf_selected_cells_only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="only parse selected measures during hdf creation",
+    )
+
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
+    if "cfg_file" in ns:
+        cfg_file = ns["cfg_file"][0]
+        return read_config_file(runner, cfg_file)
 
     level_idx = ns["verbose"]
     set_level(levels[level_idx])
@@ -340,8 +391,37 @@ def parse_args_as_dict(runner: Any, args=None):
     return ns
 
 
+def read_config_file(runner: Any, cfg_file: str) -> Dict:
+    """
+    read file and search for "cmd_args" key and reload namespace from this.
+    Ensure that 'config' subcommand is not present to prevent loop
+    """
+    with open(cfg_file, "r", encoding="utf-8") as fd:
+        cfg_json = json.load(fd)
+
+    if "cmd_args" not in cfg_json:
+        raise argparse.ArgumentError(
+            f"expected 'cmd_args' key in config file but found {cfg_json.keys()}"
+        )
+
+    cmd_args = cfg_json["cmd_args"]
+    if not isinstance(cmd_args, list):
+        raise argparse.ArgumentError(
+            f"expected list value for 'cmd_args' but got {type(cmd_args)}"
+        )
+
+    if cmd_args[0] == "config":
+        raise argparse.ArgumentError(
+            f"Parse loop detected. The config file cannot contain the 'config' subcommand. [{cmd_args}]"
+        )
+
+    logger.info(f"Load config {cmd_args}")
+    return parse_args_as_dict(runner=runner, args=cmd_args)
+
+
 def result_dir_with_opp(ns, working_dir) -> str:
     """
+    !Result directory callback
     set result dir based on OMNeT++
     """
     config = ns["opp_args"].get_value("-c")
@@ -359,6 +439,9 @@ def result_dir_with_opp(ns, working_dir) -> str:
 
 
 def result_dir_vadere_only(ns, working_dir):
+    """Used with vader only setup.
+    !Result directory callback
+    """
     if os.path.abspath(ns["result_dir"]):
         return ns["result_dir"]
     else:
@@ -381,6 +464,10 @@ class process_as:
 
 
 class BaseRunner:
+    @classmethod
+    def from_config(cls, workding_dir, config_path):
+        return cls(workding_dir, args=["config", "-f", config_path])
+
     def __init__(self, working_dir, args=None):
         self.ns = parse_args_as_dict(self, args)
         self.docker_client = DockerClient.get()  # increased timeout
@@ -427,6 +514,8 @@ class BaseRunner:
         method_list = [
             os.path.splitext(qoi)[0].replace("-", "_").lower() for qoi in method_list[0]
         ]
+        if len(method_list) == 1 and "all" in method_list:
+            method_list = [_f.__name__.lower() for _, _f in map]
         filtered_map = [
             [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
         ]
@@ -435,11 +524,20 @@ class BaseRunner:
 
     def post(self):
         method_list = self.ns["qoi"]
+        err = False
         if method_list:
             _post_map = self.sort_processing("post", method_list)
             for prio, _f in _post_map:
                 print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
-                _f()
+                try:
+                    _f()
+                except Exception as e:
+                    print(f"Error while executing post processing {_f.__name__}")
+                    err = True
+                    print(e)
+
+            if err:
+                raise RuntimeError("Error in Postprocessing")
 
     def pre(self):
         method_list = self.ns["pre"]
@@ -628,6 +726,10 @@ class BaseRunner:
         ret = main_func()
         return ret
 
+    def run_post_only(self):
+        # do nothing only run set postprocessing
+        return 0
+
     def run_vadere(self):
 
         ret = 255
@@ -655,6 +757,37 @@ class BaseRunner:
             #     self.vadere_runner.container_cleanup(has_error_state=err_state)
             # self.opp_runner.container_cleanup(has_error_state=err_state)
 
+        return ret
+
+    def run_simulation_omnet(self):
+        ret = 255  # fail
+        self.build_opp_runner()
+
+        try:
+            # start OMNeT++ container and attach to it
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
+                arg_list=self.ns["opp_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=self.ns["experiment_label"],
+                run_args_override={},
+            )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
+
+        except RuntimeError as cErr:
+            logger.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logger.debug(f"cleanup with ret={ret}")
+            self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
     def run_simulation_omnet_sumo(self):
@@ -869,8 +1002,3 @@ class BaseRunner:
             if self.control_runner is not None:
                 self.control_runner.container_cleanup(has_error_state=err_state)
         return ret
-
-
-if __name__ == "__main__":
-    b = BaseRunner(".")
-    print("hi")

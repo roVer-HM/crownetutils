@@ -1,9 +1,11 @@
 import os
+from cgitb import reset
 from functools import partial
 
 import pyproj
 from shapely.geometry import geo
 from shapely.ops import transform
+from tenacity import retry
 
 
 def add_rover_env_var():
@@ -12,6 +14,25 @@ def add_rover_env_var():
         raise SystemError(
             "Please add CROWNET_HOME to your system variables to run a rover simulation."
         )
+
+
+class DataSource:
+    @classmethod
+    def provide_result(cls, name, source, result):
+        c = cls(name, source)
+        c.ret = result
+        return c
+
+    def __init__(self, name, source) -> None:
+        self.name = name
+        self.ret = None
+        self.source = source
+
+    def __repr__(self) -> str:
+        return f"<{self.__name__}: {self.name} source:{self.source}>"
+
+    def __call__(self, *args, **kwargs):
+        return self.ret
 
 
 class Project:

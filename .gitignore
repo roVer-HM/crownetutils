@@ -7,6 +7,9 @@ tutorials/test_data.d
 .directory
 **/*.mp4
 analysis_loc
+roveranalyzer/analysis/assets/
+roveranalyzer/analysis/flaskapp/application/static/*
+**/cache-directory
 
 
 # Byte-compiled / optimized / DLL files

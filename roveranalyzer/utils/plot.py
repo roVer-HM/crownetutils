@@ -1,9 +1,28 @@
 import itertools
+import os
 import random
+from functools import wraps
 from typing import List, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.backends.backend_pdf import PdfPages
+
+import roveranalyzer.utils.logging as _log
+
+logger = _log.logger
+
+
+class Style:
+    def __init__(self) -> None:
+        self.font_dict = {
+            "title": {"fontsize": 24},
+            "xlabel": {"fontsize": 20},
+            "ylabel": {"fontsize": 20},
+            "legend": {"size": 20},
+            "tick_size": 16,
+        }
+        self.create_legend = True
 
 
 class _PlotUtil:
@@ -42,9 +61,76 @@ class _PlotUtil:
         else:
             return lines
 
+    def equalize_axis(self, axes: List[plt.Axes], axis="y"):
+        if axis == "y":
+            max_ = max([i.get_yticks().max() for i in axes])
+            min_ = min([i.get_yticks().min() for i in axes])
+            for ax in axes:
+                ax.set_ylim([min_, max_])
+        else:
+            max_ = max([i.get_xticks().max() for i in axes])
+            min_ = min([i.get_xticks().min() for i in axes])
+            for ax in axes:
+                ax.set_xlim([min_, max_])
+
+    def df_to_table(self, df: pd.DataFrame, ax: plt.Axes):
+        t = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+        t.auto_set_font_size(False)
+        t.set_fontsize(11)
+        t.auto_set_column_width(col=(list(range(df.shape[1]))))
+        [c.set_height(0.04) for c in t.get_celld().values()]
+        ax.get_yaxis().set_visible(False)
+        ax.get_xaxis().set_visible(False)
+
+    def fig_to_pdf(self, path, figures: List[plt.figure]):
+        with PdfPages(path) as pdf:
+            for f in figures:
+                pdf.savefig(f)
+
     @property
     def color_marker_lines_cycle(self):
         return itertools.cycle(self.color_marker_lines())
+
+    def with_axis(self, method):
+        @wraps(method)
+        def with_axis_impl(self, *method_args, **method_kwargs):
+            if "ax" not in method_kwargs:
+                _, ax = check_ax(None)
+                method_kwargs.setdefault("ax", ax)
+            return method(self, *method_args, **method_kwargs)
+
+        return with_axis_impl
+
+    def savefigure(self, method):
+        @wraps(method)
+        def savefigure_impl(self, *method_args, **method_kwargs):
+            savefig = None
+            if "savefig" in method_kwargs:
+                savefig = method_kwargs["savefig"]
+                del method_kwargs["savefig"]
+            fig, ax = method(self, *method_args, **method_kwargs)
+            if savefig is not None:
+                if isinstance(savefig, PdfPages):
+                    savefig.savefig(fig)
+                else:
+                    os.makedirs(
+                        os.path.dirname(os.path.abspath(savefig)), exist_ok=True
+                    )
+                    logger.info(f"save figure: {savefig}")
+                    fig.savefig(savefig)
+            return fig, ax
+
+        return savefigure_impl
+
+    def plot_decorator(self, method):
+        @wraps(method)
+        def _plot_decorator(self, *method_args, **method_kwargs):
+            if self.plot_wrapper is not None:
+                return self.plot_wrapper(method, self, *method_args, **method_kwargs)
+            else:
+                return method(self, *method_args, **method_kwargs)
+
+        return _plot_decorator
 
 
 PlotUtil = _PlotUtil()

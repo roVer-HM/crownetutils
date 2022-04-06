@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from typing import Tuple, Union
 
+import dash_leaflet as dl
 import folium
-import matplotlib.pyplot as plt
 import pandas as pd
+from click import style
 from geopandas import GeoDataFrame
 from pandas.core.frame import DataFrame
 
+import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
     DcdGlobalDensity,
     DcdGlobalPosition,
 )
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
+from roveranalyzer.utils.general import Project
 
 
 class _folium:
@@ -53,11 +58,69 @@ class _DensityMap:
 
         return map
 
+    def create_interactive_map(
+        self,
+        sql: Scave.CrownetSql,
+        global_p: DcdGlobalPosition,
+        time: float | None,
+        epsg_code_base: str = Project.UTM_32N,
+        epsg_code_to: str = Project.OpenStreetMaps,
+    ) -> folium.Map:
+        i = pd.IndexSlice
+        cells = global_p.geo(Project.OpenStreetMaps)[i[time, :, :]]
+        nodes = sql.host_position(
+            epsg_code_base=epsg_code_base,
+            epsg_code_to=epsg_code_to,
+            time_slice=slice(time),
+        )
+        return self.get_interactive(cells, nodes)
+
+    def get_dash_tilelayer(self, checked="empty"):
+        layer_ctr = []
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(url="", maxZoom=20, id="empty-layer"),
+                name="empty",
+                checked=checked,
+            )
+        )
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(
+                    url="https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png",
+                    attribution='Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom=20,
+                ),
+                name="toner",
+            )
+        )
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(
+                    url="https://stamen-tiles-{s}.a.ssl.fastly.net/toner-background/{z}/{x}/{y}{r}.png",
+                    attribution='Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom=20,
+                ),
+                name="toner-background",
+            )
+        )
+        layer_ctr.append(
+            dl.BaseLayer(
+                dl.TileLayer(
+                    url="http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga",
+                    attribution="Google",
+                    maxZoom=20,
+                ),
+                name="Google Maps",
+            )
+        )
+        return layer_ctr
+
     def get_interactive(
         self,
         cells: GeoDataFrame = None,
         nodes: GeoDataFrame = None,
-        time: Union[None, float] = None,
+        time: float | None = None,
     ) -> folium.Map:
         map = None
         if cells is not None:

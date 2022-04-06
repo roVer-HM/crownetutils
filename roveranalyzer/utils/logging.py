@@ -1,4 +1,6 @@
 import logging
+import timeit as it
+from functools import wraps
 
 
 class NoConnectionPoolFilter(logging.Filter):
@@ -45,3 +47,15 @@ logger = set_default()
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger.setLevel(logging.INFO)
+
+
+def timing(func):
+    @wraps(func)
+    def _timing(*args, **kwargs):
+        ts = it.default_timer()
+        logger.debug(f"{func.__name__}>")
+        result = func(*args, **kwargs)
+        logger.info(f"{func.__name__}: took {it.default_timer() - ts:2.4f} seconds")
+        return result
+
+    return _timing

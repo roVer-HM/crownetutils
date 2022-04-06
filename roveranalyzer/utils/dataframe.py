@@ -16,7 +16,10 @@ class LazyDataFrame(object):
         self.path = path
         self.dtype = {}
 
-    def read_meta_data(self):
+    def read_meta_data(self, default=None):
+        default = (
+            {"IDXCOL": 1, "DATACOL": -1, "SEP": ";"} if default is None else default
+        )
         with open(self.path, "r") as f:
             meta_data = f.readline().strip()
         if meta_data.startswith("#"):
@@ -25,18 +28,15 @@ class LazyDataFrame(object):
                 i.split("=")[0].strip(): i.split("=")[1].strip()
                 for i in meta_data.split(",")
             }
-            if (
-                "IDXCOL" not in meta_data
-                or "DATACOL" not in meta_data
-                or "SEP" not in meta_data
-            ):
-                raise ValueError(f"worng keys {meta_data}")
             # replace quoted space with simple space
-            if meta_data["SEP"] == "' '":
-                meta_data["SEP"] = " "
+            if "SEP" in meta_data:
+                if meta_data["SEP"] == "' '":
+                    meta_data["SEP"] = " "
+            else:
+                meta_data["SEP"] = ";"
             return meta_data
         else:
-            return {"IDXCOL": 1, "DATACOL": -1, "SEP": " "}
+            return default
 
     def as_string(self, remove_meta=False):
         if remove_meta:
@@ -64,7 +64,7 @@ class LazyDataFrame(object):
             encoding="utf-8",
             comment="#",
         )
-        if set_index:
+        if set_index and "IDXCOL" in meta:
             nr_row_indices = int(meta["IDXCOL"])
             if 0 < nr_row_indices <= df.shape[1]:
                 idx_keys = df.columns[:nr_row_indices]
