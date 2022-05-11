@@ -1,6 +1,7 @@
 import os
 from cgitb import reset
 from functools import partial
+from multiprocessing.managers import ValueProxy
 
 import pyproj
 from shapely.geometry import geo
@@ -53,6 +54,13 @@ class Project:
     @classmethod
     def fromOSM(cls):
         return cls(source_crs=cls.OpenStreetMaps)
+
+    @classmethod
+    def from_proj(cls, pro_str):
+        if pro_str == "+proj=utm +zone=32 +ellps=WGS84 +datum=WGS84 +units=m +no_defs":
+            return cls.UTM_32N
+        else:
+            raise ValueError("not supported")
 
     def __init__(self, source_crs=None, dest_crs=None) -> None:
         self.source_crs = source_crs
