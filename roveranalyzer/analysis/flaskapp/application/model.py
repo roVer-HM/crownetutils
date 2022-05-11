@@ -4,6 +4,7 @@ import collections
 import json
 from copy import deepcopy
 from os.path import join, split
+from re import I
 
 import numpy as np
 import pandas as pd
@@ -314,10 +315,56 @@ def _get_beacon_entry_exit_v2(
     )
 
 
+def local_measure(sim: Simulation, node_id: int, cell: tuple | None):
+    if cell is None:
+        return sim.builder.map_p[pd.IndexSlice[:, :, :, node_id, node_id], :]
+    else:
+        return sim.builder.map_p[
+            pd.IndexSlice[:, int(cell[0]), int(cell[1]), node_id, node_id], :
+        ]
+
+
+def _merge_with_map_local(bs: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple):
+
+    # index might be not unique due to ttl check before the 'own' beacon is processed
+    bs = bs.set_index(["event_number"]).sort_index()
+
+    cumulated = bs.groupby("event_number")["beacon_value"].sum().cumsum()
+    cumulated.name = "cumulated_count"
+    bs = pd.merge(bs, cumulated, on="event_number")
+    bs = bs.reset_index()
+    bs["type"] = "neighborhoodTable"
+
+    local = local_measure(sim, node_id, cell)
+    local = local["count"].reset_index()
+    local["type"] = "densityMap"
+    local = local.rename(columns={"simtime": "event_time", "count": "cumulated_count"})
+    bs = pd.concat([bs, local], axis=0, ignore_index=True)
+    bs = bs.sort_values("event_time")
+    return bs
+
+
+def _get_beacon_entry_exit_v4(
+    b: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple
+):
+    beacon_mask = (
+        (b["table_owner"] == node_id)
+        & (b["cell_x"] == cell[0])
+        & (b["cell_y"] == cell[1])
+    )
+    bs: pd.DataFrame = b[beacon_mask].copy(deep=True)
+    bs.loc[bs["event"] == "enter_cell", ["event_id"]] = int(1)  # value +1
+    bs.loc[bs["event"] == "stay_in_cell", ["event_id"]] = int(2)  # value +0
+    bs.loc[bs["event"] == "leave_cell", ["event_id"]] = int(3)  # value -1
+    bs.loc[bs["event"] == "ttl_reached", ["event_id"]] = int(4)  # value -1
+    bs.loc[bs["event"] == "dropped", ["event_id"]] = int(5)  # value +0 (no change)
+    bs = _merge_with_map_local(bs, sim, node_id, cell)
+    return bs, ["source_node", "event_id", "received_at_time", "sent_time"]
+
+
 def _get_beacon_entry_exit_v3(
     b: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple
 ):
-    c_size = sim.builder.count_p.get_attribute("cell_size")
     beacon_mask = (
         (b["table_owner"] == node_id)
         & (b["cell_x"] == cell[0])
@@ -328,19 +375,9 @@ def _get_beacon_entry_exit_v3(
     bs.loc[bs["event"] == "post_change", ["event_id"]] = int(2)
     bs.loc[bs["event"] == "ttl_reached", ["event_id"]] = int(3)
     bs.loc[bs["event"] == "dropped", ["event_id"]] = int(4)
-    bs = bs.set_index(
-        ["table_owner", "event_time", "source_node", "event_id", "event_number"]
-    ).sort_index()
 
-    bs["cell_change_cumsum"] = bs["beacon_value"].cumsum()
-
-    return (
-        bs.groupby("event_time")["beacon_value"]
-        .sum()
-        .cumsum()
-        .reset_index()
-        .rename(columns=dict(beacon_value="cell_change_cumsum"))
-    )
+    bs = _merge_with_map_local(bs, sim, node_id, cell)
+    return bs, ["source_node", "event_id", "received_at_time", "sent_time"]
 
 
 @threaded_lru(maxsize=64)
@@ -357,8 +394,10 @@ def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
         return _get_beacon_entry_exit_v0(b, sim, node_id, cell)
     elif version == 2.0:
         return _get_beacon_entry_exit_v2(b, sim, node_id, cell)
-    else:
+    elif version == 3.0:
         return _get_beacon_entry_exit_v3(b, sim, node_id, cell)
+    else:
+        return _get_beacon_entry_exit_v4(b, sim, node_id, cell)
 
 
 @threaded_lru(maxsize=64)

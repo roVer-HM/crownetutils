@@ -360,19 +360,27 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
         sim = get_sim(signal)
         cell = m.get_cells(sim)[cell_index]
         df = m.get_beacon_entry_exit(sim, node_id, cell)
-        fig = px.scatter(
+        if isinstance(df, tuple):
+            custom = df[1]
+            df = df[0]
+        else:
+            custom = ["source_node"]
+        fig = px.line(
             df.reset_index(),
             x="event_time",
-            y="cell_change_cumsum",
+            y="cumulated_count",
+            color="type",
+            markers=".",
+            line_shape="hv",
             title=f"Cell occupancy based on beacons from node {node_id} for cell {cell}",
-            custom_data=[df["source_node"]],
+            custom_data=[df["source_node"], df["received_at_time"], df["sent_time"]],
         )
         time_index = m.get_time_index(sim)
         fig.update_xaxes(range=[time_index.min(), time_index.max()])
         fig.update_layout(hovermode="x unified")
         fig.update_traces(
             mode="markers+lines",
-            hovertemplate="value: %{y}</b> source: %{customdata[0]}",
+            hovertemplate="value: %{y}</b> source: %{customdata[0]} </b> received_time: %{customdata[1]}</b> sent_time: %{customdata[2]}",
         )
         return fig
 
