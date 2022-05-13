@@ -1,5 +1,6 @@
 import math
 import os
+from enum import Enum
 from typing import List, Union, Tuple
 
 import matplotlib.figure
@@ -9,6 +10,15 @@ from matplotlib import pyplot as plt
 
 from roveranalyzer.simulators.opp.scave import ScaveTool
 from roveranalyzer.simulators.opp.utils import Simulation
+
+
+class How(Enum):
+    """Enum for different data aggregation functions"""
+    mean = "mean"
+    min = "min"
+    max = "max"
+    sum = "sum"
+    first = "first"
 
 
 def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame:
@@ -47,7 +57,7 @@ def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame
     module = "*World.pNode[*]"
     vector_x = "posX:vector"
     vector_y = "posY:vector"
-    df = aggregate_vectors_from_simulation(sim, module, [vector_x, vector_y], "first")
+    df = aggregate_vectors_from_simulation(sim, module, [vector_x, vector_y], How.first)
 
     if not as_tuples:
         return df
@@ -264,7 +274,7 @@ def apply_distances_between_nodes(ndarray: np.ndarray) -> List[float]:
     return res
 
 
-def aggregate_vectors(df: pd.DataFrame, how: str = "mean",
+def aggregate_vectors(df: pd.DataFrame, how: How = How.mean,
                       interval: int = 1) -> pd.DataFrame:
     """
     This function will group a DataFrame containing time/value vectors into bins of the specified size and apply the
@@ -282,8 +292,7 @@ def aggregate_vectors(df: pd.DataFrame, how: str = "mean",
     |  3 |                        1.12613 |                        0.026134 |                        1.12913 |  ...
     |  4 |                        1.12913 |                        0.029134 |                        1.13413 |  ...
 
-    :param how: one of "mean", "sum", "max", "min", "first".
-            Determines the way of aggregating the metrics for each interval
+    :param how: Determines the way of aggregating the metrics for each interval
     :param interval: the interval in seconds over which metrics are aggregated
     :return: A DataFrame, whose index represents the start time of each bin, the rows containing the
              values calculated for each bin/vector. E.g:
@@ -306,15 +315,15 @@ def aggregate_vectors(df: pd.DataFrame, how: str = "mean",
         df_tmp_group_by = df_vector.groupby(pd.cut(df_vector.iloc[:, 0],
                                                    range(0, int(df_vector.iloc[:, 0].max()) + 1, interval)))
         # apply to groups
-        if how == "sum":
+        if how == How.sum:
             df_vector = df_tmp_group_by.sum()
-        elif how == "min":
+        elif how == How.min:
             df_vector = df_tmp_group_by.min()
-        elif how == "max":
+        elif how == How.max:
             df_vector = df_tmp_group_by.max()
-        elif how == "mean":
+        elif how == How.mean:
             df_vector = df_tmp_group_by.mean()
-        elif how == "first":
+        elif how == How.first:
             df_vector = df_tmp_group_by.first()
         else:
             raise ValueError(f"Value '{how}' not recognized for 'how' kwarg")
@@ -418,7 +427,7 @@ def average_sim_data(dfs: List[pd.DataFrame],
 def aggregate_vectors_from_simulation(sim: Simulation,
                                       module: str,
                                       vector_names: Union[str, List[str]],
-                                      how="mean") -> pd.DataFrame:
+                                      how: How = How.mean) -> pd.DataFrame:
     """ This function will read vector data of the given simulation and aggregate it with the given method over
         one second long intervals.
 
@@ -426,8 +435,7 @@ def aggregate_vectors_from_simulation(sim: Simulation,
     :param sim: The simulation whose data will be aggregated
     :param module: name of the module of the vectors to be read
     :param vector_names: names of the vectors to be read
-    :param how: one of "mean", "sum", "max", "min", "first".
-                Determines the way of calculating the value for each time bin
+    :param how: Determines the way of aggregating the value for each time bin
     :return: a DataFrame containing the aggregated data (as returned by the aggregate_vectors() function)
     """
     if isinstance(vector_names, str):
