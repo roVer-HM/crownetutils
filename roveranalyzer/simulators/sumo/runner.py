@@ -6,7 +6,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
-from roveranalyzer.utils import logger
+from roveranalyzer.utils import logger, sockcheck
 
 
 class SumoRunner(DockerRunner):
@@ -73,7 +73,9 @@ class SumoRunner(DockerRunner):
 
         logger.debug(f"start sumo container(single server)")
         logger.debug(f"cmd: {' '.join(cmd)}")
-        return self.run(cmd, **run_args_override)
+        run_result = self.run(cmd, **run_args_override)
+        self.wait_for_log(f"listening on port {traci_port}...")
+        return run_result
 
     def single_launcher(
         self,
@@ -99,17 +101,20 @@ class SumoRunner(DockerRunner):
 
         logger.debug(f"start sumo container(single server)")
         logger.debug(f"cmd: {' '.join(cmd)}")
-        return self.run(cmd, **run_args_override)
+        run_result = self.run(cmd, **run_args_override)
+        #TODO replace sockcheck.check by self.wait_for_log()
+        sockcheck.check(self.name, int(traci_port))
+        return run_result
 
-    def exec_start_vadere_laucher(self):
+    def exec_start_sumo_launcher(self):
         """
-        start the vadere-laucher.py script in the container which creates multiple Vadere
+        start the launcher.py script in the container which creates multiple sumo
         instances inside ONE container.
         """
         pass
 
-    def exec_vadere_gui(self):
+    def exec_sumo_gui(self):
         """
-        start vadere gui to create or execute vadere scenarios.
+        start sumo gui to create or execute scenarios.
         """
         pass

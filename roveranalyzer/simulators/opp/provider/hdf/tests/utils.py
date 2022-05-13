@@ -6,6 +6,7 @@ import pandas as pd
 from fs.tempfs import TempFS
 
 from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
 
 
 def create_tmp_fs(name, auto_clean=True) -> TempFS:
@@ -79,7 +80,11 @@ def create_dcd_csv_dataframe(
     df[DcdMapKey.SOURCE] = nodes
     df[DcdMapKey.SELECTION] = selections
     df[DcdMapKey.OWN_CELL] = own_cells
-    df.set_index(list(DcdMapKey.types_csv_index.keys()), drop=True, inplace=True)
+    df.set_index(
+        list(DcdMapKey.types_csv_index[ProviderVersion.V0_1].keys()),
+        drop=True,
+        inplace=True,
+    )
     return df, DcdMetaData(3.0, 10, 10, 0)
 
 

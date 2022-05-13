@@ -378,30 +378,14 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_default, expected_eq)
         self.assertEqual(result_list, expected_list)
 
-    @patch("tables.open_file")
-    def test_set_attribute(self, mock_open_file: MagicMock):
+    # @patch("tables.open_file")
+    def test_set_get_attribute(self):
         key = "key"
         value = "value"
+        print(self.provider.hdf_path)
         self.provider.set_attribute(key, value)
-        mock_open_file.assert_called_once_with(self.provider.hdf_path, "a")
-        hdf_group_select: MagicMock = (
-            mock_open_file.return_value.__enter__().root.__getitem__
-        )
-        hdf_group_select.assert_called_once_with(self.provider.group)
-        attr_select: MagicMock = hdf_group_select.return_value.table.attrs.__setitem__
-        attr_select.assert_called_once_with(key, value)
-
-    @patch("tables.open_file")
-    def test_get_attribute(self, mock_open_file: MagicMock):
-        key = "key"
-        self.provider.get_attribute(key)
-        mock_open_file.assert_called_once_with(self.provider.hdf_path, "r")
-        hdf_group_select: MagicMock = (
-            mock_open_file.return_value.__enter__().root.__getitem__
-        )
-        hdf_group_select.assert_called_once_with(self.provider.group)
-        attr_select: MagicMock = hdf_group_select.return_value.table.attrs.__getitem__
-        attr_select.assert_called_once_with(key)
+        v = self.provider.get_attribute(key)
+        self.assertEqual(value, v)
 
 
 if __name__ == "__main__":

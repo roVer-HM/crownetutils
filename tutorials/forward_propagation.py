@@ -144,7 +144,7 @@ def run_rover_simulations(par_var, result_dir="output_df"):
         config="final",
         parameter_dict_list=par_var,
         qoi=qoi(),
-        model=CoupledConsoleWrapper(model="Coupled"),
+        model=VadereOmnetWrapper(model="Coupled"),
         scenario_runs=1,
         post_changes=PostScenarioChangesBase(apply_default=True),
         output_path=os.getcwd(),

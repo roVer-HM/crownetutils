@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import glob
 import json
@@ -22,6 +24,7 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMap
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import FrameConsumer
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
+from roveranalyzer.utils import logging
 
 
 def _hdf_job(args):
@@ -133,6 +136,7 @@ class DcdHdfBuilder(FrameConsumer):
         self.map_paths = map_paths
         self.global_path = global_path
         self._epsg = epsg
+        self._only_selected_cells = True
         # providers
         self.count_p = DcdMapCount(self.hdf_path)
         self.map_p = DcdMapProvider(self.hdf_path)
@@ -148,6 +152,10 @@ class DcdHdfBuilder(FrameConsumer):
 
     def epsg(self, epsg):
         self._epsg = epsg
+        return self
+
+    def only_selected_cells(self, val=True):
+        self._only_selected_cells = val
         return self
 
     def build(
@@ -174,18 +182,19 @@ class DcdHdfBuilder(FrameConsumer):
             bound=self.position_p.get_attribute("cell_bound"),
             offset=self.position_p.get_attribute("offset"),
             epsg=self.position_p.get_attribute("epsg"),
+            version=self.position_p.get_attribute("version"),
             node_id=0,
         )
         return DcdProviders(
-            metadata=copy.deepcopy(metadata),
-            global_p=copy.deepcopy(self.global_p),
-            position_p=copy.deepcopy(self.position_p),
-            map_p=copy.deepcopy(self.map_p),
-            count_p=copy.deepcopy(self.count_p),
-            time_slice=copy.deepcopy(time_slice),
-            id_slice=copy.deepcopy(id_slice),
-            x_slice=copy.deepcopy(x_slice),
-            y_slice=copy.deepcopy(y_slice),
+            metadata=metadata,
+            global_p=self.global_p,
+            position_p=self.position_p,
+            map_p=self.map_p,
+            count_p=self.count_p,
+            time_slice=time_slice,
+            id_slice=id_slice,
+            x_slice=x_slice,
+            y_slice=y_slice,
         )
 
     def build_dcdMap(
@@ -194,9 +203,20 @@ class DcdHdfBuilder(FrameConsumer):
         id_slice: slice = slice(None),
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
+        selection: str | int = "ymf",
     ):
-        self.add_df_filter(DcdUtil.remove_not_selected_cells)
+        if self._only_selected_cells:
+            self.add_df_filter(DcdUtil.remove_not_selected_cells)
         providers = self.build(time_slice, id_slice, x_slice, y_slice)
+
+        if isinstance(selection, str):
+            m = providers.map_p.get_selection_mapping_attribute()
+            if selection not in m:
+                logging.logging.error(
+                    f"selection string '{selection}'not found expected one of"
+                    f"[{','.join(m.keys())}]"
+                )
+            selection = m[selection]
 
         return DcdMap2D(
             metadata=providers.metadata,
@@ -206,7 +226,7 @@ class DcdHdfBuilder(FrameConsumer):
             count_p=providers.count_p,
             count_slice=providers.count_slice,
             map_p=providers.map_p.add_filter(
-                selection=1
+                selection=selection
             ),  # ensure only selected cells are load
             map_slice=providers.map_slice,
         )
@@ -248,7 +268,10 @@ class DcdHdfBuilder(FrameConsumer):
             .to_numpy()
         )
         self.map_p.create_from_csv(
-            self.map_paths, [self], global_position=self.position_df
+            self.map_paths,
+            [self],
+            global_position=self.position_df,
+            global_metadata=meta,
         )
         # 3) append global count to count provider
         self.append_global_count()
@@ -268,6 +291,7 @@ class DcdHdfBuilder(FrameConsumer):
             p.set_attribute("cell_bound", meta.bound)
             p.set_attribute("offset", meta.offset)
             p.set_attribute("epsg", self._epsg)
+            p.set_attribute("version", meta.version)
             p.set_attribute(
                 "time_interval", [np.min(self._all_times), np.max(self._all_times)]
             )

@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import signal
 import sys
@@ -29,7 +30,7 @@ from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils import levels, logger, set_format, set_level
 
 
-def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
+def add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
@@ -96,7 +97,7 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--reuse-policy",
         dest="reuse_policy",
-        type=DockerCleanup,
+        type=DockerReuse,
         choices=list(DockerReuse),
         default=DockerReuse.REMOVE_RUNNING,
         required=False,
@@ -112,13 +113,25 @@ def add_base_arguments(parser: argparse.ArgumentParser, args: List[str]):
     )
 
 
-def add_control_arguments(parser: argparse.ArgumentParser):
+def add_control_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
         default="latest",
         required=False,
         help="Choose Control container. (Default: latest)",
+    )
+    parser.add_argument(
+        "--ctrl.xxx",
+        *filter_options(args, "--ctrl."),
+        dest="ctrl_args",
+        default=ArgList(),
+        action=SimulationArgAction,
+        prefix="--ctrl.",
+        help="Specify arguments for the control script. Use --ctrl. prefix to specify arguments to pass to the control executable."
+        "`--ctrl.foo bar` --> `--foo bar`. If single '-' is needed use `--ctrl.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
     )
     parser.add_argument(
         "-wc",
@@ -257,7 +270,7 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     )
 
 
-def parse_args_as_dict(runner: Any, args=None):
+def parse_args_as_dict(runner: Any, args=None) -> Dict:
     _args: List[str] = sys.argv[1:] if args is None else args
 
     # parse arguments
@@ -266,7 +279,7 @@ def parse_args_as_dict(runner: Any, args=None):
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands
-    add_base_arguments(parser=parent, args=_args)
+    add_base_arguments(parser=parent)
 
     # subparsers
     sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
@@ -284,7 +297,7 @@ def parse_args_as_dict(runner: Any, args=None):
         "vadere-control", help="vadere control subparser", parents=[parent]
     )
     add_vadere_arguments(parser=vadere_control_parser)
-    add_control_arguments(parser=vadere_control_parser)
+    add_control_arguments(parser=vadere_control_parser, args=_args)
     vadere_control_parser.set_defaults(main_func=runner.run_simulation_vadere_ctl)
     vadere_control_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
 
@@ -303,7 +316,7 @@ def parse_args_as_dict(runner: Any, args=None):
     )
     add_omnet_arguments(parser=vadere_opp_control_parser, args=_args)
     add_vadere_arguments(parser=vadere_opp_control_parser)
-    add_control_arguments(parser=vadere_opp_control_parser)
+    add_control_arguments(parser=vadere_opp_control_parser, args=_args)
     vadere_opp_control_parser.set_defaults(
         main_func=runner.run_simulation_vadere_omnet_ctl
     )
@@ -318,8 +331,58 @@ def parse_args_as_dict(runner: Any, args=None):
     sumo_parser.set_defaults(main_func=runner.run_simulation_omnet_sumo)
     sumo_parser.set_defaults(result_dir_callback=result_dir_with_opp)
 
+    # omnet
+    omnet_parser: argparse.ArgumentParser = sub.add_parser(
+        "omnet", help="omnet subparser", parents=[parent]
+    )
+    add_omnet_arguments(parser=omnet_parser, args=_args)
+    omnet_parser.set_defaults(main_func=runner.run_simulation_omnet)
+    omnet_parser.set_defaults(result_dir_callback=result_dir_with_opp)
+
+    # config file
+    cfg_parser: argparse.ArgumentParser = sub.add_parser(
+        "config",
+        help="read configuration from json file",
+    )
+    cfg_parser.add_argument(
+        "-f",
+        "--file",
+        dest="cfg_file",
+        required=True,
+        nargs=1,
+        help="Any json file which contains the key 'cmd_args'. The value must be a List.",
+    )
+
+    # post processing
+    post_parser: argparse.ArgumentParser = sub.add_parser(
+        "post-processing",
+        help="execute postprocessing on given output path",
+        parents=[parent],
+    )
+    post_parser.set_defaults(result_dir_callback=result_dir_vadere_only)
+    post_parser.set_defaults(main_func=runner.run_post_only)
+    post_parser.add_argument(
+        "--override-hdf",
+        dest="hdf_override",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set override existing hdf files",
+    )
+    post_parser.add_argument(
+        "--selected-only",
+        dest="hdf_selected_cells_only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="only parse selected measures during hdf creation",
+    )
+
     parsed_args = main.parse_args(_args)
     ns = vars(parsed_args)
+    if "cfg_file" in ns:
+        cfg_file = ns["cfg_file"][0]
+        return read_config_file(runner, cfg_file)
 
     level_idx = ns["verbose"]
     set_level(levels[level_idx])
@@ -328,8 +391,37 @@ def parse_args_as_dict(runner: Any, args=None):
     return ns
 
 
+def read_config_file(runner: Any, cfg_file: str) -> Dict:
+    """
+    read file and search for "cmd_args" key and reload namespace from this.
+    Ensure that 'config' subcommand is not present to prevent loop
+    """
+    with open(cfg_file, "r", encoding="utf-8") as fd:
+        cfg_json = json.load(fd)
+
+    if "cmd_args" not in cfg_json:
+        raise argparse.ArgumentError(
+            f"expected 'cmd_args' key in config file but found {cfg_json.keys()}"
+        )
+
+    cmd_args = cfg_json["cmd_args"]
+    if not isinstance(cmd_args, list):
+        raise argparse.ArgumentError(
+            f"expected list value for 'cmd_args' but got {type(cmd_args)}"
+        )
+
+    if cmd_args[0] == "config":
+        raise argparse.ArgumentError(
+            f"Parse loop detected. The config file cannot contain the 'config' subcommand. [{cmd_args}]"
+        )
+
+    logger.info(f"Load config {cmd_args}")
+    return parse_args_as_dict(runner=runner, args=cmd_args)
+
+
 def result_dir_with_opp(ns, working_dir) -> str:
     """
+    !Result directory callback
     set result dir based on OMNeT++
     """
     config = ns["opp_args"].get_value("-c")
@@ -347,6 +439,9 @@ def result_dir_with_opp(ns, working_dir) -> str:
 
 
 def result_dir_vadere_only(ns, working_dir):
+    """Used with vader only setup.
+    !Result directory callback
+    """
     if os.path.abspath(ns["result_dir"]):
         return ns["result_dir"]
     else:
@@ -369,6 +464,10 @@ class process_as:
 
 
 class BaseRunner:
+    @classmethod
+    def from_config(cls, workding_dir, config_path):
+        return cls(workding_dir, args=["config", "-f", config_path])
+
     def __init__(self, working_dir, args=None):
         self.ns = parse_args_as_dict(self, args)
         self.docker_client = DockerClient.get()  # increased timeout
@@ -415,6 +514,8 @@ class BaseRunner:
         method_list = [
             os.path.splitext(qoi)[0].replace("-", "_").lower() for qoi in method_list[0]
         ]
+        if len(method_list) == 1 and "all" in method_list:
+            method_list = [_f.__name__.lower() for _, _f in map]
         filtered_map = [
             [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
         ]
@@ -423,11 +524,20 @@ class BaseRunner:
 
     def post(self):
         method_list = self.ns["qoi"]
+        err = False
         if method_list:
             _post_map = self.sort_processing("post", method_list)
             for prio, _f in _post_map:
                 print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
-                _f()
+                try:
+                    _f()
+                except Exception as e:
+                    print(f"Error while executing post processing {_f.__name__}")
+                    err = True
+                    print(e)
+
+            if err:
+                raise RuntimeError("Error in Postprocessing")
 
     def pre(self):
         method_list = self.ns["pre"]
@@ -480,7 +590,7 @@ class BaseRunner:
                 ContainerLogWriter(f"{self.result_base_dir()}/container_sumo.out")
             )
 
-    def build_and_start_control_runner(self, port=9997):
+    def build_and_start_control_runner(self):
         self.build_control_runner(detach=True)
         self.exec_control_runner(mode="server")
 
@@ -541,6 +651,9 @@ class BaseRunner:
         if mode == "client":
 
             host_name = f"vadere_{self.ns['run_name']}"
+            experiment_label = (
+                f"{ControlRunner.OUTPUT_DEFAULT}_{self.ns['experiment_label']}"
+            )
 
             _wait_for_vadere = True
             while _wait_for_vadere:
@@ -556,6 +669,9 @@ class BaseRunner:
                 traci_port=9999,
                 use_local=self.ns["ctl_local"],
                 scenario=self.ns["scenario_file"],
+                ctrl_args=self.ns["ctrl_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=experiment_label,
             )
         else:
 
@@ -567,13 +683,10 @@ class BaseRunner:
                 connection_mode="server",
                 traci_port=9997,
                 use_local=self.ns["ctl_local"],
+                ctrl_args=self.ns["ctrl_args"],
             )
 
-    def build_and_start_vadere_only(self, port=None):
-
-        if port is None:
-            port = self.ns["v_traci_port"]
-
+    def build_and_start_vadere_only(self):
         run_name = self.ns["run_name"]
         self.vadere_runner = VadereRunner(
             docker_client=self.docker_client,
@@ -590,11 +703,6 @@ class BaseRunner:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
             )
-
-        # TODO (duplicates write_container_log)
-        logfile = os.devnull
-        if self.ns["v_logfile"] != "":
-            logfile = self.ns["v_logfile"]
 
         os.makedirs(self.result_base_dir(), exist_ok=True)
 
@@ -618,6 +726,10 @@ class BaseRunner:
         ret = main_func()
         return ret
 
+    def run_post_only(self):
+        # do nothing only run set postprocessing
+        return 0
+
     def run_vadere(self):
 
         ret = 255
@@ -637,7 +749,6 @@ class BaseRunner:
 
         finally:
             # always stop container and delete if no error occurred
-            err_state = ret
             logger.debug(f"cleanup with ret={ret}")
 
             # TODO: does not work
@@ -646,6 +757,37 @@ class BaseRunner:
             #     self.vadere_runner.container_cleanup(has_error_state=err_state)
             # self.opp_runner.container_cleanup(has_error_state=err_state)
 
+        return ret
+
+    def run_simulation_omnet(self):
+        ret = 255  # fail
+        self.build_opp_runner()
+
+        try:
+            # start OMNeT++ container and attach to it
+            logger.info(f"start simulation {self.ns['run_name']} ...")
+            opp_ret = self.opp_runner.exec_opp_run(
+                arg_list=self.ns["opp_args"],
+                result_dir=self.ns["result_dir"],
+                experiment_label=self.ns["experiment_label"],
+                run_args_override={},
+            )
+            ret = opp_ret["StatusCode"]
+            if ret != 0:
+                raise RuntimeError(f"OMNeT++ container exited with StatusCode '{ret}'")
+
+        except RuntimeError as cErr:
+            logger.error(cErr)
+            ret = 255
+        except KeyboardInterrupt as K:
+            logger.info("KeyboardInterrupt detected. Shutdown. ")
+            ret = 128 + signal.SIGINT
+            raise
+        finally:
+            # always stop container and delete if no error occurred
+            err_state = ret != 0
+            logger.debug(f"cleanup with ret={ret}")
+            self.opp_runner.container_cleanup(has_error_state=err_state)
         return ret
 
     def run_simulation_omnet_sumo(self):
@@ -710,7 +852,6 @@ class BaseRunner:
         try:
             if self.ns["create_vadere_container"]:
                 self.build_and_start_vadere_runner()
-
             if self.ns["override-host-config"]:
                 self.ns["opp_args"].add(f"--vadere-host={self.vadere_runner.name}")
             # start OMNeT++ container and attach to it.
@@ -825,17 +966,11 @@ class BaseRunner:
             "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"
         )
 
-        output_dir = os.path.join(
-            os.getcwd(),
-            f"results/vadere_controlled_{self.ns['experiment_label']}/vadere.d",
-        )
-        os.makedirs(output_dir, exist_ok=True)
-
         self.build_control_runner()
 
         try:
             if self.ns["create_vadere_container"]:
-                self.build_and_start_vadere_runner(port=9999, output_dir=output_dir)
+                self.build_and_start_vadere_runner(port=9999)
                 logger.info(f"start simulation {self.ns['run_name']} ...")
 
             ctl_ret = self.exec_control_runner(mode="client")
@@ -854,7 +989,7 @@ class BaseRunner:
         except RuntimeError as cErr:
             logger.error(cErr)
             ret = 255
-        except KeyboardInterrupt as K:
+        except KeyboardInterrupt:
             logger.info("KeyboardInterrupt detected. Shutdown. ")
             ret = 128 + signal.SIGINT
             raise
@@ -867,8 +1002,3 @@ class BaseRunner:
             if self.control_runner is not None:
                 self.control_runner.container_cleanup(has_error_state=err_state)
         return ret
-
-
-if __name__ == "__main__":
-    b = BaseRunner(".")
-    print("hi")

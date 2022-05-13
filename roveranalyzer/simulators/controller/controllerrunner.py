@@ -1,14 +1,13 @@
 import os
 
-from pandas import IndexSlice
-
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
-from roveranalyzer.utils import logger
+from roveranalyzer.utils import logger, sockcheck
 
 
 class ControlRunner(DockerRunner):
@@ -21,6 +20,8 @@ class ControlRunner(DockerRunner):
         DEBUG = "DEBUG"
         TRACE = "TRACE"
         ALL = "ALL"
+
+    OUTPUT_DEFAULT = "vadere_controlled"
 
     def __init__(
         self,
@@ -67,6 +68,9 @@ class ControlRunner(DockerRunner):
         traci_port=9999,
         use_local=False,
         scenario=None,
+        result_dir="results",
+        experiment_label="vadere_controlled_out",
+        ctrl_args: ArgList = ArgList(),
     ):
 
         # if connection_mode == "client":
@@ -90,11 +94,17 @@ class ControlRunner(DockerRunner):
             str(traci_port),
             "--host-name",
             host_name,
+            ctrl_args.to_string(),
         ]
 
         if connection_mode == "client":
             cmd.extend(["--client-mode", "--scenario-file", scenario])
+            cmd.extend(["--output-dir", result_dir])
+            cmd.extend(["--experiment-label", experiment_label])
 
         logger.debug(f"start controller container(start_controller)")
         logger.debug(f"cmd: {' '.join(cmd)}")
-        return self.run(cmd, self.run_args)
+        run_result = self.run(cmd, self.run_args)
+        if connection_mode == "server":
+            self.wait_for_log(f"listening on port {traci_port} ...")
+        return run_result

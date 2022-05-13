@@ -1,9 +1,12 @@
 import os
+from cgitb import reset
 from functools import partial
+from multiprocessing.managers import ValueProxy
 
 import pyproj
 from shapely.geometry import geo
 from shapely.ops import transform
+from tenacity import retry
 
 
 def add_rover_env_var():
@@ -12,6 +15,25 @@ def add_rover_env_var():
         raise SystemError(
             "Please add CROWNET_HOME to your system variables to run a rover simulation."
         )
+
+
+class DataSource:
+    @classmethod
+    def provide_result(cls, name, source, result):
+        c = cls(name, source)
+        c.ret = result
+        return c
+
+    def __init__(self, name, source) -> None:
+        self.name = name
+        self.ret = None
+        self.source = source
+
+    def __repr__(self) -> str:
+        return f"<{self.__name__}: {self.name} source:{self.source}>"
+
+    def __call__(self, *args, **kwargs):
+        return self.ret
 
 
 class Project:
@@ -32,6 +54,13 @@ class Project:
     @classmethod
     def fromOSM(cls):
         return cls(source_crs=cls.OpenStreetMaps)
+
+    @classmethod
+    def from_proj(cls, pro_str):
+        if pro_str == "+proj=utm +zone=32 +ellps=WGS84 +datum=WGS84 +units=m +no_defs":
+            return cls.UTM_32N
+        else:
+            raise ValueError("not supported")
 
     def __init__(self, source_crs=None, dest_crs=None) -> None:
         self.source_crs = source_crs

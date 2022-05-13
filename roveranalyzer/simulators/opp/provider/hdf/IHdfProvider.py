@@ -1,11 +1,27 @@
+from __future__ import annotations
+
 import abc
 import contextlib
 import os
+import threading
 import warnings
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from enum import Enum
+from typing import (
+    Any,
+    ContextManager,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import pandas as pd
+import tables
 from geopandas.geodataframe import GeoDataFrame
+from matplotlib.pyplot import table
 
 from roveranalyzer.simulators.opp.provider.hdf.IHdfGeoProvider import GeoProvider
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
@@ -31,9 +47,20 @@ class FrameConsumer(metaclass=abc.ABCMeta):
 
 class BaseHdfProvider:
     def __init__(self, hdf_path: str, group: str = "root"):
+        self._lock = threading.Lock()
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
+
+    # allow pickling of hdf providers
+    def __getstate__(self):
+        _state = self.__dict__.copy()
+        del _state["_lock"]  # remove unpicklable entry
+        return _state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
 
     def get_dataframe(self, group=None) -> pd.DataFrame:
         """
@@ -45,21 +72,41 @@ class BaseHdfProvider:
             df = store.get(key=_key)
         return pd.DataFrame(df)
 
+    def write_frame(self, group, frame, index=True, index_data_columns=True):
+        with self.ctx() as store:
+            store.append(
+                key=group,
+                value=frame,
+                index=index,
+                format="table",
+                data_columns=index_data_columns,
+            )
+
     def set_attribute(self, attr_key: str, value: Any, group=None):
-        import tables
 
         _key = self.group if group is None else group
-        with tables.open_file(self._hdf_path, "a") as hdf_file:
+        with self.tables_file(self._hdf_path, "a") as hdf_file:
+            # with tables.open_file(self._hdf_path, "a") as hdf_file:
             if _key not in hdf_file.root:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
 
-    def get_attribute(self, attr_key: str, group=None):
-        import tables
+    def get_attribute(self, attr_key: str, group=None, default: Any = None):
+
+        if not self.hdf_file_exists:
+            return default
 
         _key = self.group if group is None else group
-        with tables.open_file(self._hdf_path, "r") as hdf_file:
-            return hdf_file.root[_key].table.attrs[attr_key]
+        with self.tables_file(self._hdf_path, "r") as hdf_file:
+            # with tables.open_file(self._hdf_path, "r") as hdf_file:
+            if attr_key in hdf_file.root[_key].table.attrs:
+                return hdf_file.root[_key].table.attrs[attr_key]
+            else:
+                return default
+
+    @property
+    def hdf_file_exists(self):
+        return os.path.exists(self._hdf_path)
 
     def get_time_interval(self):
         return self.get_attribute("time_interval")
@@ -69,14 +116,44 @@ class BaseHdfProvider:
             return group in [g._v_name for g in ctx.groups()]
 
     @contextlib.contextmanager  # to ensure store closes after access
-    def ctx(self, mode="a", **kwargs) -> pd.HDFStore:
-        _args = dict(self._hdf_args)
-        _args.update(kwargs)
-        store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
+    def ctx(self, mode="a", **kwargs) -> Iterator[pd.HDFStore]:
         try:
-            yield store
+            self._lock.acquire()
+            _args = dict(self._hdf_args)
+            _args.update(kwargs)
+            store: pd.HDFStore = pd.HDFStore(self._hdf_path, mode=mode, **_args)
+            try:
+                yield store
+            finally:
+                store.close()
         finally:
-            store.close()
+            self._lock.release()
+
+    @contextlib.contextmanager
+    def tables_file(self, path, mode="r", **kwargs) -> Iterator[tables.File]:
+        try:
+            self._lock.acquire()
+            file = tables.open_file(path, mode)
+            try:
+                yield file
+            finally:
+                file.close()
+        finally:
+            self._lock.release()
+
+    @property
+    def query(self) -> Iterator[pd.HDFStore]:
+        return self.ctx(mode="r")
+
+
+class ProviderVersion(Enum):
+
+    V0_1 = "0.1"
+    V0_2 = "0.2"
+
+    @classmethod
+    def current(cls):
+        return list(cls.__members__.values())[-1]
 
 
 class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
@@ -85,7 +162,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
     are *Not* done. Caller must ensure file exists
     """
 
-    def __init__(self, hdf_path: str):
+    def __init__(self, hdf_path: str, version: str | None = None):
         super().__init__(hdf_path, group=self.group_key())
         # self._hdf_path: str = hdf_path
         # self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
@@ -102,6 +179,25 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         }
         self._filters = set()
         self.operators = Operation
+        if version is None:
+            # use version of provided hdf-file or default to current  version.
+            self._version = self.get_attribute(
+                "version", default=ProviderVersion.current()
+            )
+            if not isinstance(self._version, ProviderVersion):
+                self._version = ProviderVersion(self._version)
+        else:
+            if self.hdf_file_exists and version != self.get_attribute("version"):
+                raise ValueError(
+                    f"Version missmatch. hdf file reports version {self.get_attribute('version')} but object expected {version}"
+                )
+            self._version = version
+
+        print(f"HDF version: {self.version}")
+
+    @property
+    def version(self):
+        return self._version
 
     @abc.abstractmethod
     def group_key(self) -> str:
@@ -201,7 +297,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         condition: List[str] = []
         for idx in range(len(self.idx_order)):
             tuple_item = value[idx] if len(value) > idx else None
-            if tuple_item:
+            if tuple_item is not None:
                 condition += self.dispatch(self.idx_order[idx], tuple_item)[
                     0
                 ]  # ignore columns
@@ -240,10 +336,13 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             dataframe = self.get_dataframe()
         else:
             dataframe = self._select_where(condition, columns)
-        if dataframe.empty:
-            raise ValueError(
-                f"Returned dataframe was empty. Please check your index names.{condition=}"
-            )
+        # if (
+        #     dataframe.empty and columns is None
+        # ):  # if len(column) == 0 user only wants index!
+        #     raise ValueError(
+        #         f"Returned dataframe was empty. Please check your index names.{condition=}"
+        #     )
+        # allow empty frames
         return dataframe
 
     def __setitem__(self, key, value):

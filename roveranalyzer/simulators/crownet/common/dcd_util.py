@@ -109,6 +109,13 @@ def owner_dist_feature(_df_ret, **kwargs):
         # Warning: may lead to error if not all owner locations are part of the data frame
         return owner_dist_feature_old(_df_ret, **kwargs)
 
+    if "global_metadata" in kwargs and kwargs["global_metadata"].is_entropy_data():
+        # entropy based map. Owner distance invalid!
+        _df_ret["x_owner"] = -1.0
+        _df_ret["y_owner"] = -1.0
+        _df_ret["owner_dist"] = -1.0
+        return _df_ret
+
     # access global position map and extract positions of the current node.
     glb_pos = kwargs["global_position"]
     node_id = _df_ret.index.get_level_values("ID").unique()[0]
@@ -197,7 +204,7 @@ def read_csv(
     read csv and set index
     """
     _df = LazyDataFrame.from_path(csv_path)
-    _df.dtype = z = {**_index_types, **_col_types}
+    _df.dtype = {**_index_types, **_col_types}
     select_columns = list(_df.dtype.keys())
     index_names = list(_index_types.keys())
     df_raw: pd.DataFrame = _df.df(set_index=False, column_selection=select_columns)
