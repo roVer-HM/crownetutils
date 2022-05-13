@@ -9,7 +9,6 @@ from matplotlib import pyplot as plt
 
 from roveranalyzer.simulators.opp.scave import ScaveTool
 from roveranalyzer.simulators.opp.utils import Simulation
-from roveranalyzer.utils import PathHelper
 
 
 def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame:
