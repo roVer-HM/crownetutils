@@ -49,12 +49,6 @@ def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame
     vector_x = "posX:vector"
     vector_y = "posY:vector"
     df = aggregate_vectors_from_simulation(sim, module, [vector_x, vector_y], "first")
-    # sfilter = ScaveTool().filter_builder().module(module).AND().gOpen().name(vector_y).OR().name(vector_x).gClose()
-    # vec_paths = [os.path.join(sim.path, f) for f in os.listdir(sim.path) if f.endswith('.vec')]
-    # df = ScaveTool().load_df_from_scave(vec_paths[0], sfilter)
-    # df = df.opp.filter().vector().normalize_vectors(axis=1)
-    # df = aggregate_vectors(df, "first")
-    # df = df.reindex(sorted(df.columns), axis=1)
 
     if not as_tuples:
         return df
