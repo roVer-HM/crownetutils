@@ -804,7 +804,8 @@ class DcdMap2D(DcdMap):
         else:
             # nodes = self.count_diff(val={"count"}, agg={"mean", "std"})
             nodes = self.count_diff(
-                val={"count"}, agg={"mean", percentile(0.25), percentile(0.75)}
+                val={"count"},
+                agg={percentile(0.50), percentile(0.25), percentile(0.75)},
             )
 
         font_dict = self.style.font_dict
@@ -812,12 +813,12 @@ class DcdMap2D(DcdMap):
         ax.set_xlabel("Time [s]", **font_dict["xlabel"])
         ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
         n = (
-            nodes.loc[:, ["count_mean", "count_p_25", "count_p_75"]]
+            nodes.loc[:, ["count_p_50", "count_p_25", "count_p_75"]]
             .dropna()
             .reset_index()
         )
         # n = nodes.loc[:, ["count_mean", "count_std"]].dropna().reset_index()
-        ax.plot("simtime", "count_mean", data=n, label="Mean count")
+        ax.plot("simtime", "count_p_50", data=n, label="Median count")
 
         # ax.fill_between(
         #     n["simtime"],
