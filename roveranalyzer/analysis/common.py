@@ -15,6 +15,7 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.entrypoint.parser import ArgList
+from roveranalyzer.simulators.crownet.runner import read_config_file
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils import Project, logger
 
@@ -73,6 +74,28 @@ class AnalysisBase:
 
 
 class RunContext:
+    class _dummy_runner:
+        def run_simulation_omnet(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def run_simulation_omnet_sumo(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def run_vadere(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def run_simulation_vadere_ctl(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def run_simulation_omnet_vadere(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def run_simulation_vadere_omnet_ctl(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def run_post_only(self, *args, **kwargs):
+            raise NotImplementedError
+
     @classmethod
     def from_path(cls, path):
         with open(path, "r", encoding="utf-8") as fd:
@@ -80,6 +103,7 @@ class RunContext:
 
     def __init__(self, data) -> None:
         self.data = data
+        self._ns = read_config_file(self._dummy_runner(), self.data)
         self.args: ArgList = ArgList.from_flat_list(self.data["cmd_args"])
 
     @property
@@ -102,6 +126,10 @@ class RunContext:
         )
 
     @property
+    def resultdir(self):
+        return self._ns["result_dir_callback"](self._ns, self._ns["result_dir"])
+
+    @property
     def sample_name(self):
         sample = self.args.get_value("--resultdir")
         return sample.split(os.sep)[-1]
@@ -114,18 +142,22 @@ class Simulation:
     """
 
     @classmethod
+    def from_context(cls, ctx: RunContext, label=""):
+        return cls(ctx.resultdir, label=label, run_context=ctx)
+
+    @classmethod
     def from_suqc_result(cls, data_root, label=""):
         for i, p in enumerate(data_root.split(os.sep)[::-1]):
             if p.startswith("Sample"):
                 label = f"{p}_{label}"
                 runcontext = join(data_root, "../../../", p, "runContext.json")
                 runcontext = os.path.abspath(runcontext.replace("Sample_", "Sample__"))
-                o = cls(data_root, label)
+                o = cls(data_root, label, RunContext.from_path(runcontext))
                 o.run_context = RunContext.from_path(runcontext)
                 return o
         raise ValueError("data_root not an suq-controller output directory")
 
-    def __init__(self, data_root, label, run_context: None):
+    def __init__(self, data_root, label, run_context: RunContext | None = None):
         self.label = label
         (
             self.data_root,
@@ -295,6 +327,11 @@ class SuqcRun:
 
     def out_path(self, key):
         return self.get_path(key, "out")
+
+    def get_sim(self, key) -> Simulation:
+        if isinstance(key, int):
+            key = (key, 0)
+        return self.get_run_as_sim(key)
 
     def get_run_as_sim(self, key):
         run = self.runs[key]
