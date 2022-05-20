@@ -1,7 +1,13 @@
+import argparse
 from typing import Dict
 
-from roveranalyzer.analysis.common import Simulation
+from roveranalyzer.analysis.common import Simulation, SuqcRun
 from roveranalyzer.analysis.flaskapp.application import init_app
+
+
+def run_app_ns(ns: argparse.Namespace):
+    run = SuqcRun(ns.suqc_dir)
+    run_app(run.get_simulation_dict(lbl_key=True))
 
 
 def run_app(simulations: Dict[str, Simulation]):
