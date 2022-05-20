@@ -81,6 +81,14 @@ class DcdMap:
         self.scenario_plotter = plotter
 
 
+def percentile(n):
+    def _percentil(x):
+        return np.percentile(x, float(n) * 100.0)
+
+    _percentil.__name__ = f"p_{n*100:2.0f}"
+    return _percentil
+
+
 class DcdMap2D(DcdMap):
     """
     decentralized crowed map
@@ -729,12 +737,6 @@ class DcdMap2D(DcdMap):
         return ax.get_figure(), ax
 
     def count_diff(self, val: set = {}, agg: set = {}):
-        def percentile(n):
-            def _percentil(x):
-                return np.percentile(x, n)
-
-            _percentil.__name__ = f"p_{n*100:2.0f}"
-            return _percentil
 
         if len(agg) == 0:
             agg = {
@@ -781,7 +783,7 @@ class DcdMap2D(DcdMap):
             df.insert(0, nodes)
 
             glb = (
-                self.count_p[_i[:, :, :, 0], _i["count"]]  # all put ground truth
+                self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
                 .groupby(level=[self.tsc_time_idx_name])
                 .sum()
             )
@@ -800,22 +802,38 @@ class DcdMap2D(DcdMap):
         if "data_source" in kwargs:
             nodes = kwargs["data_source"]()
         else:
-            nodes = self.count_diff(val={"count"}, agg={"mean", "std"})
+            # nodes = self.count_diff(val={"count"}, agg={"mean", "std"})
+            nodes = self.count_diff(
+                val={"count"}, agg={"mean", percentile(0.25), percentile(0.75)}
+            )
 
         font_dict = self.style.font_dict
         ax.set_title("Node Count over Time", **font_dict["title"])
         ax.set_xlabel("Time [s]", **font_dict["xlabel"])
         ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
-        n = nodes.loc[:, ["count_mean", "count_std"]].dropna().reset_index()
+        n = (
+            nodes.loc[:, ["count_mean", "count_p_25", "count_p_75"]]
+            .dropna()
+            .reset_index()
+        )
+        # n = nodes.loc[:, ["count_mean", "count_std"]].dropna().reset_index()
         ax.plot("simtime", "count_mean", data=n, label="Mean count")
 
+        # ax.fill_between(
+        #     n["simtime"],
+        #     n["count_mean"] + n["count_std"],
+        #     n["count_mean"] - n["count_std"],
+        #     alpha=0.35,p
+        #     interpolate=True,
+        #     label="Count +/- 1 std",
+        # )
         ax.fill_between(
             n["simtime"],
-            n["count_mean"] + n["count_std"],
-            n["count_mean"] - n["count_std"],
+            n["count_p_25"],
+            n["count_p_75"],
             alpha=0.35,
             interpolate=True,
-            label="Count +/- 1 std",
+            label="[Q1;Q3]",
         )
         glb = nodes.loc[:, ["glb_count"]].dropna().reset_index()
         ax.plot("simtime", "glb_count", data=glb, label="Actual count")
