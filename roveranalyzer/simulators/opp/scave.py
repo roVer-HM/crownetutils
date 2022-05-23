@@ -326,9 +326,9 @@ class OppSql:
 
     @contextlib.contextmanager
     def vec_con(self):
+        if not os.path.exists(self.vec_path):
+            raise FileNotFoundError(self.vec_path)
         try:
-            if not os.path.exists(self.vec_path):
-                raise FileNotFoundError(self.vec_path)
             _vec_con = sq.connect(self.vec_path)
             yield _vec_con
         finally:
@@ -336,9 +336,9 @@ class OppSql:
 
     @contextlib.contextmanager
     def sca_con(self):
+        if not os.path.exists(self.sca_path):
+            raise FileNotFoundError(self.sca_path)
         try:
-            if not os.path.exists(self.sca_path):
-                raise FileNotFoundError(self.sca_path)
             _sca_con = sq.connect(self.sca_path)
             yield _sca_con
         finally:
