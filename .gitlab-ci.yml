@@ -2,10 +2,10 @@ stages:
   - test
   - code_analysis
 
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - ./venv
+# cache:
+#  key: ${CI_COMMIT_REF_SLUG}
+#  paths:
+#    - ./venv
 
 before_script:
   - virtualenv --python py38 ./venv
