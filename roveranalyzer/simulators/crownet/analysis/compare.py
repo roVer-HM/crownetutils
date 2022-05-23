@@ -14,6 +14,7 @@ from roveranalyzer.simulators.opp.utils import Simulation
 
 class How(Enum):
     """Enum for different data aggregation functions"""
+
     mean = "mean"
     min = "min"
     max = "max"
@@ -22,7 +23,7 @@ class How(Enum):
 
 
 def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame:
-    """ Reads positional data from a simulations .vec file into a Dataframe.
+    """Reads positional data from a simulations .vec file into a Dataframe.
     For each second long interval reads the first position recorded in that interval.
 
     :param sim: The simulation object containing the path to the output files
@@ -65,15 +66,16 @@ def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame
     df_tuples = pd.DataFrame()
     for i in range(int(len(df.columns) / 2)):
         column_name = f"{df.columns[i * 2].split('.')[0]}.pos"
-        df_tuples[column_name] = list(zip(df[df.columns[i * 2]], df[df.columns[i * 2 + 1]]))
-    df_tuples.index.name = 'time'
+        df_tuples[column_name] = list(
+            zip(df[df.columns[i * 2]], df[df.columns[i * 2 + 1]])
+        )
+    df_tuples.index.name = "time"
     return df_tuples
 
 
-def plot_pnode_positions(sim: Simulation, start: int,
-                         end: int,
-                         interval: int,
-                         border_margin: int = 5) -> List[matplotlib.figure.Figure]:
+def plot_pnode_positions(
+    sim: Simulation, start: int, end: int, interval: int, border_margin: int = 5
+) -> List[matplotlib.figure.Figure]:
     """
     For a simulation: Returns multiple comparable matplotlib figures plotting pNode positions.
     :param sim: Simulation object containing output path
@@ -88,29 +90,35 @@ def plot_pnode_positions(sim: Simulation, start: int,
     times = list(range(start, end + 1, interval))
     for i in times:
         df_plot = pd.DataFrame()
-        df_plot['x'] = df.filter(like='posX', axis=1)[df.index >= i].iloc[0].values
-        df_plot['y'] = df.filter(like='posY', axis=1)[df.index >= i].iloc[0].values
+        df_plot["x"] = df.filter(like="posX", axis=1)[df.index >= i].iloc[0].values
+        df_plot["y"] = df.filter(like="posY", axis=1)[df.index >= i].iloc[0].values
         dfs_plot.append(df_plot)
 
-    ylim = (min([df['y'].min() for df in dfs_plot]) - border_margin,
-            max([df['y'].max() for df in dfs_plot]) + border_margin)
-    xlim = (min([df['x'].min() for df in dfs_plot]) - border_margin,
-            max([df['x'].max() for df in dfs_plot]) + border_margin)
+    ylim = (
+        min([df["y"].min() for df in dfs_plot]) - border_margin,
+        max([df["y"].max() for df in dfs_plot]) + border_margin,
+    )
+    xlim = (
+        min([df["x"].min() for df in dfs_plot]) - border_margin,
+        max([df["x"].max() for df in dfs_plot]) + border_margin,
+    )
     figs = []
     for i, df_plot in enumerate(dfs_plot):
         fig, ax = plt.subplots()
-        df_plot.plot.scatter(x='x', y='y', ax=ax, xlim=xlim, ylim=ylim)
-        ax.set_aspect('equal', 'box')
+        df_plot.plot.scatter(x="x", y="y", ax=ax, xlim=xlim, ylim=ylim)
+        ax.set_aspect("equal", "box")
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
         ax.set_title(f"pNode positions for {sim.desc} at {times[i]}s")
-        ax.tick_params(axis='x', labelrotation=30)
+        ax.tick_params(axis="x", labelrotation=30)
         figs.append(fig)
     return figs
 
 
-def distance_plot_mean(sims: List[Simulation], title: str = "", cutoff: float=0) -> matplotlib.figure.Figure:
-    """ Generates a plot displaying the average distance between nodes and enb, average distance in between nodes and
+def distance_plot_mean(
+    sims: List[Simulation], title: str = "", cutoff: float = 0
+) -> matplotlib.figure.Figure:
+    """Generates a plot displaying the average distance between nodes and enb, average distance in between nodes and
     the average active node count, averaged over all simulations (runs) provided.
 
     :param sims: The list of simulations to be averaged (e.g. multiple runs of a simulation)
@@ -120,26 +128,52 @@ def distance_plot_mean(sims: List[Simulation], title: str = "", cutoff: float=0)
                     still containing data is less than <cutoff>
     :return: a matplotlib figure containing the plot
     """
-    sca_paths = [os.path.join(sims[0].path, f) for f in os.listdir(sims[0].path) if f.endswith('.sca')]
+    sca_paths = [
+        os.path.join(sims[0].path, f)
+        for f in os.listdir(sims[0].path)
+        if f.endswith(".sca")
+    ]
     df_sca = ScaveTool().load_df_from_scave(sca_paths[0])
-    enb = (df_sca.loc[df_sca.attrname == "*.eNB[0].mobility.initialX", "attrvalue"].values[0],
-           df_sca.loc[df_sca.attrname == "*.eNB[0].mobility.initialY", "attrvalue"].values[0])
-    enb = (float(''.join(c for c in enb[0] if (c.isdigit() or c == '.'))),
-           float(''.join(c for c in enb[1] if (c.isdigit() or c == '.'))))
+    enb = (
+        df_sca.loc[df_sca.attrname == "*.eNB[0].mobility.initialX", "attrvalue"].values[
+            0
+        ],
+        df_sca.loc[df_sca.attrname == "*.eNB[0].mobility.initialY", "attrvalue"].values[
+            0
+        ],
+    )
+    enb = (
+        float("".join(c for c in enb[0] if (c.isdigit() or c == "."))),
+        float("".join(c for c in enb[1] if (c.isdigit() or c == "."))),
+    )
     dfs = [read_position_data(sim, True) for sim in sims]
     dfs_dist_nodes = [distances_between_nodes(df) for df in dfs]
 
     dfs_dist_enb = [distance_between_nodes_enb(df, enb) for df in dfs]
-    df_dist_nodes = average_sim_data(dfs_dist_nodes, active_vectors_column=False, cutoff=cutoff)
+    df_dist_nodes = average_sim_data(
+        dfs_dist_nodes, active_vectors_column=False, cutoff=cutoff
+    )
     df_dist_enb = average_sim_data(dfs_dist_enb, cutoff=cutoff)
-    res = plot_comparison([df_dist_enb, df_dist_nodes], ["enb-node", "node-node"], "avg. distance", "[m]",
-                          rolling_only=True, title=title)
+    res = plot_comparison(
+        [df_dist_enb, df_dist_nodes],
+        ["enb-node", "node-node"],
+        "avg. distance",
+        "[m]",
+        rolling_only=True,
+        title=title,
+    )
     return res
 
 
-def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_name: str, unit: str,
-                    rolling_only=False, title: str = "") -> matplotlib.figure.Figure:
-    """ Compares two dataframes containing aggregated vector data of simulations (e.g. as returned by the
+def plot_comparison(
+    dfs: List[pd.DataFrame],
+    df_identifiers: List[str],
+    vector_name: str,
+    unit: str,
+    rolling_only=False,
+    title: str = "",
+) -> matplotlib.figure.Figure:
+    """Compares two dataframes containing aggregated vector data of simulations (e.g. as returned by the
         aggregate_vectors_from_simulation() or average_sim_data() functions.
 
     :param dfs: dataframes containing the data to be compared. Eg as returned by the
@@ -165,13 +199,16 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
 
     for i, df in enumerate(dfs):
         if not rolling_only:
-            df['value'].dropna(how='all').plot(ax=ax, label='_nolegend_', color=colors_3[i])
-        df['value'].dropna(how='all').rolling(10, center=True).mean().plot(ax=ax,
-                                                                           label=f"{df_identifiers[i]} - {vector_name}",
-                                                                           color=colors_1[i])
-        if plot_active_nodes and 'active_pNodes' in df.columns:
-            df['active_pNodes'].dropna(how='all').plot(ax=ax2, label=f"{df_identifiers[i]} - active pNodes",
-                                                       color=colors_2[i])
+            df["value"].dropna(how="all").plot(
+                ax=ax, label="_nolegend_", color=colors_3[i]
+            )
+        df["value"].dropna(how="all").rolling(10, center=True).mean().plot(
+            ax=ax, label=f"{df_identifiers[i]} - {vector_name}", color=colors_1[i]
+        )
+        if plot_active_nodes and "active_pNodes" in df.columns:
+            df["active_pNodes"].dropna(how="all").plot(
+                ax=ax2, label=f"{df_identifiers[i]} - active pNodes", color=colors_2[i]
+            )
 
     ax.set_xlabel("Time [s]")
     ax.set_ylabel(f"{vector_name} {unit}")
@@ -185,8 +222,10 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
     return fig
 
 
-def distance_between_nodes_enb(df: pd.DataFrame, enb: Tuple[float, float]) -> pd.DataFrame:
-    """ For a dataframe containing positional data of a simulations nodes. Returns the average distance
+def distance_between_nodes_enb(
+    df: pd.DataFrame, enb: Tuple[float, float]
+) -> pd.DataFrame:
+    """For a dataframe containing positional data of a simulations nodes. Returns the average distance
         for each node
 
     :param df: DataFrame containing positional data in tuple form (e.g. as returned by read_position_data())
@@ -206,8 +245,10 @@ def distance_between_nodes_enb(df: pd.DataFrame, enb: Tuple[float, float]) -> pd
     return res
 
 
-def apply_distance_between_nodes_enb(ndarray: np.ndarray, enb: Tuple[float, float]) -> List[float]:
-    """ Calculates the average distance between nodes for a row of positional data (in tuple form).
+def apply_distance_between_nodes_enb(
+    ndarray: np.ndarray, enb: Tuple[float, float]
+) -> List[float]:
+    """Calculates the average distance between nodes for a row of positional data (in tuple form).
     Meant to be used as argument for Dataframe.apply()
 
     :param ndarray: rows of a Dataframe created by read_position_data() with the as_tuples option enabled
@@ -228,7 +269,7 @@ def apply_distance_between_nodes_enb(ndarray: np.ndarray, enb: Tuple[float, floa
 
 
 def distances_between_nodes(df: pd.DataFrame) -> pd.DataFrame:
-    """ This function
+    """This function
 
     :param df: DataFrame containing positional data in tuple form (e.g. as returned by read_position_data())
     :return: the DataFrame containing the average distance of each node to all other nodes over time
@@ -248,7 +289,7 @@ def distances_between_nodes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def apply_distances_between_nodes(ndarray: np.ndarray) -> List[float]:
-    """ Calculates the average distance between nodes for a row of positional data (in tuple form).
+    """Calculates the average distance between nodes for a row of positional data (in tuple form).
     Meant to be used as argument for Dataframe.apply()
 
     :param ndarray: rows of a Dataframe created by read_position_data() with the as_tuples option enabled
@@ -274,8 +315,9 @@ def apply_distances_between_nodes(ndarray: np.ndarray) -> List[float]:
     return res
 
 
-def aggregate_vectors(df: pd.DataFrame, how: How = How.mean,
-                      interval: int = 1) -> pd.DataFrame:
+def aggregate_vectors(
+    df: pd.DataFrame, how: How = How.mean, interval: int = 1
+) -> pd.DataFrame:
     """
     This function will group a DataFrame containing time/value vectors into bins of the specified size and apply the
     chosen function to the values contained in the bins to summarize them.
@@ -312,8 +354,12 @@ def aggregate_vectors(df: pd.DataFrame, how: How = How.mean,
     for k in range(num_vectors):
         df_vector: pd.DataFrame = df.iloc[:, [k * 2, k * 2 + 1]]
         # group values in second long intervals
-        df_tmp_group_by = df_vector.groupby(pd.cut(df_vector.iloc[:, 0],
-                                                   range(0, int(df_vector.iloc[:, 0].max()) + 1, interval)))
+        df_tmp_group_by = df_vector.groupby(
+            pd.cut(
+                df_vector.iloc[:, 0],
+                range(0, int(df_vector.iloc[:, 0].max()) + 1, interval),
+            )
+        )
         # apply to groups
         if how == How.sum:
             df_vector = df_tmp_group_by.sum()
@@ -336,7 +382,7 @@ def aggregate_vectors(df: pd.DataFrame, how: How = How.mean,
             df_res = df_res.join(df_vector, how="outer")
 
     df_res.reset_index(drop=True, inplace=True)
-    df_res.index.name = 'time'
+    df_res.index.name = "time"
     return df_res
 
 
@@ -359,11 +405,13 @@ def active_vectors(df: pd.DataFrame) -> pd.Series:
     return active_nodes
 
 
-def average_sim_data(dfs: List[pd.DataFrame],
-                     cutoff: float = 0,
-                     active_vectors_column=True,
-                     active_sims_column=True) -> pd.DataFrame:
-    """ Will average vector data over time from one or more simulations.
+def average_sim_data(
+    dfs: List[pd.DataFrame],
+    cutoff: float = 0,
+    active_vectors_column=True,
+    active_sims_column=True,
+) -> pd.DataFrame:
+    """Will average vector data over time from one or more simulations.
 
     :param dfs: Dataframes containing aggregated simulation data (e.g. as returned by the aggregate_vectors() function)
     :param cutoff: if >= 1, will cutoff data as soon as less than <cutoff> simulations contain data
@@ -392,27 +440,29 @@ def average_sim_data(dfs: List[pd.DataFrame],
     for i, df in enumerate(dfs):
         mean_values = df.mean(axis=1)
         active_nodes = active_vectors(df)
-        df[f'mean_value_sim_{i}'] = mean_values
-        df[f'active_pNodes_sim_{i}'] = active_nodes
+        df[f"mean_value_sim_{i}"] = mean_values
+        df[f"active_pNodes_sim_{i}"] = active_nodes
 
         if df_means is None:
-            df_means = df[[f'mean_value_sim_{i}']].copy()
-            df_node_counts = df[[f'active_pNodes_sim_{i}']].copy()
+            df_means = df[[f"mean_value_sim_{i}"]].copy()
+            df_node_counts = df[[f"active_pNodes_sim_{i}"]].copy()
         else:
-            df_means = df_means.join(df[[f'mean_value_sim_{i}']], how="outer")
-            df_node_counts = df_node_counts.join(df[[f'active_pNodes_sim_{i}']], how="outer")
+            df_means = df_means.join(df[[f"mean_value_sim_{i}"]], how="outer")
+            df_node_counts = df_node_counts.join(
+                df[[f"active_pNodes_sim_{i}"]], how="outer"
+            )
 
-    df_node_counts['value'] = df_node_counts.mean(axis=1)
+    df_node_counts["value"] = df_node_counts.mean(axis=1)
     means = df_means.mean(axis=1)
     active_sims = active_vectors(df_means)
-    df_means['value'] = means
-    df_means['active_sims'] = active_sims
+    df_means["value"] = means
+    df_means["active_sims"] = active_sims
     df_means = df_means.drop(df_means[df_means.active_sims == 0].index)
-    df_dict = {f"value": df_means['value']}
+    df_dict = {f"value": df_means["value"]}
     if active_vectors_column:
-        df_dict["active_pNodes"] = df_node_counts['value']
+        df_dict["active_pNodes"] = df_node_counts["value"]
     if active_sims_column:
-        df_dict["active_sims"] = df_means['active_sims']
+        df_dict["active_sims"] = df_means["active_sims"]
     res = pd.DataFrame(df_dict).dropna(how="any")
 
     if cutoff <= 0:
@@ -424,11 +474,13 @@ def average_sim_data(dfs: List[pd.DataFrame],
     return res
 
 
-def aggregate_vectors_from_simulation(sim: Simulation,
-                                      module: str,
-                                      vector_names: Union[str, List[str]],
-                                      how: How = How.mean) -> pd.DataFrame:
-    """ This function will read vector data of the given simulation and aggregate it with the given method over
+def aggregate_vectors_from_simulation(
+    sim: Simulation,
+    module: str,
+    vector_names: Union[str, List[str]],
+    how: How = How.mean,
+) -> pd.DataFrame:
+    """This function will read vector data of the given simulation and aggregate it with the given method over
         one second long intervals.
 
 
@@ -440,11 +492,15 @@ def aggregate_vectors_from_simulation(sim: Simulation,
     """
     if isinstance(vector_names, str):
         vector_names = [vector_names]
-    sfilter = ScaveTool().filter_builder().module(module).AND().gOpen().name(vector_names[0])
+    sfilter = (
+        ScaveTool().filter_builder().module(module).AND().gOpen().name(vector_names[0])
+    )
     for vector_name in vector_names[1:]:
         sfilter.OR().name(vector_name)
     sfilter.gClose()
-    vec_paths = [os.path.join(sim.path, f) for f in os.listdir(sim.path) if f.endswith('.vec')]
+    vec_paths = [
+        os.path.join(sim.path, f) for f in os.listdir(sim.path) if f.endswith(".vec")
+    ]
     df_sim = ScaveTool().load_df_from_scave(vec_paths[0], sfilter)
     df_sim = df_sim.opp.filter().vector().normalize_vectors(axis=1)
     df_data = aggregate_vectors(df_sim, how)
