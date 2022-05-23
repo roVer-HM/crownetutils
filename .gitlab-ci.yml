@@ -8,7 +8,7 @@ cache:
     - ./venv
 
 before_script:
-  - virtualenv --system-site-packages --python py38 ./venv
+  - virtualenv --python py38 ./venv
   - source ./venv/bin/activate
   - pip3 install -q -I -r requirements-dev.txt
 
