@@ -181,10 +181,13 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
     :return: fig, ax as returned by pyplot.subplots()
     """
     colors_1 = ["darkgreen", "darkblue", "darkred", "darkorange"]
-    colors_2 = ["limegreen", "royalblue", "firebrick", "gold"]
+    # colors_node_count = ["limegreen", "royalblue", "firebrick", "gold"]
+    colors_node_count = ["black", "red", "purple", "brown"]
     colors_3 = ["yellowgreen", "cornflowerblue", "tomato", "yellow"]
+    linestyles = ['-', '--', '.']
 
-    fig, ax = plt.subplots()
+    if not fig:
+        fig, ax = plt.subplots()
     fig.set_size_inches(16, 9)
     columns = [column for columns in [df.columns for df in dfs] for column in columns]
     plot_active_nodes = True if "active_pNodes" in columns else False
@@ -194,10 +197,16 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
 
     for i, df in enumerate(dfs):
         if not rolling_only:
-            df['value'].dropna(how='all').plot(ax=ax, label='_nolegend_', color=colors_3[i])
+            df['value'].dropna(how='all').plot(ax=ax,
+                                               label=f"{df_identifiers[i]} - {vector_description}",
+                                               color=colors_3[i],
+                                               style='-')
         df['value'].dropna(how='all').rolling(10, center=True).mean().plot(ax=ax,
-                                                                           label=f"{df_identifiers[i]} - {vector_name}",
-                                                                           color=colors_1[i])
+                                                                           label=f"{df_identifiers[i]}"
+                                                                                 f" - {vector_description}"
+                                                                                 f" - SMA",
+                                                                           color=colors_1[i],
+                                                                           style='-')
         if plot_active_nodes and 'active_pNodes' in df.columns:
             df['active_pNodes'].dropna(how='all').plot(ax=ax2, label=f"{df_identifiers[i]} - active pNodes",
                                                        color=colors_node_count[i],
