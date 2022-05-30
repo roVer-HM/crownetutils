@@ -1,7 +1,7 @@
 import math
 import os
 from enum import Enum
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, Any
 
 import matplotlib.figure
 import numpy as np
@@ -128,7 +128,11 @@ def plot_pnode_positions(sim: Simulation, start: int,
 
     return ret
 
-def distance_plot_mean(sims: List[Simulation], title: str = "", cutoff: float=0) -> matplotlib.figure.Figure:
+
+def distance_plot_mean(sims: List[Simulation],
+                       title: str = "",
+                       cutoff: float = 0,
+                       fig = None, ax = None) -> Any:
     """ Generates a plot displaying the average distance between nodes and enb, average distance in between nodes and
     the average active node count, averaged over all simulations (runs) provided.
 
@@ -137,7 +141,7 @@ def distance_plot_mean(sims: List[Simulation], title: str = "", cutoff: float=0)
     :param cutoff: if >= 1, will cutoff data as soon as less than <cutoff> simulations contain data
                     if < 1 will cutoff data as soon as the ratio of simulations
                     still containing data is less than <cutoff>
-    :return: a matplotlib figure containing the plot
+    :return: fig, ax as returned by pyplot.subplots()
     """
     sca_paths = [os.path.join(sims[0].path, f) for f in os.listdir(sims[0].path) if f.endswith('.sca')]
     df_sca = ScaveTool().load_df_from_scave(sca_paths[0])
@@ -151,13 +155,16 @@ def distance_plot_mean(sims: List[Simulation], title: str = "", cutoff: float=0)
     dfs_dist_enb = [distance_between_nodes_enb(df, enb) for df in dfs]
     df_dist_nodes = average_sim_data(dfs_dist_nodes, active_vectors_column=False, cutoff=cutoff)
     df_dist_enb = average_sim_data(dfs_dist_enb, cutoff=cutoff)
-    res = plot_comparison([df_dist_enb, df_dist_nodes], ["enb-node", "node-node"], "avg. distance", "[m]",
-                          rolling_only=True, title=title)
-    return res
+    fig, ax = plot_comparison([df_dist_enb, df_dist_nodes], df_identifiers=["enb-node", "node-node"],
+                          vector_name="avg. distance", vector_description="avg. distance", unit="[m]",
+                          rolling_only=True, title=title, fig=fig, ax=ax)
+    return fig, ax
 
 
-def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_name: str, unit: str,
-                    rolling_only=False, title: str = "") -> matplotlib.figure.Figure:
+def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_name: str,
+                    vector_description: str, unit: str,
+                    rolling_only=False, title: str = "",
+                    fig = None, ax = None) -> Any:
     """ Compares two dataframes containing aggregated vector data of simulations (e.g. as returned by the
         aggregate_vectors_from_simulation() or average_sim_data() functions.
 
@@ -165,10 +172,13 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
             aggregate_vectors() / average_sim_data() function:
     :param df_identifiers: identifiers/names of the dataframes/data
     :param vector_name: name of the vector being compared
+    :param vector_description: description of the vector being compared
     :param unit: unit of the vector data
     :param rolling_only: if ture, will plot only the rolling average
     :param title: The title of the plot
-    :return: the figure containing the plot
+    :param fig: figure containing the axes to be used, if none a new will be created
+    :param ax: axes to be used
+    :return: fig, ax as returned by pyplot.subplots()
     """
     colors_1 = ["darkgreen", "darkblue", "darkred", "darkorange"]
     colors_2 = ["limegreen", "royalblue", "firebrick", "gold"]
@@ -190,7 +200,8 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
                                                                            color=colors_1[i])
         if plot_active_nodes and 'active_pNodes' in df.columns:
             df['active_pNodes'].dropna(how='all').plot(ax=ax2, label=f"{df_identifiers[i]} - active pNodes",
-                                                       color=colors_2[i])
+                                                       color=colors_node_count[i],
+                                                       style='-')
 
     ax.set_xlabel("Time [s]")
     ax.set_ylabel(f"{vector_name} {unit}")
@@ -201,7 +212,9 @@ def plot_comparison(dfs: List[pd.DataFrame], df_identifiers: List[str], vector_n
     else:
         ax.legend(h1, l1, loc="upper right")
     fig.suptitle(title)
-    return fig
+    if plot_active_nodes:
+        ax = [ax, ax2]
+    return fig, ax
 
 
 def distance_between_nodes_enb(df: pd.DataFrame, enb: Tuple[float, float]) -> pd.DataFrame:
@@ -235,8 +248,6 @@ def apply_distance_between_nodes_enb(ndarray: np.ndarray, enb: Tuple[float, floa
     """
     res = []
     node_count = len(ndarray)
-    active_node_count = len([t for t in ndarray if not math.isnan(t[0])])
-    sum_dist = 0.0
     for i in range(node_count):
         node = ndarray[i]
         if math.isnan(node[0]):
