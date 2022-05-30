@@ -382,7 +382,9 @@ def parse_args_as_dict(runner: Any, args=None) -> Dict:
     ns = vars(parsed_args)
     if "cfg_file" in ns:
         cfg_file = ns["cfg_file"][0]
-        return read_config_file(runner, cfg_file)
+        with open(cfg_file, "r", encoding="utf-8") as fd:
+            cfg_json = json.load(fd)
+        return read_config_file(runner, cfg_json)
 
     level_idx = ns["verbose"]
     set_level(levels[level_idx])
@@ -391,13 +393,11 @@ def parse_args_as_dict(runner: Any, args=None) -> Dict:
     return ns
 
 
-def read_config_file(runner: Any, cfg_file: str) -> Dict:
+def read_config_file(runner: Any, cfg_json: dict) -> Dict:
     """
     read file and search for "cmd_args" key and reload namespace from this.
     Ensure that 'config' subcommand is not present to prevent loop
     """
-    with open(cfg_file, "r", encoding="utf-8") as fd:
-        cfg_json = json.load(fd)
 
     if "cmd_args" not in cfg_json:
         raise argparse.ArgumentError(

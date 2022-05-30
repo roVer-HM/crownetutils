@@ -21,7 +21,7 @@ else:
         _default_opp_container_path = ""
     else:
         print(f"CROWNET_HOME not set, use  default {_default_crownet}")
-        os.path.join(_default_crownet, "scripts/omnetpp")
+        _default_opp_container_path = os.path.join(_default_crownet, "scripts/omnetpp")
 
 
 class ConfigException(Exception):
