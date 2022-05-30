@@ -73,7 +73,10 @@ def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame
 def plot_pnode_positions(sim: Simulation, start: int,
                          end: int,
                          interval: int,
-                         border_margin: int = 5) -> List[matplotlib.figure.Figure]:
+                         border_margin: int = 5,
+                         combine_plots=True,
+                         xlim=None,
+                         ylim=None):
     """
     For a simulation: Returns multiple comparable matplotlib figures plotting pNode positions.
     :param sim: Simulation object containing output path
@@ -81,7 +84,10 @@ def plot_pnode_positions(sim: Simulation, start: int,
     :param end: simulation time after which no plots will be generated
     :param interval: interval in seconds between plots
     :param border_margin: border margin around plots for readability
-    :return: a list of matplotlib figures, one for each plot
+    :param combine_plots: if true, combines all axes into one figure
+    :param ylim: custom ylim value for all axes
+    :param xlim: custom xlim value for all axes
+    :return: (fig, ax) or list of (fig, ax) Tuples as returned by pylot.subplots(), one for each figure
     """
     df = read_position_data(sim)
     dfs_plot = []
@@ -92,22 +98,35 @@ def plot_pnode_positions(sim: Simulation, start: int,
         df_plot['y'] = df.filter(like='posY', axis=1)[df.index >= i].iloc[0].values
         dfs_plot.append(df_plot)
 
-    ylim = (min([df['y'].min() for df in dfs_plot]) - border_margin,
-            max([df['y'].max() for df in dfs_plot]) + border_margin)
-    xlim = (min([df['x'].min() for df in dfs_plot]) - border_margin,
-            max([df['x'].max() for df in dfs_plot]) + border_margin)
-    figs = []
-    for i, df_plot in enumerate(dfs_plot):
-        fig, ax = plt.subplots()
-        df_plot.plot.scatter(x='x', y='y', ax=ax, xlim=xlim, ylim=ylim)
-        ax.set_aspect('equal', 'box')
-        ax.set_xlabel("x [m]")
-        ax.set_ylabel("y [m]")
-        ax.set_title(f"pNode positions for {sim.desc} at {times[i]}s")
-        ax.tick_params(axis='x', labelrotation=30)
-        figs.append(fig)
-    return figs
+    if not ylim:
+        ylim = (min([df['y'].min() for df in dfs_plot]) - border_margin,
+                max([df['y'].max() for df in dfs_plot]) + border_margin)
+    if not xlim:
+        xlim = (min([df['x'].min() for df in dfs_plot]) - border_margin,
+                max([df['x'].max() for df in dfs_plot]) + border_margin)
 
+    if combine_plots:
+        fig, ax = plt.subplots(1, len(dfs_plot))
+        figs = [(fig, a) for a in ax]
+        ret = (fig, ax)
+    else:
+        figs = [plt.subplots() for _ in range(len(dfs_plot))]
+        ret = figs
+
+    for i, df_plot in enumerate(dfs_plot):
+        fig, ax = figs[i]
+        df_plot.plot.scatter(x='x', y='y', ax=ax, xlim=xlim, ylim=ylim, style="o", s=3)
+        ax.set_aspect('equal', 'box')
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        ax.invert_yaxis()
+        fig.suptitle(f"pNode positions for {sim.desc}")
+        fig.supylabel("y [m]")
+        fig.supxlabel("x [m]")
+        ax.set_title(f"at {times[i]}s")
+        ax.tick_params(axis='x', labelrotation=30)
+
+    return ret
 
 def distance_plot_mean(sims: List[Simulation], title: str = "", cutoff: float=0) -> matplotlib.figure.Figure:
     """ Generates a plot displaying the average distance between nodes and enb, average distance in between nodes and
