@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from functools import wraps
 from itertools import combinations
@@ -736,7 +738,9 @@ class DcdMap2D(DcdMap):
         ax.legend()
         return ax.get_figure(), ax
 
-    def count_diff(self, val: set = {}, agg: set = {}):
+    def count_diff(
+        self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
+    ) -> pd.DataFrame:
 
         if len(agg) == 0:
             agg = {
@@ -759,7 +763,7 @@ class DcdMap2D(DcdMap):
             df = []
             if "abs_err" in val:
                 val.remove(abs_err)
-                abs_err = np.abs(self.count_p[_i[:, :, :, 1:], _i["err"]])
+                abs_err = np.abs(self.count_p[_i[:, :, :, id_slice], _i["err"]])
                 abs_err.columns = ["abs_err"]
                 abs_err = (
                     abs_err.groupby(
@@ -773,7 +777,7 @@ class DcdMap2D(DcdMap):
 
             stat_list = list(val)
             nodes = (
-                self.count_p[_i[:, :, :, 1:], stat_list]  # all put ground truth
+                self.count_p[_i[:, :, :, id_slice], stat_list]  # all put ground truth
                 .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
                 .sum()
                 .groupby(level="simtime")
@@ -803,9 +807,11 @@ class DcdMap2D(DcdMap):
             nodes = kwargs["data_source"]()
         else:
             # nodes = self.count_diff(val={"count"}, agg={"mean", "std"})
-            nodes = self.count_diff(
-                val={"count"}, agg={"mean", percentile(0.25), percentile(0.75)}
-            )
+            if "agg" in kwargs:
+                agg = kwargs["agg"]
+            else:
+                agg = {"mean", percentile(0.25), percentile(0.75)}
+            nodes = self.count_diff(val={"count"}, agg=agg)
 
         font_dict = self.style.font_dict
         ax.set_title("Node Count over Time", **font_dict["title"])

@@ -488,6 +488,33 @@ class OppSql:
             df = df.rename(columns={"simtimeRaw": "time"})
         return df
 
+    def parameter_data(
+        self,
+        module_name: Union[None, str, SqlOp] = None,
+        scalar_name: Union[None, str, SqlOp] = None,
+        ids: Union[None, List[int]] = None,
+        cols: set = ("paramId", "paramName", "paramValue"),
+        runId=1,
+    ) -> pd.DataFrame:
+
+        cols = ", ".join([f"s.{c}" for c in cols])
+
+        if module_name is not None and scalar_name is not None:
+            _sql = f"select {cols} from parameter as s where "
+            _sql += self._to_sql(module_name, "s", "moduleName")
+            _sql += self._to_sql(scalar_name, "s", "paramName", "and")
+        elif ids is not None:
+            _ids_str = ",".join(str(i) for i in ids)
+            _sql = f"select {cols} from parameter as s where s.paramId in ({_ids_str})"
+        else:
+            raise ValueError(
+                "provide either module and parameter name or list of parameter ids"
+            )
+
+        # print(_sql)
+        df = self.query_sca(_sql)
+        return df
+
     def sca_data(
         self,
         module_name: Union[None, str, SqlOp] = None,
@@ -1003,13 +1030,51 @@ class CrownetSql(OppSql):
         _m = modules if modules is not None else self.module_vectors
         return self.OR([f"{self.network}.{i}[%].cellularNic.phy" for i in _m])
 
-    def m_app0(self, modules: List[str] | None = None) -> SqlOp:
+    def m_app0(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[%].app[0].app" for i in _m])
+        return self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
 
-    def m_app1(self, modules: List[str] | None = None) -> SqlOp:
+    def m_beacon(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[%].app[1].app" for i in _m])
+        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+        _t0 = self.parameter_data(_typename_0, "typename")
+        if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
+            return self.m_app0(modules, idx)
+
+        _typename_1 = self.OR(
+            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+        )
+        _t1 = self.parameter_data(_typename_1, "typename")
+        if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
+            return self.m_app1(modules, idx)
+
+        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+
+    def m_map(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+        _t0 = self.parameter_data(_typename_0, "typename")
+        if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
+            return self.m_app0(modules, idx)
+
+        _typename_1 = self.OR(
+            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+        )
+        _t1 = self.parameter_data(_typename_1, "typename")
+        if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
+            return self.m_app1(modules, idx)
+
+        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+
+    def m_app1(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[{idx}].app[1].app" for i in _m])
+
+    def m_enb(self, index: int = -1, module: str = "") -> str:
+        if index < 0:
+            return f"{self.network}.eNB[%]{module}"
+        else:
+            return f"{self.network}.eNB[{index}]{module}"
 
     def m_append_suffix(
         self, suffix: str, modules: str | List[str] | SqlOp | None = None

@@ -227,12 +227,29 @@ class _OppAnalysis(AnalysisBase):
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
         delay_resolution: float = 1.0,
+        index: List[str] | None = ("time",),
     ) -> pd.DataFrame:
         df = sql.vec_data(
             module_name=module_name,
             vector_name="rcvdPkLifetime:vector",
             value_name="delay",
-            index=("time"),
+            index=index if index is None else list(index),
+            index_sort=True,
+        )
+        df["delay"] *= delay_resolution
+        return df
+
+    @timing
+    def get_avgServedBlocksUl(
+        self,
+        sql: Scave.CrownetSql,
+        enb_index: int = -1,
+        index: List[str] | None = ("time",),
+    ) -> pd.DataFrame:
+        df = sql.vec_data(
+            module_name=sql.m_enb(enb_index, ".cellularNic.mac"),
+            vector_name="avgServedBlocksUl:vector",
+            index=index if index is None else list(index),
             index_sort=True,
         )
         return df
@@ -244,6 +261,7 @@ class _OppAnalysis(AnalysisBase):
         module_name: Scave.SqlOp | str,
         delay_resolution: float = 1.0,
         describe: bool = True,
+        value_name: str = "rcvdPktLifetime",
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Packet delay data based on single applications in '<Network>.<Module>[*].app[*].app'
 
@@ -260,7 +278,7 @@ class _OppAnalysis(AnalysisBase):
         """
         vec_names = {
             "rcvdPkLifetime:vector": {
-                "name": "rcvdPktLifetime",
+                "name": value_name,
                 "dtype": float,
             },
             "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
@@ -271,7 +289,7 @@ class _OppAnalysis(AnalysisBase):
             append_index=["srcHostId"],
         )
         vec_data = vec_data.sort_index()
-        vec_data["rcvdPktLifetime"] *= delay_resolution
+        vec_data[value_name] *= delay_resolution
 
         if describe:
             return vec_data, vec_data.groupby(level=["hostId", "srcHostId"]).describe()
