@@ -1,6 +1,7 @@
 import argparse
 import sys
 
+from roveranalyzer.analysis.common import SuqcRun
 from roveranalyzer.analysis.flaskapp.wsgi import run_app_ns
 
 
@@ -22,6 +23,15 @@ def parse_arguments():
     )
     dash_parser.add_argument("--suqc-dir", required=True, help="Suqc folder")
     dash_parser.set_defaults(main_func=run_app_ns)
+
+    # Rerun postprocesing
+    SuqcRun.create_parser(
+        sub.add_parser(
+            "post-processing",
+            help="Run post processing on selected Simulation environment",
+            parents=[parent],
+        )
+    )
 
     return main.parse_args()
 

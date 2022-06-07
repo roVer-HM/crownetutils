@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import argparse
 import json
+import multiprocessing
 import os
 import re
 import shutil
+import subprocess
+import sys
+import time
 from glob import glob
 from os.path import basename, join
 from typing import Tuple
@@ -133,6 +138,45 @@ class RunContext:
     def sample_name(self):
         sample = self.args.get_value("--resultdir")
         return sample.split(os.sep)[-1]
+
+    def create_postprocessing_args(self, qoi_default="all"):
+        return {
+            "cwd": self.cwd,
+            "script_name": self.data.get("script", "run_script.py"),
+            "args": [
+                "post-processing",
+                "--qoi",
+                self.args.get_value("--qoi", qoi_default),
+                "--resultdir",
+                self.resultdir,
+            ],
+        }
+
+    @staticmethod
+    def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
+
+        cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
+        if args["log"]:
+            fd = open(os.path.join(args["cwd"], "log.out"), "w")
+            out = fd
+            err = fd
+        try:
+            return_code: int = subprocess.check_call(
+                cmd,
+                env=os.environ,
+                stdout=out,
+                stderr=err,
+                cwd=args["cwd"],
+            )
+        except Exception as e:
+            print(e)
+            print(f"Simulation failed: {cmd}")
+            return_code = -1
+        finally:
+            if args["log"]:
+                fd.close()
+
+        return return_code
 
 
 class Simulation:
@@ -337,7 +381,7 @@ class SuqcRun:
         run = self.runs[key]
         ctx = RunContext.from_path(join(run["run"], "runContext.json"))
         lbl = f"{self.name}_{self.run_prefix}_{key[0]}_{key[1]}"
-        return Simulation(run["out"], lbl, ctx)
+        return Simulation.from_context(ctx, lbl)
 
     def get_simulations(self):
         return [self.get_run_as_sim(k) for k in self.runs.keys()]
@@ -350,3 +394,42 @@ class SuqcRun:
             ret = {v.label: v for _, v in ret.items()}
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
+
+    @classmethod
+    def rerun_postprocessing(cls, path: str, njobs=4, log=False):
+        run: SuqcRun = cls(path)
+
+        args = []
+        for sim in run.get_simulations():
+            _arg = sim.run_context.create_postprocessing_args()
+            _arg["log"] = log
+            args.append(_arg)
+
+        with multiprocessing.Pool(processes=njobs) as pool:
+            ret = pool.map(func=RunContext.exec_runscript, iterable=args)
+
+        return all(ret)
+
+    @staticmethod
+    def main_postprocessing(ns: argparse.ArgumentParser):
+        ret = SuqcRun.rerun_postprocessing(ns.path, ns.jobs, ns.log)
+        if ret:
+            sys.exit(0)
+        else:
+            sys.exit(-1)
+
+    @staticmethod
+    def create_parser(sub: argparse.ArgumentParser):
+        sub.add_argument(
+            "--suqc-dir", dest="path", required=True, help="Suqc Simulation folder"
+        )
+        sub.add_argument(
+            "-j",
+            "--jobs",
+            dest="jobs",
+            type=int,
+            default=4,
+            help="Number of parallel runs",
+        )
+        sub.add_argument("--log", action="store_true", default=False, required=False)
+        sub.set_defaults(main_func=SuqcRun.main_postprocessing)
