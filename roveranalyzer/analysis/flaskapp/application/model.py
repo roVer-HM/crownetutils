@@ -164,6 +164,16 @@ def get_cell_error_data(sim: Simulation, cell_id):
 
 @threaded_lru(maxsize=64)
 @timing
+def get_count_diff(sim: Simulation, node_id: int = -1):
+    if node_id == -1:
+        # all nodes -> mean count
+        return sim.get_dcdMap().count_diff(id_slice=slice(1, None, None))
+    else:
+        return sim.get_dcdMap().count_diff(id_slice=node_id)
+
+
+@threaded_lru(maxsize=64)
+@timing
 def get_node_ids_for_cell(sim: Simulation, cell_id):
     ca = get_cell_error_data(sim, cell_id)
     return ca["ID"].unique()
