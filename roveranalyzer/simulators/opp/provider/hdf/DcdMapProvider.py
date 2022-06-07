@@ -220,7 +220,7 @@ class DcdMapProvider(IHdfProvider):
         num_rows = df.shape[0]
 
         # apply owner_dist_feature
-        df = DcdUtil.owner_dist_feature(df, **kwargs)
+        df = DcdUtil.owner_dist_feature(df, meta, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in owner_dist_feature. "
