@@ -2,7 +2,7 @@ wheel
 setuptools~=57.0.0
 ipywidgets>=7.5.1
 docker~=5.0.0
-matplotlib==3.4.1
+matplotlib==3.5.2
 trimesh~=3.9.20
 tables>=3.6.1
 drawnow
@@ -27,5 +27,7 @@ dash-extensions
 dash-bootstrap-components
 Flask-Caching
 geobuf
-omnetinireader==1.8.1
+omnetinireader==1.8.2
+statsmodels~=0.13.2
+
 
