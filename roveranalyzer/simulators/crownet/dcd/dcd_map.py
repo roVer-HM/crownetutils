@@ -775,7 +775,9 @@ class DcdMap2D(DcdMap):
                 )
                 abs_err.columns = [f"{c}_{stat}" for c, stat in abs_err.columns]
 
-            stat_list = list(val)
+            # stat_list = list(val)
+            stat_list = ["count"]  # todo err values wrong after sum()
+            # todo err values wrong
             nodes = (
                 self.count_p[_i[:, :, :, id_slice], stat_list]  # all put ground truth
                 .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])

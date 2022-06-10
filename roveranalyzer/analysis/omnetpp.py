@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import itertools
 from os.path import join
-from typing import List
+from tkinter import E
+from typing import List, Protocol
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -14,13 +15,19 @@ from omnetinireader.config_parser import ObjectValue
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.analysis.common import AnalysisBase, Simulation
+from roveranalyzer.analysis.common import AnalysisBase, Simulation, SuqcRun
+from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 
 PlotUtil = _Plot.PlotUtil
+
+
+class FrameConsumer(Protocol):
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        pass
 
 
 class _hdf_Extractor(AnalysisBase):
@@ -646,6 +653,52 @@ class _OppAnalysis(AnalysisBase):
         )
 
         return fig
+
+    def merge_maps(
+        self,
+        study: SuqcRun,
+        scenario_lbl: str,
+        rep_ids: list,
+        data: List[str] | None = ("count_mean"),
+        columns_rename: dict | None = None,
+        frame_consumer: FrameConsumer | None = None,
+    ) -> pd.DataFrame:
+        """Average density map over multiple runs / seeds
+
+        Args:
+            study (SuqcRun): Suqc study object (access to run definitions and output)
+            scenario_lbl (str): Label for scenario
+            ids (list): List of runs over which to average. len(rep_ids) := N (number of seeds)
+
+        Returns:
+            pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
+        """
+        if columns_rename is None:
+            columns_rename = dict(count_mean="map_count")
+
+        df = []
+        for i, id in enumerate(rep_ids):
+            _map = study.get_sim(id).get_dcdMap()
+            if data is None:
+                _df = _map.count_diff()  # all mean, err, sqerr, ... (may be a lot!)
+            else:
+                _df = _map.count_diff().loc[:, data]
+                if type(_df) == pd.Series:
+                    _df = _df.to_frame()
+            if columns_rename is not None:
+                _df = _df.rename(columns=columns_rename)
+            _df.columns = pd.MultiIndex.from_product(
+                [[scenario_lbl], [i], _df.columns], names=["sim", "run", "data"]
+            )
+            df.append(_df)
+
+        df = pd.concat(df, axis=1, verify_integrity=True).unstack()
+        df = df.groupby(level=["sim", "simtime", "data"]).agg(
+            ["mean", "std", percentile(0.5)]
+        )  # over multiple runs/seeds
+        if frame_consumer is not None:
+            df = frame_consumer(df)
+        return df
 
 
 OppAnalysis = _OppAnalysis()
