@@ -820,12 +820,12 @@ class DcdMap2D(DcdMap):
         ax.set_xlabel("Time [s]", **font_dict["xlabel"])
         ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
         n = (
-            nodes.loc[:, ["count_mean", "count_p_25", "count_p_75"]]
+            nodes.loc[:, ["count_p_50", "count_p_25", "count_p_75"]]
             .dropna()
             .reset_index()
         )
         # n = nodes.loc[:, ["count_mean", "count_std"]].dropna().reset_index()
-        ax.plot("simtime", "count_mean", data=n, label="Mean count")
+        ax.plot("simtime", "count_p_50", data=n, label="Median count")
 
         # ax.fill_between(
         #     n["simtime"],
