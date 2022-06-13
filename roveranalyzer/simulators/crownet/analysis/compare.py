@@ -3,7 +3,7 @@ import math
 import os
 import re
 from enum import Enum
-from typing import List, Union, Tuple, Any
+from typing import List, Union, Tuple, Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -276,6 +276,52 @@ def _plot_comparison_from_dfs(
     if plot_active_nodes:
         ax = [ax, ax2]
     return fig, ax
+
+
+def plot_comparison(
+    sim_lists: List[List[Simulation]],
+    sim_identifiers: List[str],
+    module: str,
+    vector_name: str,
+    vector_description: str,
+    how: How,
+    unit: str,
+    rolling_only=False,
+    title: str = "",
+    fig=None,
+    ax=None,
+) -> Any:
+    """Compares two dataframes containing aggregated vector data of simulations (e.g. as returned by the
+        aggregate_vectors_from_simulation() or average_sim_data() functions.
+
+    :param sim_lists: lists of Simulations, each list containing simulations of the same configuration
+    :param sim_identifiers: names/identifiers for the simulation configurations
+    :param vector_description: description of the vector being compared
+    :param unit: unit of the vector data
+    :param rolling_only: if ture, will plot only the rolling average
+    :param title: The title of the plot
+    :param fig: figure containing the axes to be used, if none a new will be created
+    :param ax: axes to be used
+    :return: fig, ax as returned by pyplot.subplots()
+    """
+
+    dfs = []
+    for sims in sim_lists:
+        dfs_sims = []
+        for sim in sims:
+            df = _aggregate_vectors_from_simulation(sim, module, vector_name, how)
+            dfs_sims.append(df)
+        dfs.append(_average_sim_data(dfs_sims))
+    return _plot_comparison_from_dfs(
+        dfs=dfs,
+        df_identifiers=sim_identifiers,
+        vector_description=vector_description,
+        unit=unit,
+        rolling_only=rolling_only,
+        title=title,
+        fig=fig,
+        ax=ax,
+    )
 
 
 def _distance_between_nodes_enb(
