@@ -751,6 +751,9 @@ class DcdMap2D(DcdMap):
                 map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
                 )
         """
+        if self._map_p.contains_group("map_measure"):
+            return self._map_p.get_dataframe(group="map_measure")
+
         _i = pd.IndexSlice
         nodes: pd.DataFrame = (
             self.count_p[_i[:, :, :, 1:], ["count"]]  # all put ground truth
@@ -830,8 +833,10 @@ class DcdMap2D(DcdMap):
         Returns:
             pd.DataFrame: _description_
         """
-        _i = pd.IndexSlice
+        if self._map_p.contains_group("cell_measure"):
+            return self._map_p.get_dataframe(group="cell_measure")
 
+        _i = pd.IndexSlice
         # total number of nodes at each time
         glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
         glb = glb.droplevel("ID")
