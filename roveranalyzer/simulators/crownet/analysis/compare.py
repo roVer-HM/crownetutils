@@ -227,14 +227,20 @@ def _plot_comparison_from_dfs(
     colors_3 = ["yellowgreen", "cornflowerblue", "tomato", "yellow"]
     linestyles = ["-", "--", "."]
 
+    columns = [column for columns in [df.columns for df in dfs] for column in columns]
+    plot_active_nodes = (
+        True if any(["active_pNodes" in column for column in columns]) else False
+    )
     if not fig:
         fig, ax = plt.subplots()
+        if plot_active_nodes:
+            ax2 = ax.twinx()
+            ax2.set_ylabel("active pNodes")
+    elif type(fig) is List:
+        if plot_active_nodes:
+            ax2 = ax[1]
+        ax = ax[0]
     fig.set_size_inches(16, 9)
-    columns = [column for columns in [df.columns for df in dfs] for column in columns]
-    plot_active_nodes = True if "active_pNodes" in columns else False
-    if plot_active_nodes:
-        ax2 = ax.twinx()
-        ax2.set_ylabel("active pNodes")
 
     for i, df in enumerate(dfs):
         if not rolling_only:
