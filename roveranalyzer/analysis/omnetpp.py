@@ -460,7 +460,7 @@ class _OppAnalysis(AnalysisBase):
     ):
         dmap = builder.build_dcdMap(selection=selection)
         with PdfPages(join(data_root, "common_output.pdf")) as pdf:
-            dmap.plot_count_diff(savefig=pdf)
+            dmap.plot_map_count_diff(savefig=pdf)
 
             tmin, tmax = builder.count_p.get_time_interval()
             time = (tmax - tmin) / 4
@@ -477,13 +477,32 @@ class _OppAnalysis(AnalysisBase):
         _hdf = sim.get_base_provider(group_name, path=sim.builder.count_p._hdf_path)
         if not _hdf.contains_group(group_name):
             print(f"group '{group_name}' not found. Append to {_hdf._hdf_path}")
-            sel = sim.builder.map_p.get_attribute("used_selection")
-            if sel is None:
-                raise ValueError("selection not set!")
-            df = sim.builder.build_dcdMap(selection=list(sel)[0]).count_diff()
+            df = sim.get_dcdMap().count_diff()
             _hdf.write_frame(group=group_name, frame=df)
         else:
             print(f"group '{group_name}' found. Nothing to do for {_hdf._hdf_path}")
+
+    @timing
+    def append_err_measures_to_hdf(
+        self,
+        sim: Simulation,
+    ):
+        map = sim.get_dcdMap()
+        group = "map_measure"
+        _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+        if _hdf.contains_group(group):
+            print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
+        else:
+            map_measure = map.map_count_measure()
+            _hdf.write_frame(group=group, frame=map_measure)
+
+        group = "cell_measure"
+        _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+        if _hdf.contains_group(group):
+            print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
+        else:
+            cell_measure = map.cell_count_measure()
+            _hdf.write_frame(group=group, frame=cell_measure)
 
     @timing
     def get_data_001(self, sim: Simulation):
@@ -517,7 +536,7 @@ class _OppAnalysis(AnalysisBase):
         # return count_diff, err_hist
 
     @timing
-    def create_plot_count_diff(self, sim: Simulation, title: str, ax: plt.Axes):
+    def create_plot_err_box_over_time(self, sim: Simulation, title: str, ax: plt.Axes):
 
         s = _Plot.Style()
         s.font_dict = {
@@ -529,13 +548,8 @@ class _OppAnalysis(AnalysisBase):
         }
         s.create_legend = False
 
-        m = sim.builder.global_p.get_meta_object()
-        sel = sim.builder.map_p.get_attribute("used_selection")
-        if sel is None:
-            raise ValueError("selection not set!")
-        dmap = sim.builder.build_dcdMap(selection=list(sel)[0])
+        dmap = sim.get_dcdMap()
         dmap.style = s
-        # _, ax = dmap.plot_count_diff(ax=ax)
         _, ax = dmap.plot_err_box_over_time(ax=ax, xtick_sep=10)
         ax.set_title(title)
         return ax
@@ -634,7 +648,7 @@ class _OppAnalysis(AnalysisBase):
             dmap = sim.get_dcdMap()
             dmap.style = s
             # provide data from run cache
-            _, a = dmap.plot_count_diff(ax=axes[idx], data_source=run)
+            _, a = dmap.plot_map_count_diff(ax=axes[idx], data_source=run)
             a.set_title(title(sim))
 
         # fix legends
