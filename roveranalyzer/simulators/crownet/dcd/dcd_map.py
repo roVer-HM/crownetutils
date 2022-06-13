@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from functools import wraps
 from itertools import combinations
 from typing import Callable, Tuple, Union
 
@@ -738,6 +737,133 @@ class DcdMap2D(DcdMap):
         ax.legend()
         return ax.get_figure(), ax
 
+    def map_count_measure(self) -> pd.DataFrame:
+        """create map based error measure over time to indicate **total area count correctness**
+
+        Get map count measure that shows how good the number of agents are
+        represented by the density map irrespective of there positions. Meaning
+        this error measure only shows if no agents are left out or are 'produced' by
+        the density map. There positional information is lost in this measure.
+
+        Returns:
+            pd.DataFrame: [index](columns): [simtime](
+                glb_map_count, mean_map_count, median_map_count,
+                map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
+                )
+        """
+        _i = pd.IndexSlice
+        nodes: pd.DataFrame = (
+            self.count_p[_i[:, :, :, 1:], ["count"]]  # all put ground truth
+            .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])  # ID|time
+            .sum()
+            .groupby(level="simtime")
+            .agg(
+                [
+                    "mean",
+                    percentile(0.5),
+                    percentile(0.25),
+                    percentile(0.75),
+                    "min",
+                    "max",
+                ]
+            )
+        )
+        nodes = nodes.rename(
+            columns={
+                "p_50": "map_median_count",
+                "mean": "map_mean_count",
+                "p_25": "map_count_p25",
+                "p_75": "map_count_p75",
+                "min": "map_count_min",
+                "max": "map_count_max",
+            }
+        )
+        nodes.columns = nodes.columns.droplevel(0)
+        glb = (
+            self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+            .groupby(level=[self.tsc_time_idx_name])
+            .sum()
+        )
+        glb.columns = ["map_glb_count"]
+
+        df = pd.concat([glb, nodes], axis=1)
+        df["map_mean_err"] = df["map_mean_count"] - df["map_glb_count"]
+        df["map_mean_sqrerr"] = np.power(df["map_mean_err"], 2)
+        df["map_median_err"] = df["map_median_count"] - df["map_glb_count"]
+        df["map_median_sqerr"] = np.power(df["map_median_err"], 2)
+
+        return df
+
+    def cell_count_measure(self) -> pd.DataFrame:
+        """create cell based error measures over time to indicate **positional correctness**
+
+        count_p contains count, err, sqerr values at the (time, id, x, y) level.
+        In other words the table contains the count err, squerr values for
+        each node (id) for a given cell (x, y) for a given time (time).
+        The table count_p only communicated cells as well as over and underestimation
+        errors.
+
+        Assume cell x_i was occupied until t=10 . Then this cell is reported for each
+        time step and each node. Either with err = 0 if the node sees the occupant or
+        err = -1 for nodes where the occupant is not seen and err >= 1 in the case some
+        nodes see more than one node. Note that negative values (underestimation) is bound
+        by the real number of occupants in the cell. On the other hand overestimation is
+        not bound!
+
+        Assume now t > 100 and x_i is not occupied anymore and any TTL is reached, thus
+        no node should have any values for the cell x_i.
+        Assume now that from a total of N=10 nodes one node is faulty and has a
+        count for cell x_i. This count will be part of the count_p table and
+        marked with an error count of 1. The correct value of count=0 for all
+        other nodes is not stored in count_p but are implied. Thus to calculate the
+        mean error of cell x_i is:
+
+                mean_abs_err = (|1| + 9*|0|)/(N=10) = 0.1
+
+        For this reason a simple count_p.groupby([...]).mean() will not work because
+        the used number of observations will be wrong because the implied zero-error
+        values are not saved in count_p. This function will therefore calculate the mean
+        errors manually by utilizing the total number of nodes N for each time `t`. The
+        numerator will be the same because only zero-counts / zero-erros are implied. Any
+        non-zero count or error will be saved explicitly in count_p.
+
+        Returns:
+            pd.DataFrame: _description_
+        """
+        _i = pd.IndexSlice
+
+        # total number of nodes at each time
+        glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+        glb = glb.droplevel("ID")
+        glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count)
+        glb_map_sum.columns = ["num_Agents"]
+
+        # all (time, x, y, id) based count, err, squerr cell values
+        # without ground truth (see slice last slice `1:`)
+        # The measurements are summed over all nodes (this will drop the id index )
+        nodes: pd.DataFrame = self.count_p[
+            _i[:, :, :, 1:], _i["count", "err", "sqerr"]
+        ]  # all but ground truth
+        nodes["abserr"] = np.abs(nodes["err"])
+        nodes = nodes.groupby(
+            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
+        ).agg(
+            ["sum"]
+        )  # [time, x, y](...data-columns...)
+        nodes.columns = [f"{a}_{b}" for a, b in nodes.columns]
+        # join total number of nodes with cell based measures. See function description
+        nodes = nodes.join(glb_map_sum, on="simtime")
+
+        # divide by total number of nodes at each time to create mean measruements
+        nodes["cell_mean_count"] = nodes["count_sum"] / nodes["num_Agents"]
+        nodes["cell_mse"] = nodes["sqerr_sum"] / nodes["num_Agents"]
+        nodes["cell_mean_err"] = nodes["err_sum"] / nodes["num_Agents"]
+        nodes["cell_mean_abserr"] = nodes["abserr_sum"] / nodes["num_Agents"]
+
+        # remove uncessary columns
+        nodes = nodes.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
+        return nodes
+
     def count_diff(
         self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
     ) -> pd.DataFrame:
@@ -804,47 +930,33 @@ class DcdMap2D(DcdMap):
     @PlotUtil.savefigure
     @PlotUtil.with_axis
     @PlotUtil.plot_decorator
-    def plot_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
+    def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         if "data_source" in kwargs:
             nodes = kwargs["data_source"]()
         else:
-            # nodes = self.count_diff(val={"count"}, agg={"mean", "std"})
-            if "agg" in kwargs:
-                agg = kwargs["agg"]
-            else:
-                agg = {"mean", percentile(0.25), percentile(0.75)}
-            nodes = self.count_diff(val={"count"}, agg=agg)
+            nodes = self.map_count_measure()
 
         font_dict = self.style.font_dict
         ax.set_title("Node Count over Time", **font_dict["title"])
         ax.set_xlabel("Time [s]", **font_dict["xlabel"])
         ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
         n = (
-            nodes.loc[:, ["count_p_50", "count_p_25", "count_p_75"]]
+            nodes.loc[:, ["map_median_count", "map_count_p25", "map_count_p75"]]
             .dropna()
             .reset_index()
         )
-        # n = nodes.loc[:, ["count_mean", "count_std"]].dropna().reset_index()
-        ax.plot("simtime", "count_p_50", data=n, label="Median count")
+        ax.plot("simtime", "map_median_count", data=n, label="Median count")
 
-        # ax.fill_between(
-        #     n["simtime"],
-        #     n["count_mean"] + n["count_std"],
-        #     n["count_mean"] - n["count_std"],
-        #     alpha=0.35,p
-        #     interpolate=True,
-        #     label="Count +/- 1 std",
-        # )
         ax.fill_between(
             n["simtime"],
-            n["count_p_25"],
-            n["count_p_75"],
+            n["map_count_p25"],
+            n["map_count_p75"],
             alpha=0.35,
             interpolate=True,
             label="[Q1;Q3]",
         )
-        glb = nodes.loc[:, ["glb_count"]].dropna().reset_index()
-        ax.plot("simtime", "glb_count", data=glb, label="Actual count")
+        glb = nodes.loc[:, ["map_glb_count"]].dropna().reset_index()
+        ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
         if self.style.create_legend:
             ax.get_figure().legend()
         return ax.get_figure(), ax
