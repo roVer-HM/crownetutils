@@ -124,8 +124,6 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
         )
         return fig
 
-        return "Count diff"
-
     @register(Plots.Delay)
     def count_delay(e, sim: Simulation, node_id):
         return "Delay"
