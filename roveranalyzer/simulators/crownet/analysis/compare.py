@@ -659,3 +659,61 @@ def simulations_from_folder(
     for i, vec_file in enumerate(vec_files):
         res.append(Simulation(i, os.path.dirname(vec_file), configuration))
     return res
+
+
+def _sort_sims_by_parameter(
+    sims: List[Simulation], parameter_name: str
+) -> Dict[str, List[Simulation]]:
+    """Sorts a list of Simulations into a dictionary corresponding the specified run parameter (which is expected to
+    be found in the filename of the simulations .vec output file).
+
+    :param sims: the simulations to be sorted
+    :param parameter_name: the name of the run parameter
+    :return: A dictionary which keys are the different parameter values and the values are the corresponding simulations
+    """
+    res = {}
+    for sim in sims:
+        vec_file = _find_simulations(".vec", sim.path)[0]
+        parameter_value = re.search(rf"(?<={parameter_name}=)[.\d]*", vec_file).group(0)
+        parameter_value = eval(parameter_value)
+        if parameter_value not in res.keys():
+            res[parameter_value] = [sim]
+        else:
+            res[parameter_value].append(sim)
+    return res
+
+
+def compare_parameter_study(
+    sims: List[Simulation],
+    parameter_name: str,
+    parameter_unit: str,
+    module: str,
+    vector: str,
+    vector_description: str,
+    unit: str,
+    how: How,
+    y_label: str,
+):
+
+    dict_sims = _sort_sims_by_parameter(sims, parameter_name)
+    data = {}
+    for parameter_value in dict_sims.keys():
+        mean = 0
+        for sim in dict_sims[parameter_value]:
+            df = _aggregate_vectors_from_simulation(sim, module, vector, how)
+            mean += df.stack().dropna().mean()
+        mean /= len(dict_sims[parameter_value])
+        data[parameter_value] = mean
+    fig, ax = plt.subplots()
+    df = pd.DataFrame.from_dict(data, orient="index", columns=[vector_description])
+    df.sort_index(inplace=True)
+    df.plot(
+        xlabel=parameter_name,
+        ylabel=y_label,
+        ax=ax,
+        xticks=list(dict_sims.keys()),
+        rot=45,
+    )
+    ax.set_xlabel(f"{parameter_name} {parameter_unit}")
+    ax.set_ylabel(f"{vector_description} {unit}")
+    return fig, ax
