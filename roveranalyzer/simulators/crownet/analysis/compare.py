@@ -1,5 +1,7 @@
+import datetime
 import math
 import os
+import re
 from enum import Enum
 from typing import List, Union, Tuple, Any
 
@@ -9,6 +11,7 @@ from matplotlib import pyplot as plt
 
 from roveranalyzer.simulators.opp.scave import ScaveTool
 from roveranalyzer.simulators.opp.utils import Simulation
+from roveranalyzer.utils import PathHelper
 
 
 class How(Enum):
@@ -552,3 +555,55 @@ def _aggregate_vectors_from_simulation(
     df_data = _aggregate_vectors(df_sim, how)
     df_data = df_data.reindex(sorted(df_data.columns), axis=1)
     return df_data
+
+
+def _find_simulations(
+    file_extension: str,
+    path: str,
+    must_contain: List[str] = None,
+    timeframe: List[datetime.datetime] = None,
+) -> List[str]:
+    """Finds all file of a certain type within a folder and its sub-folders.
+
+    :param file_extension: The file extension
+    :param path: The root folder to be searched
+    :param must_contain: Optional folder name which must be part of the path.
+    :param timeframe: a timeframe in which the simulations
+    :return: A list of paths to all files with the given extension in the folder and all sub-folders
+    """
+    result = []
+    for root, dirs, files in os.walk(path):
+        for name in files:
+            if name.endswith(file_extension) and (
+                not must_contain or all(e in root or e in name for e in must_contain)
+            ):
+                date_time_str = re.search(r"\d{8}-\d{2}:\d{2}:\d{2}", root).group(0)
+                date_time_obj = datetime.datetime.strptime(
+                    date_time_str, "%Y%m%d-%H:%M:%S"
+                )
+                if timeframe is None or timeframe[0] <= date_time_obj <= timeframe[1]:
+                    result.append(os.path.join(root, name))
+    return result
+
+
+def simulations_from_folder(
+    path: Union[str, PathHelper],
+    configuration: str,
+    parameters: List[str] = None,
+    timeframe=None,
+) -> List[Simulation]:
+    """Finds all simulation data under the given path and returns Simulation objects for each
+
+    :param path: The path which will be searched
+    :param configuration: Name of OMNeT++ configuration, will be given to all Simulations objects
+    :param parameters: list of conditions for parameters of Simulations (e.g. 'beaconInterval=1')
+    :return: A list of Simulations objects which were found under the path and its sub-folders
+    """
+    parameters = [] if parameters is None else parameters
+    if type(path) == PathHelper:
+        path = path.abs_path()
+    res = []
+    vec_files = _find_simulations(".vec", path, [configuration] + parameters, timeframe)
+    for i, vec_file in enumerate(vec_files):
+        res.append(Simulation(i, os.path.dirname(vec_file), configuration))
+    return res
