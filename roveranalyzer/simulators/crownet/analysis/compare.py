@@ -21,7 +21,7 @@ class How(Enum):
     first = "first"
 
 
-def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame:
+def _read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame:
     """Reads positional data from a simulations .vec file into a Dataframe.
     For each second long interval reads the first position recorded in that interval.
 
@@ -57,7 +57,9 @@ def read_position_data(sim: Simulation, as_tuples: bool = False) -> pd.DataFrame
     module = "*World.pNode[*]"
     vector_x = "posX:vector"
     vector_y = "posY:vector"
-    df = aggregate_vectors_from_simulation(sim, module, [vector_x, vector_y], How.first)
+    df = _aggregate_vectors_from_simulation(
+        sim, module, [vector_x, vector_y], How.first
+    )
 
     if not as_tuples:
         return df
@@ -94,7 +96,7 @@ def plot_pnode_positions(
     :param xlim: custom xlim value for all axes
     :return: (fig, ax) or list of (fig, ax) Tuples as returned by pylot.subplots(), one for each figure
     """
-    df = read_position_data(sim)
+    df = _read_position_data(sim)
     dfs_plot = []
     times = list(range(start, end + 1, interval))
     for i in times:
@@ -171,15 +173,15 @@ def distance_plot_mean(
         float("".join(c for c in enb[0] if (c.isdigit() or c == "."))),
         float("".join(c for c in enb[1] if (c.isdigit() or c == "."))),
     )
-    dfs = [read_position_data(sim, True) for sim in sims]
-    dfs_dist_nodes = [distances_between_nodes(df) for df in dfs]
+    dfs = [_read_position_data(sim, True) for sim in sims]
+    dfs_dist_nodes = [_distances_between_nodes(df) for df in dfs]
 
-    dfs_dist_enb = [distance_between_nodes_enb(df, enb) for df in dfs]
-    df_dist_nodes = average_sim_data(
+    dfs_dist_enb = [_distance_between_nodes_enb(df, enb) for df in dfs]
+    df_dist_nodes = _average_sim_data(
         dfs_dist_nodes, active_vectors_column=False, cutoff=cutoff
     )
-    df_dist_enb = average_sim_data(dfs_dist_enb, cutoff=cutoff)
-    fig, ax = plot_comparison(
+    df_dist_enb = _average_sim_data(dfs_dist_enb, cutoff=cutoff)
+    fig, ax = _plot_comparison_from_dfs(
         [df_dist_enb, df_dist_nodes],
         df_identifiers=["enb-node", "node-node"],
         vector_description="avg. distance",
@@ -192,7 +194,7 @@ def distance_plot_mean(
     return fig, ax
 
 
-def plot_comparison(
+def _plot_comparison_from_dfs(
     dfs: List[pd.DataFrame],
     df_identifiers: List[str],
     vector_description: str,
@@ -267,7 +269,7 @@ def plot_comparison(
     return fig, ax
 
 
-def distance_between_nodes_enb(
+def _distance_between_nodes_enb(
     df: pd.DataFrame, enb: Tuple[float, float]
 ) -> pd.DataFrame:
     """For a dataframe containing positional data of a simulations nodes. Returns d dataframe containing the distance
@@ -286,11 +288,11 @@ def distance_between_nodes_enb(
             .               .               .                  .                .
             .               .               .                  .                .
     """
-    res = df.apply(apply_distance_between_nodes_enb, raw=True, axis=1, enb=enb)
+    res = df.apply(_apply_distance_between_nodes_enb, raw=True, axis=1, enb=enb)
     return res
 
 
-def apply_distance_between_nodes_enb(
+def _apply_distance_between_nodes_enb(
     ndarray: np.ndarray, enb: Tuple[float, float]
 ) -> List[float]:
     """Calculates the average distance between nodes for a row of positional data (in tuple form).
@@ -311,7 +313,7 @@ def apply_distance_between_nodes_enb(
     return res
 
 
-def distances_between_nodes(df: pd.DataFrame) -> pd.DataFrame:
+def _distances_between_nodes(df: pd.DataFrame) -> pd.DataFrame:
     """For a dataframe containing positional data of a simulations nodes. Returns d dataframe containing the average distance
     for each node to all other nodes for each time frame
 
@@ -328,11 +330,11 @@ def distances_between_nodes(df: pd.DataFrame) -> pd.DataFrame:
             .               .               .                  .                .
             .               .               .                  .                .
     """
-    res = df.apply(apply_distances_between_nodes, raw=True, axis=1)
+    res = df.apply(_apply_distances_between_nodes, raw=True, axis=1)
     return res
 
 
-def apply_distances_between_nodes(ndarray: np.ndarray) -> List[float]:
+def _apply_distances_between_nodes(ndarray: np.ndarray) -> List[float]:
     """Calculates the average distance between nodes for a row of positional data (in tuple form).
     Meant to be used as argument for Dataframe.apply()
 
@@ -359,7 +361,7 @@ def apply_distances_between_nodes(ndarray: np.ndarray) -> List[float]:
     return res
 
 
-def aggregate_vectors(
+def _aggregate_vectors(
     df: pd.DataFrame, how: How = How.mean, interval: int = 1
 ) -> pd.DataFrame:
     """
@@ -430,7 +432,7 @@ def aggregate_vectors(
     return df_res
 
 
-def active_vectors(df: pd.DataFrame) -> pd.Series:
+def _active_vectors(df: pd.DataFrame) -> pd.Series:
     """For a DataFrame containing aggregated vector data (e.g. as returned by the aggregate_vectors() function):
         Returns a pd.Series over time representing how many of these vectors were still recording data at the time
         or a later time in the simulation
@@ -449,7 +451,7 @@ def active_vectors(df: pd.DataFrame) -> pd.Series:
     return active_nodes
 
 
-def average_sim_data(
+def _average_sim_data(
     dfs: List[pd.DataFrame],
     cutoff: float = 0,
     active_vectors_column=True,
@@ -483,7 +485,7 @@ def average_sim_data(
     df_node_counts = None
     for i, df in enumerate(dfs):
         mean_values = df.mean(axis=1)
-        active_nodes = active_vectors(df)
+        active_nodes = _active_vectors(df)
         df[f"mean_value_sim_{i}"] = mean_values
         df[f"active_pNodes_sim_{i}"] = active_nodes
 
@@ -498,7 +500,7 @@ def average_sim_data(
 
     df_node_counts["value"] = df_node_counts.mean(axis=1)
     means = df_means.mean(axis=1)
-    active_sims = active_vectors(df_means)
+    active_sims = _active_vectors(df_means)
     df_means["value"] = means
     df_means["active_sims"] = active_sims
     df_means = df_means.drop(df_means[df_means.active_sims == 0].index)
@@ -518,7 +520,7 @@ def average_sim_data(
     return res
 
 
-def aggregate_vectors_from_simulation(
+def _aggregate_vectors_from_simulation(
     sim: Simulation,
     module: str,
     vector_names: Union[str, List[str]],
@@ -547,6 +549,6 @@ def aggregate_vectors_from_simulation(
     ]
     df_sim = ScaveTool().load_df_from_scave(vec_paths[0], sfilter)
     df_sim = df_sim.opp.filter().vector().normalize_vectors(axis=1)
-    df_data = aggregate_vectors(df_sim, how)
+    df_data = _aggregate_vectors(df_sim, how)
     df_data = df_data.reindex(sorted(df_data.columns), axis=1)
     return df_data
