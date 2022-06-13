@@ -649,6 +649,7 @@ def simulations_from_folder(
     :param path: The path which will be searched
     :param configuration: Name of OMNeT++ configuration, will be given to all Simulations objects
     :param parameters: list of conditions for parameters of Simulations (e.g. 'beaconInterval=1')
+    :param timeframe: two datetime objects indicating from which timeframe the simulations should be collected
     :return: A list of Simulations objects which were found under the path and its sub-folders
     """
     parameters = [] if parameters is None else parameters
@@ -692,9 +693,20 @@ def compare_parameter_study(
     vector_description: str,
     unit: str,
     how: How,
-    y_label: str,
 ):
+    """Sorts a List of simulations into groups by the given sim configuration parameter
+     and plots the mean vector value of those groups over the parameter values.
 
+    :param sims: List of simulations
+    :param parameter_name: the variable parameter
+    :param parameter_unit: the unit of the variable parameter
+    :param module: module of the vector on the y-axis
+    :param vector: vector on the y-axis
+    :param vector_description: description of the vector
+    :param unit: unit of the vector
+    :param how: aggregation method of the vector
+    :return:  fig, ax as returned by pyplot.subplots()
+    """
     dict_sims = _sort_sims_by_parameter(sims, parameter_name)
     data = {}
     for parameter_value in dict_sims.keys():
@@ -709,7 +721,6 @@ def compare_parameter_study(
     df.sort_index(inplace=True)
     df.plot(
         xlabel=parameter_name,
-        ylabel=y_label,
         ax=ax,
         xticks=list(dict_sims.keys()),
         rot=45,
