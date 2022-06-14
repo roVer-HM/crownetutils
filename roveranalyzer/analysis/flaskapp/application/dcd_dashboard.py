@@ -524,7 +524,7 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
         x, y = m.get_cells(sim)[cell_id]
         h3 = f"Density measurements for cell [{x},{y}] for time {time} from point of view of {node_id}-{m.get_host_ids(sim)[node_id]}"
 
-        hist1 = px.histogram(df, x="ymfD_t", title="age factor")
-        hist2 = px.histogram(df, x="ymfD_d", title="distance factor")
+        hist1 = px.histogram(df, x="selectionRank", title="age factor")
+        hist2 = px.histogram(df, x="selectionRank", title="distance factor")
 
         return records, cols, {i["id"]: i["id"] for i in cols}, h3, hist1, hist2
