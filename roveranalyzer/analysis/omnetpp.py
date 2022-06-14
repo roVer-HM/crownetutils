@@ -672,10 +672,10 @@ class _OppAnalysis(AnalysisBase):
         self,
         study: SuqcRun,
         scenario_lbl: str,
-        rep_ids: list,
-        data: List[str] | None = ("count_mean"),
-        columns_rename: dict | None = None,
+        rep_ids: List[int],
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
         frame_consumer: FrameConsumer | None = None,
+        drop_nan: bool = True,
     ) -> pd.DataFrame:
         """Average density map over multiple runs / seeds
 
@@ -687,29 +687,35 @@ class _OppAnalysis(AnalysisBase):
         Returns:
             pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
         """
-        if columns_rename is None:
-            columns_rename = dict(count_mean="map_count")
-
         df = []
         for i, id in enumerate(rep_ids):
             _map = study.get_sim(id).get_dcdMap()
             if data is None:
-                _df = _map.count_diff()  # all mean, err, sqerr, ... (may be a lot!)
+                _df = (
+                    _map.map_count_measure()
+                )  # all mean, err, sqerr, ... (may be a lot!)
             else:
-                _df = _map.count_diff().loc[:, data]
+                _df = _map.map_count_measure().loc[:, data]
                 if type(_df) == pd.Series:
                     _df = _df.to_frame()
-            if columns_rename is not None:
-                _df = _df.rename(columns=columns_rename)
             _df.columns = pd.MultiIndex.from_product(
                 [[scenario_lbl], [i], _df.columns], names=["sim", "run", "data"]
             )
             df.append(_df)
 
-        df = pd.concat(df, axis=1, verify_integrity=True).unstack()
+        df = pd.concat(df, axis=1, verify_integrity=True)
+        if df.isna().any(axis=1).any():
+            nan_index = list(df.index[df.isna().any(axis=1)])
+            print(f"found 'nan' valus for time indedx: {nan_index}")
+            if drop_nan:
+                print(f"dropping time index due to nan: {nan_index}")
+                df = df[~(df.isna().any(axis=1))]
+
+        df = df.unstack()
         df = df.groupby(level=["sim", "simtime", "data"]).agg(
             ["mean", "std", percentile(0.5)]
         )  # over multiple runs/seeds
+
         if frame_consumer is not None:
             df = frame_consumer(df)
         return df
