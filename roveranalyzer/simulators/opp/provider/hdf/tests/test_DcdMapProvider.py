@@ -93,6 +93,7 @@ class DcdMapProviderTest(unittest.TestCase):
             DcdMapKey.SOURCE_HOST,
             DcdMapKey.SOURCE_ENTRY,
             DcdMapKey.HOST_ENTRY,
+            DcdMapKey.SELECTION_RANK,
             DcdMapKey.X_OWNER,
             DcdMapKey.Y_OWNER,
             DcdMapKey.OWNER_DIST,
