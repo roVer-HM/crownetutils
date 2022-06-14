@@ -22,6 +22,13 @@ def parse_arguments():
         "dash", help="Start Dash/Plotly Server for live analysis", parents=[parent]
     )
     dash_parser.add_argument("--suqc-dir", required=True, help="Suqc folder")
+    dash_parser.add_argument(
+        "--run-filter",
+        "-f",
+        required=False,
+        default=None,
+        help="Only load runs matching against string. Use preceding '!' to invert match",
+    )
     dash_parser.set_defaults(main_func=run_app_ns)
 
     # Rerun postprocesing

@@ -268,10 +268,13 @@ class Simulation:
 
     @classmethod
     def copy_pdf(cls, name, sim: Simulation, base):
-        shutil.copyfile(
-            src=join(sim.data_root, name),
-            dst=cls.asset_pdf_path(name, base=base, suffix=sim.label),
-        )
+        try:
+            shutil.copyfile(
+                src=join(sim.data_root, name),
+                dst=cls.asset_pdf_path(name, base=base, suffix=sim.label),
+            )
+        except Exception as e:
+            logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
 class SuqcRun:
