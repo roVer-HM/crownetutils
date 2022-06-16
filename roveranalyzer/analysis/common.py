@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import multiprocessing
 import os
 import re
 import shutil
@@ -10,8 +9,9 @@ import subprocess
 import sys
 import time
 from glob import glob
+from multiprocessing import get_context
 from os.path import basename, join
-from typing import Tuple
+from typing import List, Tuple
 
 import pandas as pd
 from hjson import OrderedDict
@@ -152,6 +152,13 @@ class RunContext:
             ],
         }
 
+    def create_run_config_args(self):
+        return {
+            "cwd": self.cwd,
+            "script_name": self.data.get("script", "run_script.py"),
+            "args": {"config", "-f", "runContext.json"},
+        }
+
     @staticmethod
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
 
@@ -177,6 +184,15 @@ class RunContext:
                 fd.close()
 
         return return_code
+
+
+class SimulationBase:
+    def __init__(
+        self, data_root: str, label: str, run_context: RunContext | None = None
+    ) -> None:
+        self.data_root = data_root
+        self.label = label
+        self.run_context: RunContext = run_context
 
 
 class Simulation:
@@ -208,14 +224,17 @@ class Simulation:
             self.builder,
             self.sql,
         ) = AnalysisBase.builder_from_output_folder(data_root)
-        self.pos: BaseHdfProvider = BaseHdfProvider(
-            join(self.data_root, "trajectories.h5"), group="trajectories"
-        )
         self.run_context: RunContext = run_context
 
     def get_base_provider(self, group_name, path=None) -> BaseHdfProvider:
         return BaseHdfProvider(
             hdf_path=path or join(self.data_root, ""), group=group_name
+        )
+
+    @property
+    def pos(self) -> BaseHdfProvider:
+        return BaseHdfProvider(
+            join(self.data_root, "trajectories.h5"), group="trajectories"
         )
 
     def get_dcdMap(self):
@@ -386,6 +405,14 @@ class SuqcRun:
         lbl = f"{self.name}_{self.run_prefix}_{key[0]}_{key[1]}"
         return Simulation.from_context(ctx, lbl)
 
+    def get_run_context(
+        self, key: int | Tuple[int, int], ctx_file_name: str = "runContext.json"
+    ):
+        if isinstance(key, int):
+            key = (key, 0)
+        run = self.runs[key]
+        return RunContext.from_path(join(run["run"], ctx_file_name))
+
     def get_simulations(self):
         return [self.get_run_as_sim(k) for k in self.runs.keys()]
 
@@ -399,7 +426,7 @@ class SuqcRun:
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
 
     @classmethod
-    def rerun_postprocessing(cls, path: str, njobs=4, log=False):
+    def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
         run: SuqcRun = cls(path)
 
         args = []
@@ -408,31 +435,31 @@ class SuqcRun:
             _arg["log"] = log
             args.append(_arg)
 
-        with multiprocessing.Pool(processes=njobs) as pool:
+        with get_context("spawn").Pool(processes=jobs) as pool:
             ret = pool.map(func=RunContext.exec_runscript, iterable=args)
 
         return all(ret)
 
-    @staticmethod
-    def main_postprocessing(ns: argparse.ArgumentParser):
-        ret = SuqcRun.rerun_postprocessing(ns.path, ns.jobs, ns.log)
-        if ret:
-            sys.exit(0)
-        else:
-            sys.exit(-1)
+    @classmethod
+    def rerun_simulations(cls, path: str, jobs: int = 4, what="missing", **kwargs):
+        study: SuqcRun = cls(path)
+        # filter runs which should be executed again
+        if what == "missing":
+            runs: List[RunContext] = [
+                study.get_run_context(k)
+                for k, v in study.runs.items()
+                if "out" not in v
+            ]
 
-    @staticmethod
-    def create_parser(sub: argparse.ArgumentParser):
-        sub.add_argument(
-            "--suqc-dir", dest="path", required=True, help="Suqc Simulation folder"
-        )
-        sub.add_argument(
-            "-j",
-            "--jobs",
-            dest="jobs",
-            type=int,
-            default=4,
-            help="Number of parallel runs",
-        )
-        sub.add_argument("--log", action="store_true", default=False, required=False)
-        sub.set_defaults(main_func=SuqcRun.main_postprocessing)
+        runs[0].create_run_config_args
+        runs[0].resultdir
+        args = []
+        for r in runs:
+            _arg = r.create_run_config_args()
+            _arg["log"] = join(r.resultdir, "runscript.out")
+            args.append(_arg)
+
+        with get_context("spawn").Pool(processes=jobs) as pool:
+            ret = pool.map(func=RunContext.exec_runscript)
+
+        return all(ret)
