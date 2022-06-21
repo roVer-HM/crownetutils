@@ -715,6 +715,28 @@ class _OppAnalysis(AnalysisBase):
 
         df = frame_consumer(df)
         return df
+
+    def merge_position(
+        self,
+        study: SuqcRun,
+        run_dict: dict,
+        time_slice=slice(0.0),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.DataFrame:
+        df = []
+        rep_list = run_dict["rep"]
+        for run_id in rep_list:
+            sim = study.get_sim(run_id)
+            _pos = sim.sql.host_position(
+                module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
+            )
+            _pos["run_id"] = run_id
+            _pos["drop_nodes"] = _pos["vecIdx"] >= (_pos["vecIdx"].max() + 1) / 2
+            df.append(_pos)
+
+        df: pd.DataFrame = pd.concat(df, axis=0, ignore_index=True)
+        df = df.set_index(["run_id", "hostId", "vecIdx", "drop_nodes"]).sort_index()
+        df = frame_consumer(df)
         return df
 
 
