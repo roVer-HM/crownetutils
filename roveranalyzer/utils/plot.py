@@ -4,6 +4,7 @@ import random
 from functools import wraps
 from typing import List, Union
 
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
@@ -11,6 +12,23 @@ from matplotlib.backends.backend_pdf import PdfPages
 import roveranalyzer.utils.logging as _log
 
 logger = _log.logger
+
+
+def matplotlib_set_latex_param():
+    matplotlib.rcParams["pdf.fonttype"] = 42
+    matplotlib.rcParams["ps.fonttype"] = 42
+    matplotlib.rcParams["pgf.texsystem"] = "pdflatex"
+    matplotlib.rcParams.update(
+        {
+            "font.family": "serif",
+            "font.size": 18,
+            "axes.labelsize": 20,
+            "axes.titlesize": 24,
+            "legend.fontsize": 24,
+            "figure.titlesize": 28,
+        }
+    )
+    matplotlib.rcParams["text.usetex"] = True
 
 
 class Style:

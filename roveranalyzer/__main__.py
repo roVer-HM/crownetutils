@@ -2,6 +2,7 @@ import argparse
 import sys
 
 from roveranalyzer.analysis.flaskapp.wsgi import run_app_ns
+from roveranalyzer.entrypoints import suqc_run_append_parser
 
 
 def parse_arguments():
@@ -21,7 +22,17 @@ def parse_arguments():
         "dash", help="Start Dash/Plotly Server for live analysis", parents=[parent]
     )
     dash_parser.add_argument("--suqc-dir", required=True, help="Suqc folder")
+    dash_parser.add_argument(
+        "--run-filter",
+        "-f",
+        required=False,
+        default=None,
+        help="Only load runs matching against string. Use preceding '!' to invert match",
+    )
     dash_parser.set_defaults(main_func=run_app_ns)
+
+    # Rerun postprocesing
+    suqc_run_append_parser(sub, [parent])
 
     return main.parse_args()
 
@@ -29,4 +40,8 @@ def parse_arguments():
 if __name__ == "__main__":
     print("")
     ns: argparse.Namespace = parse_arguments()
-    ns.main_func(ns)
+    ret = ns.main_func(ns)
+    if ret:
+        sys.exit(0)
+    else:
+        sys.exit(-1)

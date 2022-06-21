@@ -59,12 +59,14 @@ def build_layout(dash_app: Dash):
     selector_layout, selector_ids = data_selector_view()
     cell_error_layout, cell_error_ids = cell_errors_view()
     scenario_layout, scenario_ids = scenario_view(ns)
+    misc_layout, misc_ids = misc_view(ns)
 
     ns.dump(assets_folder=dash_app.config.assets_folder)
 
     dash_app.layout = dbc.Container(
         [
             selector_layout,
+            misc_layout,
             scenario_layout,
             cell_error_layout,
         ]
@@ -73,6 +75,7 @@ def build_layout(dash_app: Dash):
     dash_app.selector_ids = selector_ids
     dash_app.cell_err_ids = cell_error_ids
     dash_app.scenario_ids = scenario_ids
+    dash_app.misc_ids = misc_ids
     return dash_app
 
 
@@ -139,6 +142,20 @@ def lbl_dropdown(label, lbl_width, dp_id, dp_args: dict = {}, **kwargs):
         ],
         **kwargs,
     )
+
+
+def misc_view(ns: Namespace, ids: IdProvider | None = None):
+    if ids is None:
+        ids = IdProvider("misc-view")
+
+    layout = [
+        DashUtil.module_header(ids("title")),
+        lbl_dropdown("Select Plot:", 3, ids("plot-dropdown")),
+        lbl_dropdown("Select Node:", 3, ids("node-dropdown")),
+        full_row(html.Div(id=ids("plot-wrapper"), children=["No plot selected"])),
+    ]
+
+    return ids.insert_layout_defaults(layout), ids
 
 
 def scenario_view(ns: Namespace, ids: IdProvider | None = None):

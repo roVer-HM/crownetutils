@@ -7,7 +7,15 @@ from roveranalyzer.analysis.flaskapp.application import init_app
 
 def run_app_ns(ns: argparse.Namespace):
     run = SuqcRun(ns.suqc_dir)
-    run_app(run.get_simulation_dict(lbl_key=True))
+    if ns.run_filter is not None:
+        if ns.run_filter[0] == "!":
+            _f = lambda x: ns.run_filter not in x
+        else:
+            _f = lambda x: ns.run_filter in x
+        runs = {k: v for k, v in run.get_simulation_dict(lbl_key=True).items() if _f(k)}
+    if runs == {}:
+        raise ValueError(f"No run selected with filter: {ns.run_filter}")
+    run_app(runs)
 
 
 def run_app(simulations: Dict[str, Simulation]):

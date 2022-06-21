@@ -104,7 +104,7 @@ def delay_feature(_df_ret, **kwargs):
     return _df_ret
 
 
-def owner_dist_feature(_df_ret, **kwargs):
+def owner_dist_feature(_df_ret, meta: DcdMetaData, **kwargs):
     if "global_position" not in kwargs:
         # Warning: may lead to error if not all owner locations are part of the data frame
         return owner_dist_feature_old(_df_ret, **kwargs)
@@ -118,7 +118,8 @@ def owner_dist_feature(_df_ret, **kwargs):
 
     # access global position map and extract positions of the current node.
     glb_pos = kwargs["global_position"]
-    node_id = _df_ret.index.get_level_values("ID").unique()[0]
+    # node_id = _df_ret.index.get_level_values("ID").unique()[0]
+    node_id = int(meta.node_id)
     node_positions = glb_pos.loc[Idx[:, node_id], :]  # .reset_index()
     node_positions = node_positions.rename(columns={"x": "x_owner", "y": "y_owner"})
     node_positions.index.set_names("ID", level=1, inplace=True)

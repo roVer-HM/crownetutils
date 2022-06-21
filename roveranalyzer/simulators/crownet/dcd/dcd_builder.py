@@ -357,6 +357,11 @@ class DcdHdfBuilder(FrameConsumer):
             that the node didn't see all occupied cells. To fill the gaps the data frame is concatednated
             with the ground truth to fill the missing cell values with zero (i.e. maximal error!)
         """
+        if df.empty:
+            # ignore empty frames (nodes which do not have a density map)
+            # (mostly artifacts at end of simulation. Node created at end and
+            # simulation finished before the item is logged)
+            return
         # only use selected values
         _df = df[df["selection"] != 0].copy(deep=True)
         # extract id, times and positions from data frame
