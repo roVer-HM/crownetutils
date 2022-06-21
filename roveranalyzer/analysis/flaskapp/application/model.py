@@ -164,6 +164,16 @@ def get_cell_error_data(sim: Simulation, cell_id):
 
 @threaded_lru(maxsize=64)
 @timing
+def get_count_diff(sim: Simulation, node_id: int = -1):
+    if node_id == -1:
+        # all nodes -> mean count
+        return sim.get_dcdMap().count_diff(id_slice=slice(1, None, None))
+    else:
+        return sim.get_dcdMap().count_diff(id_slice=node_id)
+
+
+@threaded_lru(maxsize=64)
+@timing
 def get_node_ids_for_cell(sim: Simulation, cell_id):
     ca = get_cell_error_data(sim, cell_id)
     return ca["ID"].unique()
@@ -408,35 +418,6 @@ def get_measurement_count_df(sim: Simulation, node_id, cell_id):
     return df.groupby(by=["simtime", "x", "y"]).count().reset_index()
 
 
-def ymfDist(df, map_cfg: ObjectValue):
-    dist_sum = df["sourceEntry"].sum()
-
-    t_min = df["measurement_age"].min()
-    time_sum = df["measurement_age"].sum() - df["measurement_age"].shape[0] * t_min
-    alpha = map_cfg["alpha"]
-    df["ymfD_t"] = alpha * ((df["measurement_age"] - t_min) / time_sum)
-    df["ymfD_d"] = (1 - alpha) * (df["sourceEntry"] / dist_sum)
-    df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
-    return df
-
-
-def ymfDistStep(df, map_cfg: ObjectValue):
-    dist_sum = df["sourceEntry"].sum()
-    dist_th = map_cfg["stepDist"]
-    _val = 0 if map_cfg["zeroStep"] else dist_th
-    df["sourceEntry*"] = df["sourceEntry"]
-    _mask = df["sourceEntry*"] < dist_th
-    df.loc[_mask, ["sourceEntry*"]] = _val
-
-    t_min = df["measurement_age"].min()
-    time_sum = df["measurement_age"].sum() - df["measurement_age"].shape[0] * t_min
-    alpha = map_cfg["alpha"]
-    df["ymfD_t"] = alpha * ((df["measurement_age"] - t_min) / time_sum)
-    df["ymfD_d"] = (1 - alpha) * (df["sourceEntry*"] / dist_sum)
-    df["ymfD"] = df["ymfD_t"] + df["ymfD_d"]
-    return df
-
-
 @threaded_lru(maxsize=64)
 @timing
 def get_measurements(sim: Simulation, time, node_id, cell_id):
@@ -445,17 +426,4 @@ def get_measurements(sim: Simulation, time, node_id, cell_id):
     df = sim.builder.map_p[
         pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
     ]
-    df["ymfD_t"] = 0
-    df["ymfD_d"] = 0
-    df["ymfD"] = 0
-    if df.empty:
-        return df
-
-    map_cfg = sim.sql.get_run_config("*.pNode[*].app[1].app.mapCfg", full_match=True)
-    map_cfg = ObjectValue.fromString(map_cfg)
-    if map_cfg.name == "MapCfgYmfPlusDistStep":
-        df = ymfDistStep(df, map_cfg)
-    elif map_cfg.name == "MapCfgYmfDist":
-        df = ymfDist(df, map_cfg)
-
     return df

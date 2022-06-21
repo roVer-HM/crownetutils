@@ -3,28 +3,20 @@ from __future__ import annotations
 import abc
 import contextlib
 import os
+import subprocess
 import threading
 import warnings
 from enum import Enum
-from typing import (
-    Any,
-    ContextManager,
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Union,
-)
+from tempfile import NamedTemporaryFile
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 import tables
 from geopandas.geodataframe import GeoDataFrame
-from matplotlib.pyplot import table
 
 from roveranalyzer.simulators.opp.provider.hdf.IHdfGeoProvider import GeoProvider
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
+from roveranalyzer.utils import logger
 
 
 class UnsupportedOperation(RuntimeError):
@@ -81,6 +73,59 @@ class BaseHdfProvider:
                 format="table",
                 data_columns=index_data_columns,
             )
+
+    def override_frame(
+        self, group: str, frame: pd.DataFrame, index=True, index_data_columns=True
+    ):
+        if self.contains_group(group):
+            with self.ctx() as store:
+                store.remove(group)
+        self.write_frame(group, frame, index, index_data_columns)
+
+    def repack_hdf(self, keep_old_file: bool = True):
+        new_path = f"{self._hdf_path[0:-3]}_new.h5"
+        old_path = f"{self._hdf_path[0:-3]}_old.h5"
+        if os.path.exists(new_path) or os.path.exists(old_path):
+            raise ValueError(
+                "Cannot repack file. Temp files *_old.h5 or *_new.h5 already exist. Delete/Move files and retry"
+            )
+        args = [
+            "ptrepack",
+            "--chunkshape=auto",
+            "--propindexes",
+            "--complib",
+            self._hdf_args.get("complib", "zlib"),
+            "--complevel",
+            str(self._hdf_args.get("complevel", 9)),
+            self._hdf_path,
+            new_path,
+        ]
+
+        try:
+            fd = NamedTemporaryFile()
+            print(f"repack {self._hdf_path}. This might take some time...")
+            ret = subprocess.check_call(
+                args,
+                stdout=fd,
+                stderr=fd,
+                env=os.environ,
+                cwd=os.path.dirname(self._hdf_path),
+            )
+        except subprocess.CalledProcessError:
+            print(f"Error while repacking {self._hdf_path}\nargs:{args}")
+            with open(fd.name, "r") as f:
+                print("\n".join(f.readlines()))
+            return
+
+        if ret != 0:
+            print(f"non zero return code from ptrepack: {ret}\nargs:{args}")
+            with open(fd.name, "r") as f:
+                print("\n".join(f.readlines()))
+        else:
+            os.rename(self._hdf_path, old_path)
+            os.rename(new_path, self._hdf_path)
+            if not keep_old_file:
+                os.remove(old_path)
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
 
@@ -192,8 +237,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
                     f"Version missmatch. hdf file reports version {self.get_attribute('version')} but object expected {version}"
                 )
             self._version = version
-
-        print(f"HDF version: {self.version}")
+        logger.debug(f"HDF version: {self.version}")
 
     @property
     def version(self):

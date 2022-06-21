@@ -16,7 +16,7 @@ from typing import List, Tuple, Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from traitlets.traitlets import Bool
 
 from roveranalyzer.simulators.opp.accessor import Opp
@@ -488,6 +488,33 @@ class OppSql:
             df = df.rename(columns={"simtimeRaw": "time"})
         return df
 
+    def parameter_data(
+        self,
+        module_name: Union[None, str, SqlOp] = None,
+        scalar_name: Union[None, str, SqlOp] = None,
+        ids: Union[None, List[int]] = None,
+        cols: set = ("paramId", "paramName", "paramValue"),
+        runId=1,
+    ) -> pd.DataFrame:
+
+        cols = ", ".join([f"s.{c}" for c in cols])
+
+        if module_name is not None and scalar_name is not None:
+            _sql = f"select {cols} from parameter as s where "
+            _sql += self._to_sql(module_name, "s", "moduleName")
+            _sql += self._to_sql(scalar_name, "s", "paramName", "and")
+        elif ids is not None:
+            _ids_str = ",".join(str(i) for i in ids)
+            _sql = f"select {cols} from parameter as s where s.paramId in ({_ids_str})"
+        else:
+            raise ValueError(
+                "provide either module and parameter name or list of parameter ids"
+            )
+
+        # print(_sql)
+        df = self.query_sca(_sql)
+        return df
+
     def sca_data(
         self,
         module_name: Union[None, str, SqlOp] = None,
@@ -696,6 +723,7 @@ class CrownetSql(OppSql):
         time_slice: slice = slice(None),
         epsg_code_base: str | None = None,
         epsg_code_to: str | None = None,
+        apply_offset: bool = True,
         cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
     ) -> pd.DataFrame | gpd.GeoDataFrame:
         """
@@ -721,18 +749,22 @@ class CrownetSql(OppSql):
           * OpenStreetMap, GoogleMaps, WSG84 Pseudo Mercartor: `EPSG:3857` (cartesian, in meter)
           * WGS84 (World Geodetic System 1984 used in GPS): `EPSG:4326 (lat/lon, in degree)
 
+        If apply_offset add the offset used in the simulation to the coordinates. This
+        is needed if any transformation should be applied.
+
         Examples:
         1) all host from all vectors (misc[*], pNode[*], vNode[*]) between 12.5s and 90.0s
 
         df = host_pos(time_slice=slice(12.5, 90.0))      # defaults to all
 
-        2) Only misc and pNodes with UTM ZONE 32N (default for sumo based simulations)
+        2) Only misc and pNodes with base UTM ZONE 32N (default for sumo based simulations),
+           projected to the Pseydo mercartor projection used by Goolge and Open Streets Map.
            Use the 'or' operator to select both misc and pNode vectors. Ensure that the
            full path is correct.
 
         gdf = host_pos(
             module_name=SqlOp.OR(["World.misc[%]", World.pNode[%]])
-            epsg_code=32632
+            epsg_code_base=32632, epsg_code_to="EPSG:3857"
         )
 
         3) Only select positions for selected host (may come from different vectors)
@@ -784,14 +816,43 @@ class CrownetSql(OppSql):
         # convert to bottom-left origin and remove offset used during the simulation
         df["y"] = bound[1] - df["y"]  # move from top-left-orig to bottom-left-orig
         # nothing to do for x, only y-axis needs conversion
-        df["x"] = df["x"] - offset[0]
-        df["y"] = df["y"] - offset[1]
+        if apply_offset:
+            df["x"] = df["x"] - offset[0]
+            df["y"] = df["y"] - offset[1]
 
         if epsg_code_base is not None:
+            if apply_offset is False:
+                raise ValueError(
+                    "To apply any transformation the offset must be applied. "
+                    "Change apply_offset or remove epsg codes from call"
+                )
             df = self.apply_geo_position(df, epsg_code_base, epsg_code_to)
             cols = [*cols, "geometry"]
 
         return df.loc[:, cols]
+
+    def get_sim_offset_and_bound(
+        self,
+    ):
+        # get simulation bound offset
+        offset = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simOffsetX:last", "simOffsetY:last"]),
+        )["scalarValue"].to_numpy()
+
+        # get simulation bound (width, height). Lower left point [0, 0] + offset
+        bound = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
+        )["scalarValue"].to_numpy()
+        return offset, bound
+
+    def get_bound_polygon(self):
+        bound = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
+        )["scalarValue"].to_numpy()
+        return Polygon([(0, 0), (0, bound[1]), (bound[0], bound[1]), (bound[0], 0)])
 
     def apply_geo_position(
         self,
@@ -1003,13 +1064,51 @@ class CrownetSql(OppSql):
         _m = modules if modules is not None else self.module_vectors
         return self.OR([f"{self.network}.{i}[%].cellularNic.phy" for i in _m])
 
-    def m_app0(self, modules: List[str] | None = None) -> SqlOp:
+    def m_app0(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[%].app[0].app" for i in _m])
+        return self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
 
-    def m_app1(self, modules: List[str] | None = None) -> SqlOp:
+    def m_beacon(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[%].app[1].app" for i in _m])
+        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+        _t0 = self.parameter_data(_typename_0, "typename")
+        if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
+            return self.m_app0(modules, idx)
+
+        _typename_1 = self.OR(
+            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+        )
+        _t1 = self.parameter_data(_typename_1, "typename")
+        if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
+            return self.m_app1(modules, idx)
+
+        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+
+    def m_map(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+        _t0 = self.parameter_data(_typename_0, "typename")
+        if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
+            return self.m_app0(modules, idx)
+
+        _typename_1 = self.OR(
+            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+        )
+        _t1 = self.parameter_data(_typename_1, "typename")
+        if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
+            return self.m_app1(modules, idx)
+
+        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+
+    def m_app1(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[{idx}].app[1].app" for i in _m])
+
+    def m_enb(self, index: int = -1, module: str = "") -> str:
+        if index < 0:
+            return f"{self.network}.eNB[%]{module}"
+        else:
+            return f"{self.network}.eNB[{index}]{module}"
 
     def m_append_suffix(
         self, suffix: str, modules: str | List[str] | SqlOp | None = None

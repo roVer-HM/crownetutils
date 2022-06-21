@@ -1,3 +1,5 @@
+import re
+from enum import Enum
 from os.path import join
 from typing import Dict
 
@@ -36,16 +38,95 @@ def create_dashboard(server: Flask, simulations: Dict[str, m.Simulation]):
     return dash_app.server
 
 
+def register(enum):
+    def ret(func):
+        enum.__class__.register(enum)(func)
+
+    return ret
+
+
+class Plots(Enum):
+    Count_diff = "Count-Diff"
+    Delay = "Delay"
+
+    @classmethod
+    def register(cls, key):
+        if not hasattr(cls, "table"):
+            cls.table = {}
+
+        def registration(func):
+            cls.table[key] = func
+
+        return registration
+
+    def __call__(self, *args, **kwargs):
+        return self.__class__.table[self](*args, **kwargs)
+
+
 def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
 
     selector_ids: IdProvider = app.selector_ids
     cell_err_ids: IdProvider = app.cell_err_ids
     scenario_ids: IdProvider = app.scenario_ids
+    misc_ids: IdProvider = app.misc_ids
 
     def get_sim(signal) -> Simulation:
         if signal is None or "sim" not in signal:
             raise ValueError("Sim not set")
         return sims[signal["sim"]]
+
+    @app.callback(misc_ids.out_("plot-dropdown", "options"), selector_ids.sig_in)
+    def update_plots_dropdown(signal):
+        opt = [e.value for e in Plots]
+        print(opt)
+        return opt
+
+    @app.callback(
+        misc_ids.out_("plot-wrapper", "children"),
+        misc_ids.in_("plot-dropdown", "value"),
+        misc_ids.in_("node-dropdown", "value"),
+        selector_ids.sig_in,
+        prevent_initial_call=True,
+    )
+    def update_plots_clb(plot: str, node_id, signal):
+        if plot is None:
+            raise PreventUpdate()
+        sim: Simulation = get_sim(signal)
+        return Plots(plot)(plot, sim, node_id)
+
+    @register(Plots.Count_diff)
+    def count_diff(e, sim: Simulation, node_id):
+        df = m.get_count_diff(sim, node_id if node_id is not None else -1)
+        df2 = (
+            df.reset_index()[["simtime", "glb_count", "count_mean"]]
+            .set_index(["simtime"])
+            .stack()
+            .to_frame()
+            .copy(deep=True)
+        )
+        # simtime, level_1, count
+        fig = px.line(
+            df.reset_index(),
+            x="simtime",
+            y="cumulated_count",
+            color="type",
+            markers=".",
+            line_shape="hv",
+            title=f"Cell occupancy based on beacons from node {node_id} for cell {cell}",
+            custom_data=[df["source_node"], df["received_at_time"], df["sent_time"]],
+        )
+        time_index = m.get_time_index(sim)
+        fig.update_xaxes(range=[time_index.min(), time_index.max()])
+        fig.update_layout(hovermode="x unified")
+        fig.update_traces(
+            mode="markers+lines",
+            hovertemplate="value: %{y}</b> source: %{customdata[0]} </b> received_time: %{customdata[1]}</b> sent_time: %{customdata[2]}",
+        )
+        return fig
+
+    @register(Plots.Delay)
+    def count_delay(e, sim: Simulation, node_id):
+        return "Delay"
 
     @app.callback(
         selector_ids.out_("selector-dropdown", "options"), selector_ids.sig_in
@@ -443,7 +524,7 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
         x, y = m.get_cells(sim)[cell_id]
         h3 = f"Density measurements for cell [{x},{y}] for time {time} from point of view of {node_id}-{m.get_host_ids(sim)[node_id]}"
 
-        hist1 = px.histogram(df, x="ymfD_t", title="age factor")
-        hist2 = px.histogram(df, x="ymfD_d", title="distance factor")
+        hist1 = px.histogram(df, x="selectionRank", title="age factor")
+        hist2 = px.histogram(df, x="selectionRank", title="distance factor")
 
         return records, cols, {i["id"]: i["id"] for i in cols}, h3, hist1, hist2

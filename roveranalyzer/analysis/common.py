@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
 import shutil
+import subprocess
+import sys
+import time
 from glob import glob
+from multiprocessing import get_context
 from os.path import basename, join
-from typing import Tuple
+from typing import List, Tuple
 
 import pandas as pd
 from hjson import OrderedDict
@@ -134,6 +139,61 @@ class RunContext:
         sample = self.args.get_value("--resultdir")
         return sample.split(os.sep)[-1]
 
+    def create_postprocessing_args(self, qoi_default="all"):
+        return {
+            "cwd": self.cwd,
+            "script_name": self.data.get("script", "run_script.py"),
+            "args": [
+                "post-processing",
+                "--qoi",
+                self.args.get_value("--qoi", qoi_default),
+                "--resultdir",
+                self.resultdir,
+            ],
+        }
+
+    def create_run_config_args(self):
+        return {
+            "cwd": self.cwd,
+            "script_name": self.data.get("script", "run_script.py"),
+            "args": {"config", "-f", "runContext.json"},
+        }
+
+    @staticmethod
+    def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
+
+        cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
+        if args["log"]:
+            fd = open(os.path.join(args["cwd"], "log.out"), "w")
+            out = fd
+            err = fd
+        try:
+            return_code: int = subprocess.check_call(
+                cmd,
+                env=os.environ,
+                stdout=out,
+                stderr=err,
+                cwd=args["cwd"],
+            )
+        except Exception as e:
+            print(e)
+            print(f"Simulation failed: {cmd}")
+            return_code = -1
+        finally:
+            if args["log"]:
+                fd.close()
+
+        return return_code
+
+
+class SimulationBase:
+    def __init__(
+        self, data_root: str, label: str, run_context: RunContext | None = None
+    ) -> None:
+        self.data_root = data_root
+        self.label = label
+        self.run_context: RunContext = run_context
+
 
 class Simulation:
     """Access output of one simulation, accessing different types of output generated
@@ -164,14 +224,17 @@ class Simulation:
             self.builder,
             self.sql,
         ) = AnalysisBase.builder_from_output_folder(data_root)
-        self.pos: BaseHdfProvider = BaseHdfProvider(
-            join(self.data_root, "trajectories.h5"), group="trajectories"
-        )
         self.run_context: RunContext = run_context
 
     def get_base_provider(self, group_name, path=None) -> BaseHdfProvider:
         return BaseHdfProvider(
             hdf_path=path or join(self.data_root, ""), group=group_name
+        )
+
+    @property
+    def pos(self) -> BaseHdfProvider:
+        return BaseHdfProvider(
+            join(self.data_root, "trajectories.h5"), group="trajectories"
         )
 
     def get_dcdMap(self):
@@ -224,10 +287,13 @@ class Simulation:
 
     @classmethod
     def copy_pdf(cls, name, sim: Simulation, base):
-        shutil.copyfile(
-            src=join(sim.data_root, name),
-            dst=cls.asset_pdf_path(name, base=base, suffix=sim.label),
-        )
+        try:
+            shutil.copyfile(
+                src=join(sim.data_root, name),
+                dst=cls.asset_pdf_path(name, base=base, suffix=sim.label),
+            )
+        except Exception as e:
+            logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
 class SuqcRun:
@@ -337,7 +403,15 @@ class SuqcRun:
         run = self.runs[key]
         ctx = RunContext.from_path(join(run["run"], "runContext.json"))
         lbl = f"{self.name}_{self.run_prefix}_{key[0]}_{key[1]}"
-        return Simulation(run["out"], lbl, ctx)
+        return Simulation.from_context(ctx, lbl)
+
+    def get_run_context(
+        self, key: int | Tuple[int, int], ctx_file_name: str = "runContext.json"
+    ):
+        if isinstance(key, int):
+            key = (key, 0)
+        run = self.runs[key]
+        return RunContext.from_path(join(run["run"], ctx_file_name))
 
     def get_simulations(self):
         return [self.get_run_as_sim(k) for k in self.runs.keys()]
@@ -350,3 +424,42 @@ class SuqcRun:
             ret = {v.label: v for _, v in ret.items()}
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
+
+    @classmethod
+    def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
+        run: SuqcRun = cls(path)
+
+        args = []
+        for sim in run.get_simulations():
+            _arg = sim.run_context.create_postprocessing_args()
+            _arg["log"] = log
+            args.append(_arg)
+
+        with get_context("spawn").Pool(processes=jobs) as pool:
+            ret = pool.map(func=RunContext.exec_runscript, iterable=args)
+
+        return all(ret)
+
+    @classmethod
+    def rerun_simulations(cls, path: str, jobs: int = 4, what="missing", **kwargs):
+        study: SuqcRun = cls(path)
+        # filter runs which should be executed again
+        if what == "missing":
+            runs: List[RunContext] = [
+                study.get_run_context(k)
+                for k, v in study.runs.items()
+                if "out" not in v
+            ]
+
+        runs[0].create_run_config_args
+        runs[0].resultdir
+        args = []
+        for r in runs:
+            _arg = r.create_run_config_args()
+            _arg["log"] = join(r.resultdir, "runscript.out")
+            args.append(_arg)
+
+        with get_context("spawn").Pool(processes=jobs) as pool:
+            ret = pool.map(func=RunContext.exec_runscript)
+
+        return all(ret)

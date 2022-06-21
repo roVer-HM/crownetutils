@@ -1,4 +1,17 @@
+from __future__ import annotations
+
+from typing import Protocol
+
 import pandas as pd
+
+
+class FrameConsumer(Protocol):
+
+    # the 'do nothing consumer'
+    EMPTY: FrameConsumer = lambda df: df
+
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        pass
 
 
 class LazyDataFrame(object):

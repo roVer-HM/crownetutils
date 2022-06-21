@@ -47,6 +47,7 @@ class DcdMapKey:
     DELAY = "delay"
     MEASURE_AGE = "measurement_age"
     UPDATE_AGE = "update_age"
+    SELECTION_RANK = "selectionRank"
 
     types_csv_index = {
         ProviderVersion.V0_1: {
@@ -82,6 +83,7 @@ class DcdMapKey:
             SOURCE_HOST: float,
             SOURCE_ENTRY: float,
             HOST_ENTRY: float,
+            SELECTION_RANK: float,
         },
     }
 
@@ -220,7 +222,7 @@ class DcdMapProvider(IHdfProvider):
         num_rows = df.shape[0]
 
         # apply owner_dist_feature
-        df = DcdUtil.owner_dist_feature(df, **kwargs)
+        df = DcdUtil.owner_dist_feature(df, meta, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in owner_dist_feature. "

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import itertools
 from os.path import join
-from typing import List
+from tkinter import E
+from typing import List, Protocol
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -10,13 +11,16 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
+from shapely.geometry import Polygon
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.analysis.common import AnalysisBase, Simulation
+from roveranalyzer.analysis.common import AnalysisBase, Simulation, SuqcRun
+from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
+from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 
@@ -227,12 +231,29 @@ class _OppAnalysis(AnalysisBase):
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
         delay_resolution: float = 1.0,
+        index: List[str] | None = ("time",),
     ) -> pd.DataFrame:
         df = sql.vec_data(
             module_name=module_name,
             vector_name="rcvdPkLifetime:vector",
             value_name="delay",
-            index=("time"),
+            index=index if index is None else list(index),
+            index_sort=True,
+        )
+        df["delay"] *= delay_resolution
+        return df
+
+    @timing
+    def get_avgServedBlocksUl(
+        self,
+        sql: Scave.CrownetSql,
+        enb_index: int = -1,
+        index: List[str] | None = ("time",),
+    ) -> pd.DataFrame:
+        df = sql.vec_data(
+            module_name=sql.m_enb(enb_index, ".cellularNic.mac"),
+            vector_name="avgServedBlocksUl:vector",
+            index=index if index is None else list(index),
             index_sort=True,
         )
         return df
@@ -244,6 +265,7 @@ class _OppAnalysis(AnalysisBase):
         module_name: Scave.SqlOp | str,
         delay_resolution: float = 1.0,
         describe: bool = True,
+        value_name: str = "rcvdPktLifetime",
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Packet delay data based on single applications in '<Network>.<Module>[*].app[*].app'
 
@@ -260,7 +282,7 @@ class _OppAnalysis(AnalysisBase):
         """
         vec_names = {
             "rcvdPkLifetime:vector": {
-                "name": "rcvdPktLifetime",
+                "name": value_name,
                 "dtype": float,
             },
             "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
@@ -271,7 +293,7 @@ class _OppAnalysis(AnalysisBase):
             append_index=["srcHostId"],
         )
         vec_data = vec_data.sort_index()
-        vec_data["rcvdPktLifetime"] *= delay_resolution
+        vec_data[value_name] *= delay_resolution
 
         if describe:
             return vec_data, vec_data.groupby(level=["hostId", "srcHostId"]).describe()
@@ -435,7 +457,7 @@ class _OppAnalysis(AnalysisBase):
     ):
         dmap = builder.build_dcdMap(selection=selection)
         with PdfPages(join(data_root, "common_output.pdf")) as pdf:
-            dmap.plot_count_diff(savefig=pdf)
+            dmap.plot_map_count_diff(savefig=pdf)
 
             tmin, tmax = builder.count_p.get_time_interval()
             time = (tmax - tmin) / 4
@@ -452,13 +474,32 @@ class _OppAnalysis(AnalysisBase):
         _hdf = sim.get_base_provider(group_name, path=sim.builder.count_p._hdf_path)
         if not _hdf.contains_group(group_name):
             print(f"group '{group_name}' not found. Append to {_hdf._hdf_path}")
-            sel = sim.builder.map_p.get_attribute("used_selection")
-            if sel is None:
-                raise ValueError("selection not set!")
-            df = sim.builder.build_dcdMap(selection=list(sel)[0]).count_diff()
+            df = sim.get_dcdMap().count_diff()
             _hdf.write_frame(group=group_name, frame=df)
         else:
             print(f"group '{group_name}' found. Nothing to do for {_hdf._hdf_path}")
+
+    @timing
+    def append_err_measures_to_hdf(
+        self,
+        sim: Simulation,
+    ):
+        map = sim.get_dcdMap()
+        group = "map_measure"
+        _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+        if _hdf.contains_group(group):
+            print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
+        else:
+            map_measure = map.map_count_measure()
+            _hdf.write_frame(group=group, frame=map_measure)
+
+        group = "cell_measure"
+        _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+        if _hdf.contains_group(group):
+            print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
+        else:
+            cell_measure = map.cell_count_measure()
+            _hdf.write_frame(group=group, frame=cell_measure)
 
     @timing
     def get_data_001(self, sim: Simulation):
@@ -492,7 +533,7 @@ class _OppAnalysis(AnalysisBase):
         # return count_diff, err_hist
 
     @timing
-    def create_plot_count_diff(self, sim: Simulation, title: str, ax: plt.Axes):
+    def create_plot_err_box_over_time(self, sim: Simulation, title: str, ax: plt.Axes):
 
         s = _Plot.Style()
         s.font_dict = {
@@ -504,13 +545,8 @@ class _OppAnalysis(AnalysisBase):
         }
         s.create_legend = False
 
-        m = sim.builder.global_p.get_meta_object()
-        sel = sim.builder.map_p.get_attribute("used_selection")
-        if sel is None:
-            raise ValueError("selection not set!")
-        dmap = sim.builder.build_dcdMap(selection=list(sel)[0])
+        dmap = sim.get_dcdMap()
         dmap.style = s
-        # _, ax = dmap.plot_count_diff(ax=ax)
         _, ax = dmap.plot_err_box_over_time(ax=ax, xtick_sep=10)
         ax.set_title(title)
         return ax
@@ -609,7 +645,7 @@ class _OppAnalysis(AnalysisBase):
             dmap = sim.get_dcdMap()
             dmap.style = s
             # provide data from run cache
-            _, a = dmap.plot_count_diff(ax=axes[idx], data_source=run)
+            _, a = dmap.plot_map_count_diff(ax=axes[idx], data_source=run)
             a.set_title(title(sim))
 
         # fix legends
@@ -628,6 +664,80 @@ class _OppAnalysis(AnalysisBase):
         )
 
         return fig
+
+    def merge_maps(
+        self,
+        study: SuqcRun,
+        scenario_lbl: str,
+        rep_ids: List[int],
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+    ) -> pd.DataFrame:
+        """Average density map over multiple runs / seeds
+
+        Args:
+            study (SuqcRun): Suqc study object (access to run definitions and output)
+            scenario_lbl (str): Label for scenario
+            ids (list): List of runs over which to average. len(rep_ids) := N (number of seeds)
+
+        Returns:
+            pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
+        """
+        df = []
+        for i, id in enumerate(rep_ids):
+            _map = study.get_sim(id).get_dcdMap()
+            if data is None:
+                _df = (
+                    _map.map_count_measure()
+                )  # all mean, err, sqerr, ... (may be a lot!)
+            else:
+                _df = _map.map_count_measure().loc[:, data]
+                if type(_df) == pd.Series:
+                    _df = _df.to_frame()
+            _df.columns = pd.MultiIndex.from_product(
+                [[scenario_lbl], [i], _df.columns], names=["sim", "run", "data"]
+            )
+            df.append(_df)
+
+        df = pd.concat(df, axis=1, verify_integrity=True)
+        if df.isna().any(axis=1).any():
+            nan_index = list(df.index[df.isna().any(axis=1)])
+            print(f"found 'nan' valus for time indedx: {nan_index}")
+            if drop_nan:
+                print(f"dropping time index due to nan: {nan_index}")
+                df = df[~(df.isna().any(axis=1))]
+
+        df = df.unstack()
+        df = df.groupby(level=["sim", "simtime", "data"]).agg(
+            ["mean", "std", percentile(0.5)]
+        )  # over multiple runs/seeds
+
+        df = frame_consumer(df)
+        return df
+
+    def merge_position(
+        self,
+        study: SuqcRun,
+        run_dict: dict,
+        time_slice=slice(0.0),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.DataFrame:
+        df = []
+        rep_list = run_dict["rep"]
+        for run_id in rep_list:
+            sim = study.get_sim(run_id)
+            _pos = sim.sql.host_position(
+                module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
+            )
+            _pos["run_id"] = run_id
+            _pos["drop_nodes"] = _pos["vecIdx"] >= (_pos["vecIdx"].max() + 1) / 2
+            df.append(_pos)
+
+        df: pd.DataFrame = pd.concat(df, axis=0, ignore_index=True)
+        df = df.set_index(["run_id", "hostId", "vecIdx", "drop_nodes"]).sort_index()
+        df = frame_consumer(df)
+        return df
 
 
 OppAnalysis = _OppAnalysis()
