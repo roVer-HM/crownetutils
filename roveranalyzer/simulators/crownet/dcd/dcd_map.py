@@ -797,8 +797,11 @@ class DcdMap2D(DcdMap):
 
         return df
 
-    def cell_count_measure(self) -> pd.DataFrame:
+    def cell_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
         """create cell based error measures over time to indicate **positional correctness**
+
+        cell_slice: defines the cells used for the calculation. If None use all available cells
+        from the raw data. This will affect the denominator 1/N in the calculations below.
 
         count_p contains count, err, sqerr values at the (time, id, x, y) level.
         In other words the table contains the count err, squerr values for
@@ -830,17 +833,23 @@ class DcdMap2D(DcdMap):
         numerator will be the same because only zero-counts / zero-erros are implied. Any
         non-zero count or error will be saved explicitly in count_p.
 
+            N:= set of cells (x, y) with index i
+            M:= set of agents/measuring agents (ID) with index j
+            Y^_i := (Y-Hat) ground truth for cell i. This is idenitcal for each agents thus
+                    Y^_ij - Y^_i(j+1) for all i and j.
+
         Returns:
             pd.DataFrame: _description_
         """
-        if self._map_p.contains_group("cell_measure"):
+        if self._map_p.contains_group("cell_measures") and load_cached_version:
             return self._map_p.get_dataframe(group="cell_measure")
 
         _i = pd.IndexSlice
         # total number of nodes at each time
         glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
         glb = glb.droplevel("ID")
-        glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count)
+        glb.columns = ["glb_count"]
+        glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count) aka. M
         glb_map_sum.columns = ["num_Agents"]
 
         # all (time, x, y, id) based count, err, squerr cell values
@@ -850,24 +859,46 @@ class DcdMap2D(DcdMap):
             _i[:, :, :, 1:], _i["count", "err", "sqerr"]
         ]  # all but ground truth
         nodes["abserr"] = np.abs(nodes["err"])
-        nodes = nodes.groupby(
+
+        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
+        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
+        cell_base: pd.DateFrame = nodes.groupby(
             level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
         ).agg(
             ["sum"]
         )  # [time, x, y](...data-columns...)
-        nodes.columns = [f"{a}_{b}" for a, b in nodes.columns]
-        # join total number of nodes with cell based measures. See function description
-        nodes = nodes.join(glb_map_sum, on="simtime")
+
+        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
+        # join total number of agents (aka. M) with cell based measures. See function description
+        cell_base: pd.DataFrame = cell_base.join(glb_map_sum, on="simtime")
+        cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
+        cell_base["glb_count"] = cell_base["glb_count"].fillna(value=0)
+        if cell_base.isna().any().any():
+            raise ValueError(
+                f"Found coulmns with nan values: {cell_base.isna().any(axis=0)}"
+            )
 
         # divide by total number of nodes at each time to create mean measruements
-        nodes["cell_mean_count"] = nodes["count_sum"] / nodes["num_Agents"]
-        nodes["cell_mse"] = nodes["sqerr_sum"] / nodes["num_Agents"]
-        nodes["cell_mean_err"] = nodes["err_sum"] / nodes["num_Agents"]
-        nodes["cell_mean_abserr"] = nodes["abserr_sum"] / nodes["num_Agents"]
+        cell_base["cell_mean_count_est"] = (
+            cell_base["count_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j (Y_ij) -> neee for metric II
+        cell_base["cell_mean_est_sqerr"] = np.power(
+            cell_base["cell_mean_count_est"] - cell_base["glb_count"], 2
+        )  # (1/M sum^M_j (Y_ij) - Y^_i)^2 -> needed for metric II
+
+        cell_base["cell_mse"] = (
+            cell_base["sqerr_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j (Y_ij - Y^_i)^2 -> needed for metric III
+        cell_base["cell_mean_err"] = (
+            cell_base["err_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j (Y_ij - Y^_i) -> optional
+        cell_base["cell_mean_abserr"] = (
+            cell_base["abserr_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j |Y_ij - Y^_i| -> optional
 
         # remove uncessary columns
-        nodes = nodes.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
-        return nodes
+        # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
+        return cell_base
 
     def count_diff(
         self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
