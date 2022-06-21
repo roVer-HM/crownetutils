@@ -16,7 +16,7 @@ from typing import List, Tuple, Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from traitlets.traitlets import Bool
 
 from roveranalyzer.simulators.opp.accessor import Opp
@@ -723,6 +723,7 @@ class CrownetSql(OppSql):
         time_slice: slice = slice(None),
         epsg_code_base: str | None = None,
         epsg_code_to: str | None = None,
+        apply_offset: bool = True,
         cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
     ) -> pd.DataFrame | gpd.GeoDataFrame:
         """
@@ -748,18 +749,22 @@ class CrownetSql(OppSql):
           * OpenStreetMap, GoogleMaps, WSG84 Pseudo Mercartor: `EPSG:3857` (cartesian, in meter)
           * WGS84 (World Geodetic System 1984 used in GPS): `EPSG:4326 (lat/lon, in degree)
 
+        If apply_offset add the offset used in the simulation to the coordinates. This
+        is needed if any transformation should be applied.
+
         Examples:
         1) all host from all vectors (misc[*], pNode[*], vNode[*]) between 12.5s and 90.0s
 
         df = host_pos(time_slice=slice(12.5, 90.0))      # defaults to all
 
-        2) Only misc and pNodes with UTM ZONE 32N (default for sumo based simulations)
+        2) Only misc and pNodes with base UTM ZONE 32N (default for sumo based simulations),
+           projected to the Pseydo mercartor projection used by Goolge and Open Streets Map.
            Use the 'or' operator to select both misc and pNode vectors. Ensure that the
            full path is correct.
 
         gdf = host_pos(
             module_name=SqlOp.OR(["World.misc[%]", World.pNode[%]])
-            epsg_code=32632
+            epsg_code_base=32632, epsg_code_to="EPSG:3857"
         )
 
         3) Only select positions for selected host (may come from different vectors)
@@ -811,14 +816,43 @@ class CrownetSql(OppSql):
         # convert to bottom-left origin and remove offset used during the simulation
         df["y"] = bound[1] - df["y"]  # move from top-left-orig to bottom-left-orig
         # nothing to do for x, only y-axis needs conversion
-        df["x"] = df["x"] - offset[0]
-        df["y"] = df["y"] - offset[1]
+        if apply_offset:
+            df["x"] = df["x"] - offset[0]
+            df["y"] = df["y"] - offset[1]
 
         if epsg_code_base is not None:
+            if apply_offset is False:
+                raise ValueError(
+                    "To apply any transformation the offset must be applied. "
+                    "Change apply_offset or remove epsg codes from call"
+                )
             df = self.apply_geo_position(df, epsg_code_base, epsg_code_to)
             cols = [*cols, "geometry"]
 
         return df.loc[:, cols]
+
+    def get_sim_offset_and_bound(
+        self,
+    ):
+        # get simulation bound offset
+        offset = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simOffsetX:last", "simOffsetY:last"]),
+        )["scalarValue"].to_numpy()
+
+        # get simulation bound (width, height). Lower left point [0, 0] + offset
+        bound = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
+        )["scalarValue"].to_numpy()
+        return offset, bound
+
+    def get_bound_polygon(self):
+        bound = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
+        )["scalarValue"].to_numpy()
+        return Polygon([(0, 0), (0, bound[1]), (bound[0], bound[1]), (bound[0], 0)])
 
     def apply_geo_position(
         self,
