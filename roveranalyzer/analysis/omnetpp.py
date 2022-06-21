@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
+from shapely.geometry import Polygon
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
@@ -19,15 +20,11 @@ from roveranalyzer.analysis.common import AnalysisBase, Simulation, SuqcRun
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
+from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 
 PlotUtil = _Plot.PlotUtil
-
-
-class FrameConsumer(Protocol):
-    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
-        pass
 
 
 class _hdf_Extractor(AnalysisBase):
@@ -674,7 +671,7 @@ class _OppAnalysis(AnalysisBase):
         scenario_lbl: str,
         rep_ids: List[int],
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
-        frame_consumer: FrameConsumer | None = None,
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
         drop_nan: bool = True,
     ) -> pd.DataFrame:
         """Average density map over multiple runs / seeds
@@ -716,8 +713,8 @@ class _OppAnalysis(AnalysisBase):
             ["mean", "std", percentile(0.5)]
         )  # over multiple runs/seeds
 
-        if frame_consumer is not None:
-            df = frame_consumer(df)
+        df = frame_consumer(df)
+        return df
         return df
 
 
