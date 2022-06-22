@@ -497,6 +497,9 @@ class BaseRunner:
         """
         return self.ns["result_dir_callback"](self.ns, self.working_dir)
 
+    def result_dir(self, *paths):
+        return os.path.join(self.result_base_dir(), *paths)
+
     def run(self):
         logger.info("execute pre hooks")
         self.pre()
@@ -508,14 +511,40 @@ class BaseRunner:
         self.post()
         logger.info("done")
 
+    @staticmethod
+    def _to_int_if_possible(qoi: List[str]) -> List[Any]:
+        ret_str = []
+        ret_int = []
+        for q in qoi:
+            try:
+                ret_int.append(int(q))
+            except Exception:
+                ret_str.append(q)
+        return ret_str, ret_int
+
     def sort_processing(self, ptype, method_list):
 
         map = self.f_map.get(ptype, [])
         method_list = [
             os.path.splitext(qoi)[0].replace("-", "_").lower() for qoi in method_list[0]
         ]
-        if len(method_list) == 1 and "all" in method_list:
-            method_list = [_f.__name__.lower() for _, _f in map]
+        method_list_str, method_list_int = self._to_int_if_possible(method_list)
+        if len(method_list_str) > 0 and method_list_str[0] == "all":
+            # if all is used all other mentioned values are seen as 'remove' filter
+            _map = [m for m in map if m[1].__name__.lower() not in method_list_str[1:]]
+            _map = [m for m in map if m[0] not in method_list_int]
+            method_list = [_f.__name__.lower() for _, _f in _map]
+        else:
+            method_list = []
+            _map = []
+            if len(method_list_str) > 0:
+                _map.extend(
+                    [m for m in map if m[1].__name__.lower() in method_list_str]
+                )
+            if len(method_list_int) > 0:
+                _map.extend([m for m in map if m[0] in method_list_int])
+            method_list = list(set([_f.__name__.lower() for _, _f in _map]))
+
         filtered_map = [
             [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
         ]
@@ -524,7 +553,7 @@ class BaseRunner:
 
     def post(self):
         method_list = self.ns["qoi"]
-        err = False
+        err = []
         if method_list:
             _post_map = self.sort_processing("post", method_list)
             for prio, _f in _post_map:
@@ -532,12 +561,13 @@ class BaseRunner:
                 try:
                     _f()
                 except Exception as e:
-                    print(f"Error while executing post processing {_f.__name__}")
-                    err = True
-                    print(e)
+                    _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
+                    logger.error(_err)
+                    err.append(f"  {_err}")
 
-            if err:
-                raise RuntimeError("Error in Postprocessing")
+            if len(err) > 0:
+                err = "\n".join(err)
+                raise RuntimeError(f"Error in Postprocessing:\n{err}")
 
     def pre(self):
         method_list = self.ns["pre"]
