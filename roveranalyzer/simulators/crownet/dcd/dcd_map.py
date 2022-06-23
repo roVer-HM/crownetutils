@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from itertools import combinations
-from typing import Callable, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -737,7 +737,7 @@ class DcdMap2D(DcdMap):
         ax.legend()
         return ax.get_figure(), ax
 
-    def map_count_measure(self) -> pd.DataFrame:
+    def map_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
         """create map based error measure over time to indicate **total area count correctness**
 
         Get map count measure that shows how good the number of agents are
@@ -751,7 +751,7 @@ class DcdMap2D(DcdMap):
                 map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
                 )
         """
-        if self._map_p.contains_group("map_measure"):
+        if self._map_p.contains_group("map_measure") and load_cached_version:
             return self._map_p.get_dataframe(group="map_measure")
 
         _i = pd.IndexSlice
@@ -797,7 +797,12 @@ class DcdMap2D(DcdMap):
 
         return df
 
-    def cell_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
+    def cell_count_measure(
+        self,
+        load_cached_version: bool = True,
+        index_slice: slice | Tuple(slice) = slice(None),
+        columns: slice | List[str] = slice(None),
+    ) -> pd.DataFrame:
         """create cell based error measures over time to indicate **positional correctness**
 
         cell_slice: defines the cells used for the calculation. If None use all available cells
@@ -835,14 +840,16 @@ class DcdMap2D(DcdMap):
 
             N:= set of cells (x, y) with index i
             M:= set of agents/measuring agents (ID) with index j
-            Y^_i := (Y-Hat) ground truth for cell i. This is idenitcal for each agents thus
+            Y^_i := (Y-Hat) ground truth for cell i. This is identical for each agents thus
                     Y^_ij - Y^_i(j+1) for all i and j.
 
         Returns:
             pd.DataFrame: _description_
         """
         if self._map_p.contains_group("cell_measures") and load_cached_version:
-            return self._map_p.get_dataframe(group="cell_measure")
+            return self._map_p.get_dataframe(group="cell_measure").loc[
+                index_slice, columns
+            ]
 
         _i = pd.IndexSlice
         # total number of nodes at each time
@@ -898,7 +905,7 @@ class DcdMap2D(DcdMap):
 
         # remove uncessary columns
         # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
-        return cell_base
+        return cell_base.loc[index_slice, columns]
 
     def count_diff(
         self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)

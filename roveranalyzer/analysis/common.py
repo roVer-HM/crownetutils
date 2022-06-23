@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
 import shutil
 import subprocess
-import sys
-import time
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
@@ -371,7 +368,7 @@ class SuqcRun:
             self.run_prefix = self.guess_run_prefix(base_path)
         else:
             self.run_prefix = run_prefix
-        self.runs = self.get_run_paths(base_path, self.run_prefix)
+        self.runs: OrderedDict = self.get_run_paths(base_path, self.run_prefix)
 
     @property
     def run_paths(self):
@@ -425,6 +422,9 @@ class SuqcRun:
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
 
+    def path(self, *path):
+        return os.path.join(self.base_path, *path)
+
     @classmethod
     def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
         run: SuqcRun = cls(path)
@@ -463,3 +463,23 @@ class SuqcRun:
             ret = pool.map(func=RunContext.exec_runscript)
 
         return all(ret)
+
+    def create_run_map(self, rep, lbl_f):
+        class Rep:
+            def __init__(self):
+                self.num = 0
+
+            def __call__(self, count=3) -> List[int]:
+                ret = range(self.num, self.num + count)
+                self.num += count
+                return list(ret)
+
+        r = Rep()
+        number_sim = int(len(self.runs) / rep)
+        run_map = [r(rep) for _ in range(number_sim)]
+        run_map = {
+            lbl_f(self.get_sim(rep_list[0])): dict(rep=rep_list) for rep_list in run_map
+        }
+        for k, v in run_map.items():
+            v["lbl"] = k
+        return run_map
