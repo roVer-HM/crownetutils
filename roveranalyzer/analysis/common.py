@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import timeit as it
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
@@ -20,6 +21,7 @@ from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.crownet.runner import read_config_file
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils import Project, logger
+from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
 
 
 class AnalysisBase:
@@ -153,17 +155,22 @@ class RunContext:
         return {
             "cwd": self.cwd,
             "script_name": self.data.get("script", "run_script.py"),
-            "args": {"config", "-f", "runContext.json"},
+            "args": ("config", "-f", "runContext.json"),
         }
 
     @staticmethod
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
 
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
+        print(cmd)
         if args["log"]:
-            fd = open(os.path.join(args["cwd"], "log.out"), "w")
+            os.makedirs(os.path.dirname(args["log"]), exist_ok=True)
+            fd = open(os.path.join(args["cwd"], "log.out"), "a")
             out = fd
             err = fd
+        if "clean_dir" in args:
+            if os.path.exists(args["clean_dir"]):
+                shutil.rmtree(args["clean_dir"])
         try:
             return_code: int = subprocess.check_call(
                 cmd,
@@ -172,6 +179,7 @@ class RunContext:
                 stderr=err,
                 cwd=args["cwd"],
             )
+            print(f"check_return: {return_code} | {cmd}")
         except Exception as e:
             print(e)
             print(f"Simulation failed: {cmd}")
@@ -179,7 +187,7 @@ class RunContext:
         finally:
             if args["log"]:
                 fd.close()
-
+        print(f"done: {cmd}")
         return return_code
 
 
@@ -361,6 +369,30 @@ class SuqcRun:
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
 
+    def get_failed_missing_runs(self):
+        def check_fail(**kwargs) -> bool:
+            if "out" not in kwargs:
+                return True  # failed (i.e. not started) Simulation
+            out = kwargs["out"]
+            opp_out = os.path.join(out, "container_opp.out")
+            if not os.path.exists(opp_out):
+                return True  # failed (i.e. not run completely) simulation
+            with open(opp_out, "r", encoding="utf-8") as fd:
+                content = fd.readlines()
+                for line in content:
+                    if line.startswith("<!> Error:"):
+                        logger.info(f"error in {out}: {line}")
+                        return (
+                            True  # failed (i.e some error found in output) simulation
+                        )
+
+            return False
+
+        runs_failed: List[RunContext] = [
+            self.get_run_context(k) for k, v in self.runs.items() if check_fail(**v)
+        ]
+        return runs_failed
+
     def __init__(self, base_path, run_prefix="") -> None:
         self.base_path = base_path
         self.name = basename(base_path)
@@ -441,27 +473,41 @@ class SuqcRun:
         return all(ret)
 
     @classmethod
-    def rerun_simulations(cls, path: str, jobs: int = 4, what="missing", **kwargs):
+    def rerun_simulations(
+        cls, path: str, jobs: int = 4, what="failed", list_only: bool = False, **kwargs
+    ):
         study: SuqcRun = cls(path)
         # filter runs which should be executed again
-        if what == "missing":
+        if what == "failed":
+            runs: List[RunContext] = study.get_failed_missing_runs()
+        else:
             runs: List[RunContext] = [
-                study.get_run_context(k)
-                for k, v in study.runs.items()
-                if "out" not in v
+                study.get_run_context(k) for k in study.runs.keys()
             ]
 
-        runs[0].create_run_config_args
-        runs[0].resultdir
+        for r in runs:
+            print(r.sample_name)
+        print(f"found: {len(runs)} failed runs")
+        if list_only:
+            return True
+
         args = []
         for r in runs:
             _arg = r.create_run_config_args()
-            _arg["log"] = join(r.resultdir, "runscript.out")
-            args.append(_arg)
+            _arg["log"] = join(r.cwd, "runscript.out")
+            _arg["clean_dir"] = r.resultdir
+            args.append(dict(args=_arg))
 
-        with get_context("spawn").Pool(processes=jobs) as pool:
-            ret = pool.map(func=RunContext.exec_runscript)
-
+        ts = it.default_timer()
+        print(f"spwan {jobs} jobs.")
+        ret = run_kwargs_map(
+            RunContext.exec_runscript,
+            kwargs_iter=args,
+            pool_size=jobs,
+            raise_on_error=False,
+        )
+        print(f"Study: took {(it.default_timer() - ts)/60:2.4f} minutes")
+        ret = [r for r, _ in ret]
         return all(ret)
 
     def create_run_map(self, rep, lbl_f):

@@ -47,7 +47,15 @@ def suqc_run_append_parser(
         "--what",
         "-w",
         dest="what",
-        choices=["missing", "failed", "all"],
-        default="missing",
+        choices=["failed", "all"],
+        default="failed",
+    )
+    suqcrerun.add_argument(
+        "-l",
+        "--list",
+        dest="list_only",
+        action="store_true",
+        default=False,
+        help="Only ist run ids of missing/failed runs",
     )
     suqcrerun.set_defaults(main_func=lambda ns: SuqcRun.rerun_simulations(**vars(ns)))
