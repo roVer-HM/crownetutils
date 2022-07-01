@@ -21,6 +21,7 @@ from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.crownet.runner import read_config_file
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils import Project, logger
+from roveranalyzer.utils.misc import apply_str_filter
 from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
 
 
@@ -130,6 +131,10 @@ class RunContext:
         )
 
     @property
+    def par_id(self) -> int:
+        return self.data["request_item"]["parameter_id"]
+
+    @property
     def resultdir(self):
         return self._ns["result_dir_callback"](self._ns, self._ns["result_dir"])
 
@@ -162,7 +167,7 @@ class RunContext:
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
 
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
-        print(cmd)
+        print(f"run command:\n\t\t{cmd}")
         if args["log"]:
             os.makedirs(os.path.dirname(args["log"]), exist_ok=True)
             fd = open(os.path.join(args["cwd"], "log.out"), "a")
@@ -474,7 +479,13 @@ class SuqcRun:
 
     @classmethod
     def rerun_simulations(
-        cls, path: str, jobs: int = 4, what="failed", list_only: bool = False, **kwargs
+        cls,
+        path: str,
+        jobs: int = 4,
+        what="failed",
+        list_only: bool = False,
+        filter="all",
+        **kwargs,
     ):
         study: SuqcRun = cls(path)
         # filter runs which should be executed again
@@ -485,9 +496,15 @@ class SuqcRun:
                 study.get_run_context(k) for k in study.runs.keys()
             ]
 
+        if filter != "all":
+            # assume run_id==0 for all runs (true for Opp based)
+            par_ids = [r.par_id for r in runs]
+            filter_ids = apply_str_filter(filter, par_ids)
+            runs = [run for run in runs if run.par_id in filter_ids]
+
         for r in runs:
             print(r.sample_name)
-        print(f"found: {len(runs)} failed runs")
+        print(f"found: {len(runs)} failed runs (with filter: {filter})")
         if list_only:
             return True
 
