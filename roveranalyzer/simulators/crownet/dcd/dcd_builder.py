@@ -22,9 +22,9 @@ from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
 )
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import FrameConsumer
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils import logging
+from roveranalyzer.utils.dataframe import FrameConsumer
 
 
 def _hdf_job(args):
@@ -83,8 +83,8 @@ class DcdHdfBuilder(FrameConsumer):
 
     F_selected_only = DcdUtil.remove_not_selected_cells
 
-    def consume(self, df: pd.DataFrame):
-        self.create_count_map(df)
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        return self.create_count_map(df)
 
     @classmethod
     def get(

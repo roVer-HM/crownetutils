@@ -10,7 +10,7 @@ class FrameConsumer(Protocol):
     # the 'do nothing consumer'
     EMPTY: FrameConsumer = lambda df: df
 
-    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+    def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass
 
 

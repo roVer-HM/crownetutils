@@ -290,6 +290,9 @@ class SqlOp:
     def append_suffix(self, suffix: str):
         self._group = [f"{i}{suffix}" for i in self._group]
 
+    def __str__(self) -> str:
+        return self.apply("TABLE", "COLUMN")
+
 
 class OppSql:
 
@@ -1020,7 +1023,9 @@ class CrownetSql(OppSql):
             name_columns=["hostId"],
         )
         if df.empty:
-            raise SqlEmptyResult("")
+            raise SqlEmptyResult(
+                f"No data for vector names: {list(vector_name_map.keys())} found."
+            )
         vec_data = self.vec_data(
             ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value")
         )

@@ -14,11 +14,10 @@ import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
 from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
-    FrameConsumer,
     IHdfProvider,
     ProviderVersion,
 )
-from roveranalyzer.utils.dataframe import LazyDataFrame
+from roveranalyzer.utils.dataframe import FrameConsumer, LazyDataFrame
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import ProgressCmd
 
@@ -160,7 +159,7 @@ class DcdMapProvider(IHdfProvider):
                 )
             # send data frame to frame_consumers
             for consumer in frame_consumer:
-                consumer.consume(dcd_df)
+                consumer(dcd_df)
 
         # create index
         with self.ctx() as store:

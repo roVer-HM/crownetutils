@@ -2,10 +2,11 @@ import itertools
 import os
 import random
 from functools import wraps
-from typing import List, Union
+from typing import Any, List, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -41,6 +42,32 @@ class Style:
             "tick_size": 16,
         }
         self.create_legend = True
+
+
+class StyleMap:
+    """Provide n different colored styles for some line plot
+    where each style is mapped to some key. If more than `n`
+    different keys are quired an exception is raised.
+    """
+
+    def __init__(self, cmap="tab20", n=20, **default_style):
+        self._style_map = {}
+        self._default = dict(default_style)
+        self._color_set: list = plt.get_cmap(cmap)(np.linspace(0.0, 1.0, n))
+
+    def _new_style(self):
+        if len(self._style_map) == len(self._color_set):
+            raise ValueError("Number of Styles reached")
+        s = {}
+        s.update(self._default)
+        s["color"] = self._color_set[len(self._style_map)]
+        return s
+
+    def get_style(self, key: Any) -> dict:
+        if key not in self._style_map:
+            s = self._new_style()
+            self._style_map[key] = s
+        return self._style_map[key]
 
 
 class _PlotUtil:

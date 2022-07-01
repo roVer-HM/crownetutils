@@ -24,19 +24,6 @@ class UnsupportedOperation(RuntimeError):
         super().__init__(args, kwargs)
 
 
-class FrameConsumer(metaclass=abc.ABCMeta):
-    """
-    Consume dataframe and use it for some actions
-    """
-
-    def __init__(self):
-        pass
-
-    @abc.abstractmethod
-    def consume(self, df: pd.DataFrame):
-        pass
-
-
 class BaseHdfProvider:
     def __init__(self, hdf_path: str, group: str = "root"):
         self._lock = threading.Lock()
