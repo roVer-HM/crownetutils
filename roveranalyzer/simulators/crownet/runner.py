@@ -563,7 +563,9 @@ class BaseRunner:
                 except Exception as e:
                     _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
                     logger.error(_err)
+                    logger.error(e.print_exc())
                     err.append(f"  {_err}")
+                    break
 
             if len(err) > 0:
                 err = "\n".join(err)
