@@ -9,7 +9,7 @@ import timeit as it
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
-from typing import List, Tuple
+from typing import Any, Callable, List, Tuple
 
 import pandas as pd
 from hjson import OrderedDict
@@ -527,7 +527,12 @@ class SuqcRun:
         ret = [r for r, _ in ret]
         return all(ret)
 
-    def create_run_map(self, rep, lbl_f):
+    def create_run_map(
+        self,
+        rep,
+        lbl_f: Callable[[Simulation], Any],
+        id_filter: Callable[[Any], bool] = lambda x: True,
+    ):
         class Rep:
             def __init__(self):
                 self.num = 0
@@ -540,6 +545,7 @@ class SuqcRun:
         r = Rep()
         number_sim = int(len(self.runs) / rep)
         run_map = [r(rep) for _ in range(number_sim)]
+        run_map = [r for r in run_map if id_filter(r)]
         run_map = {
             lbl_f(self.get_sim(rep_list[0])): dict(rep=rep_list) for rep_list in run_map
         }
