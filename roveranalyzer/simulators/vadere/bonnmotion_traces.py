@@ -53,8 +53,8 @@ def _parse_output(
             shutil.copyfile(src, dst)
 
         trace_list[seed] = seed_list
-        with open(os.path.join(base_dir, f"trace_list_{s_name}.json"), "w") as fd:
-            json.dump(trace_list, fd, sort_keys=True, indent=2)
+    with open(os.path.join(base_dir, f"trace_list_{s_name}.json"), "w") as fd:
+        json.dump(trace_list, fd, sort_keys=True, indent=2)
 
 
 def read_traces(base_dir: str, trace_list_only: bool = False):
@@ -164,16 +164,17 @@ def generate_traces(
     setup: DictVariation = DictVariation(
         scenario_path=scenario,
         parameter_dict_list=par_var,
-        qoi="trace.bonnMotion",
+        qoi=None,  # qoi not needed. Output will be used directly
         model=cmd,
         scenario_runs=1,
         post_changes=None,
         output_path=base_output_path,
         output_folder=out,
-        remove_output=False,
+        remove_output=False,  # must be False if qoi is None.
     )
     try:
         print(f"run for scenario: {scenario}")
+        setup.retries = 0
         setup.run(jobs)
     except Exception:
         pass

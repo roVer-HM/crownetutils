@@ -6,10 +6,11 @@ import re
 import shutil
 import subprocess
 import timeit as it
+from ast import Param
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
-from typing import Any, Callable, List, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Tuple
 
 import pandas as pd
 from hjson import OrderedDict
@@ -76,6 +77,41 @@ class AnalysisBase:
     def find_selection_method(builder: Dcd.DcdHdfBuilder):
         p = builder.build().map_p
         return p.get_attribute("used_selection")
+
+
+class Parameter_Variation:
+    """Group of ids which belong to the same parameter variation but differ in the selected seed"""
+
+    def __init__(self, label: str, rep_ids: List[int]) -> None:
+        self.label = label
+        self.rep_ids = rep_ids
+
+    def __getitem__(self, key):
+        """Deprecated. Use self.label or self.reps to access attributes. Will be removed."""
+        if key == "rep":
+            return self.rep_ids
+        elif key == "lbl":
+            return self.label
+        else:
+            raise KeyError()
+
+    @property
+    def reps(self):
+        return self.rep_ids
+
+    def simulation_iter(self, study: SuqcRun) -> Iterator[Tuple[int, Simulation]]:
+        for rep in self.rep_ids:
+            yield (rep, study.get_sim(rep))
+
+
+class RunMap(dict):
+    """Dictionary like class with label:str -> Parameter_Variation"""
+
+    def get_parameter_variations(self) -> List[Parameter_Variation]:
+        return list(self.values())
+
+    def filtered_parameter_variations(self, filter_f: Callable[[str], bool]):
+        return [v for v in self.values() if filter_f(v.label)]
 
 
 class RunContext:
@@ -206,9 +242,13 @@ class SimulationBase:
 
 
 class Simulation:
-    """Access output of one simulation, accessing different types of output generated
-    such as scalar and vector files as well as density maps, vadere or sumo output.
+    """Builder class allows access output of *one* simulation for accessing
+    different types of output generated such as scalar and vector files
+    as well as density maps, vadere or sumo output.
 
+    self.sql            CrownetSql object to access OMNeT++ output (sca, vec)
+    self.get_dcdMap()   Access to Density Map related analysis
+    self.run_context    Access to simulation config used during simulation
     """
 
     @classmethod
@@ -428,7 +468,17 @@ class SuqcRun:
     def out_path(self, key):
         return self.get_path(key, "out")
 
-    def get_sim(self, key) -> Simulation:
+    def get_sim(self, key: int | Tuple[int, int]) -> Simulation:
+        """Get a Simulation object based the suq-controller (par_id, run_id)
+        where par_id := one parameter variation run_id := one repetition (different seeds).
+        If only and integer is provided as key the run_id defaults to 0.
+
+        Args:
+            key int|Tuple[int, int]: request item key. run_id defaults to 0 if not present.
+
+        Returns:
+            Simulation: _description_
+        """
         if isinstance(key, int):
             key = (key, 0)
         return self.get_run_as_sim(key)
@@ -529,10 +579,23 @@ class SuqcRun:
 
     def create_run_map(
         self,
-        rep,
+        rep: int,
         lbl_f: Callable[[Simulation], Any],
         id_filter: Callable[[Any], bool] = lambda x: True,
-    ):
+    ) -> RunMap:
+        """Create RunMap based on fixed number of seeds.
+
+        This is used if the suq-controller ids do not represent a run_id (aka seed index always 0.)
+
+        Args:
+            rep (int): number of seeds used for each parameter variation
+            lbl_f (Callable[[Simulation], Any]): Function to generate a label for each parameter variation
+            id_filter (_type_, optional): Function to filter specific id's before a Simulation object is created from it. Defaults to lambda x: True.
+
+        Returns:
+            RunMap:  A dictionary with [str, ParameterVariation]
+        """
+
         class Rep:
             def __init__(self):
                 self.num = 0
@@ -546,9 +609,6 @@ class SuqcRun:
         number_sim = int(len(self.runs) / rep)
         run_map = [r(rep) for _ in range(number_sim)]
         run_map = [r for r in run_map if id_filter(r)]
-        run_map = {
-            lbl_f(self.get_sim(rep_list[0])): dict(rep=rep_list) for rep_list in run_map
-        }
-        for k, v in run_map.items():
-            v["lbl"] = k
+        run_map = {lbl_f(self.get_sim(rep_list[0])): rep_list for rep_list in run_map}
+        run_map = RunMap({k: Parameter_Variation(k, v) for k, v in run_map.items()})
         return run_map

@@ -6,6 +6,7 @@ import pandas as pd
 
 
 class FrameConsumer(Protocol):
+    """Function that will alter the provided DataFrame in some way. FrameConsumer.EMPTY will do nothing."""
 
     # the 'do nothing consumer'
     EMPTY: FrameConsumer = lambda df: df

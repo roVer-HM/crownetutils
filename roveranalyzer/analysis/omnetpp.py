@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import itertools
+import os
 from os.path import join
-from tkinter import E
 from typing import List, Protocol
 
 import matplotlib as mpl
@@ -11,18 +11,24 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
-from shapely.geometry import Polygon
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.analysis.common import AnalysisBase, Simulation, SuqcRun
+from roveranalyzer.analysis.common import (
+    AnalysisBase,
+    Parameter_Variation,
+    RunMap,
+    Simulation,
+    SuqcRun,
+)
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
 from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
+from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
 
 PlotUtil = _Plot.PlotUtil
 
@@ -738,6 +744,76 @@ class _OppAnalysis(AnalysisBase):
         df = df.set_index(["run_id", "hostId", "vecIdx", "drop_nodes"]).sort_index()
         df = frame_consumer(df)
         return df
+
+    def collect_cell_mse_for_parameter_variation(
+        self,
+        study: SuqcRun,
+        run_dict: Parameter_Variation,
+        cell_count: int,
+        consumer: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.Series:
+        """Collect cell mean squared error for each seed repetition in given Parameter_Variation.
+
+        Args:
+            study (SuqcRun): _description_
+            run_dict (Parameter_Variation): _description_
+            cell_count (int): Number of cells used for normalization. Might differ from map shape if not reachable cells are
+                            removed from the analysis. Removed cells must not have any error value.
+            consumer (FrameConsumer, optional): Post changes to the collected DataFrame. Defaults to FrameConsumer.EMPTY.
+
+        Returns:
+            pd.Series: cell mean squared error over time and run_id index: [simtime, run_id]
+        """
+        df = []
+        for rep, sim in run_dict.simulation_iter(study):
+            _df = sim.get_dcdMap().cell_count_measure(columns=["cell_mse"])
+            _df = _df.groupby(by=["simtime"]).sum() / cell_count
+            _df.columns = [rep]
+            _df.columns.name = "run_id"
+            df.append(_df)
+        df = pd.concat(df, axis=1, verify_integrity=True)
+        df = consumer(df)
+        df = df.stack()  # series
+        df.name = "cell_mse"
+        return df
+
+    def get_mse_cell_data_for_study(
+        self,
+        study: SuqcRun,
+        run_map: RunMap,
+        hdf_path: str,
+        cell_count: int,
+        pool_size: int = 20,
+    ) -> pd.DataFrame:
+        """Collect cell mean squared error for *all* ParameterVariations present in given RunMap.
+
+        Args:
+            study (SuqcRun): Suq-controller run object containing the data.
+            run_map (RunMap): Map of ParameterVariations under investigation
+            hdf_path (str): Path to save result. If it already exist just load it.
+            cell_count (int): Number of cells used for normalization. Might differ from map shape if not reachable cells are
+                            removed from the analysis. Removed cells must not have any error value.
+            pool_size (int): Number of parallel processes used. Default 20.
+
+        Returns:
+            pd.DataFrame: cell mean squared error over time, run_id and parameter variation.
+                        Index [simtime, run_id]. 'run_id' encodes parameter variations and different seeds.
+        """
+        if os.path.exists(study.path(hdf_path)):
+            data = pd.read_hdf(study.path(hdf_path), key="cell_mse")
+        else:
+            data: List[(pd.DataFrame, dict)] = run_kwargs_map(
+                self.collect_cell_mse_for_parameter_variation,
+                [
+                    dict(study=study, run_dict=v, cell_count=cell_count)
+                    for v in run_map.get_parameter_variations()
+                ],
+                pool_size=pool_size,
+            )
+            data: pd.DataFrame = pd.concat(data, axis=0, verify_integrity=True)
+            data = data.sort_index()
+            data.to_hdf(study.path(hdf_path), key="cell_mse", format="table")
+        return data
 
 
 OppAnalysis = _OppAnalysis()
