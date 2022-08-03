@@ -1,7 +1,7 @@
 import argparse
 from typing import List
 
-from roveranalyzer.analysis.common import SuqcRun
+from roveranalyzer.analysis.common import SuqcStudy
 
 
 def suqc_run_append_parser(
@@ -25,7 +25,7 @@ def suqc_run_append_parser(
         help="Number of parallel runs",
     )
     post.add_argument("--log", action="store_true", default=False, required=False)
-    post.set_defaults(main_func=lambda ns: SuqcRun.rerun_postprocessing(**vars(ns)))
+    post.set_defaults(main_func=lambda ns: SuqcStudy.rerun_postprocessing(**vars(ns)))
 
     suqcrerun: argparse.ArgumentParser = sub.add_parser(
         "suqc-rerun",
@@ -64,4 +64,4 @@ def suqc_run_append_parser(
         required=False,
         default="all",
     )
-    suqcrerun.set_defaults(main_func=lambda ns: SuqcRun.rerun_simulations(**vars(ns)))
+    suqcrerun.set_defaults(main_func=lambda ns: SuqcStudy.rerun_simulations(**vars(ns)))

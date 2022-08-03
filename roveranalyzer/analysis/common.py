@@ -99,7 +99,7 @@ class Parameter_Variation:
     def reps(self):
         return self.rep_ids
 
-    def simulation_iter(self, study: SuqcRun) -> Iterator[Tuple[int, Simulation]]:
+    def simulation_iter(self, study: SuqcStudy) -> Iterator[Tuple[int, Simulation]]:
         for rep in self.rep_ids:
             yield (rep, study.get_sim(rep))
 
@@ -346,7 +346,7 @@ class Simulation:
             logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
-class SuqcRun:
+class SuqcStudy:
     """Class representing a Suq-Controller environment containing the definition and
     results for one simulation study.
 
@@ -514,7 +514,7 @@ class SuqcRun:
 
     @classmethod
     def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
-        run: SuqcRun = cls(path)
+        run: SuqcStudy = cls(path)
 
         args = []
         for sim in run.get_simulations():
@@ -537,7 +537,7 @@ class SuqcRun:
         filter="all",
         **kwargs,
     ):
-        study: SuqcRun = cls(path)
+        study: SuqcStudy = cls(path)
         # filter runs which should be executed again
         if what == "failed":
             runs: List[RunContext] = study.get_failed_missing_runs()

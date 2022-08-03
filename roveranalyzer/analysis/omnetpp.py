@@ -20,7 +20,7 @@ from roveranalyzer.analysis.common import (
     Parameter_Variation,
     RunMap,
     Simulation,
-    SuqcRun,
+    SuqcStudy,
 )
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
@@ -673,7 +673,7 @@ class _OppAnalysis(AnalysisBase):
 
     def merge_maps(
         self,
-        study: SuqcRun,
+        study: SuqcStudy,
         scenario_lbl: str,
         rep_ids: List[int],
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
@@ -724,7 +724,7 @@ class _OppAnalysis(AnalysisBase):
 
     def merge_position(
         self,
-        study: SuqcRun,
+        study: SuqcStudy,
         run_dict: dict,
         time_slice=slice(0.0),
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
@@ -747,7 +747,7 @@ class _OppAnalysis(AnalysisBase):
 
     def collect_cell_mse_for_parameter_variation(
         self,
-        study: SuqcRun,
+        study: SuqcStudy,
         run_dict: Parameter_Variation,
         cell_count: int,
         consumer: FrameConsumer = FrameConsumer.EMPTY,
@@ -779,7 +779,7 @@ class _OppAnalysis(AnalysisBase):
 
     def get_mse_cell_data_for_study(
         self,
-        study: SuqcRun,
+        study: SuqcStudy,
         run_map: RunMap,
         hdf_path: str,
         cell_count: int,
