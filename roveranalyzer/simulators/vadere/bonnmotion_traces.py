@@ -15,8 +15,11 @@ from random import seed
 from time import time_ns
 from typing import Dict, List, Tuple
 
+from omnetinireader.config_parser import OppConfigFileBase, OppConfigType, QString
 from suqc.CommandBuilder.JarCommand import JarCommand
+from suqc.environment import CrownetEnvironmentManager
 from suqc.request import DictVariation
+from suqc.requestitem import RequestItem
 from suqc.utils.SeedManager.OmnetSeedManager import OmnetSeedManager
 
 
@@ -38,8 +41,7 @@ def _parse_output(
         for file in files:
             file_base = os.path.basename(file)
             if "." in file_base:
-                file_base = file_base.split(".")[0]
-                file_suffix = file_base.split(".")[-1]
+                file_base, file_suffix = file_base.split(".")
             else:
                 raise ValueError("file name must contain suffix.")
             name = f"{file_base}_{s_name}_{seed}.{file_suffix}"
@@ -93,9 +95,65 @@ def write_seed_paring(seed, paring, base_output_path, comment: str = "") -> None
         json.dump(out, fd, indent=2, sort_keys=True)
 
 
-def read_seeds(base_path: str, file_name: str = "omnetSeedMangaer.json") -> dict:
+def read_seeds(base_path: str, file_name: str = "omnetSeedManager.json") -> dict:
     with open(os.path.join(base_path, file_name), "r") as fd:
         return json.load(fd)
+
+
+def seed_json_path(base_path: str, file_name: str = "omnetSeedManager.json") -> dict:
+    return os.path.join(base_path, file_name)
+
+
+def get_seed_paring(
+    base_path: str, file_name: str = "omnetSeedManager.json"
+) -> List[Tuple[int, int]]:
+    f = read_seeds(base_path, file_name)
+    return list(zip(f["omnet_seeds"], f["vadere_seeds"]))
+
+
+class CopyTrace:
+    def __init__(self, trace_base_dir: str):
+        self.trace_base_dir = trace_base_dir
+
+    def copy_files(self, env_man: CrownetEnvironmentManager, item: RequestItem):
+        ini_cfg: OppConfigFileBase = OppConfigFileBase.from_path(
+            ini_path=item.scenario_path,
+            config=env_man._opp_config,
+            cfg_type=OppConfigType.READ_ONLY,
+        )
+        trace_file = ini_cfg["*.bonnMotionServer.traceFile"].replace('"', "")
+        trace_file_name = os.path.basename(trace_file)
+        src = os.path.join(self.trace_base_dir, trace_file_name)
+        dst = os.path.join(os.path.dirname(item.scenario_path), trace_file)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+
+
+def get_copy_fn(trace_base_dir) -> CopyTrace:
+    """Create a CopyTrace object. Inject this into the ScenarioCreation object to
+    copy traces on demand to each simulation folder.
+
+    Returns:
+        CopyTrace: _description_
+    """
+    return CopyTrace(trace_base_dir)
+
+
+def update_trace_config(
+    par_var: dict,
+    opp_seed: int,
+    trace_seed: int,
+    seed_cfg: str = "*.bonnMotionServer.traceFile",
+) -> dict:
+    trace: str = par_var["omnet"][seed_cfg]
+    if "SEED" not in trace:
+        raise ValueError(
+            f"trace config does not contain replacement key 'SEED': {trace}"
+        )
+    trace = trace.replace("SEED", str(trace_seed))
+    par_var["omnet"][seed_cfg] = QString(trace)
+    par_var["omnet"]["seed-set"] = str(opp_seed)
+    return par_var
 
 
 def generate_traces(
