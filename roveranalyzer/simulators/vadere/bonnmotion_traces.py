@@ -86,8 +86,6 @@ def write_seed_paring(seed, paring, base_output_path, comment: str = "") -> None
             "reps": len(vadere_seeds),
             "vadere_seeds": vadere_seeds,
             "omnet_seeds": opp_seeds,
-            "opp_to_vadere": {o: v for o, v in list(zip(opp_seeds, vadere_seeds))},
-            "vadere_to_opp": {v: o for o, v in list(zip(opp_seeds, vadere_seeds))},
             "comment": comment,
         }
         print("write seed paring")
