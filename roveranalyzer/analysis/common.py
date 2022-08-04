@@ -12,6 +12,7 @@ from multiprocessing import get_context
 from os.path import basename, join
 from typing import Any, Callable, Dict, Iterator, List, Tuple
 
+import numpy as np
 import pandas as pd
 from hjson import OrderedDict
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
@@ -112,6 +113,35 @@ class RunMap(dict):
 
     def filtered_parameter_variations(self, filter_f: Callable[[str], bool]):
         return [v for v in self.values() if filter_f(v.label)]
+
+    def id_to_label_series(
+        self,
+        lbl_f: None | Callable[[int | Tuple[int, int]], str] = None,
+        enumerate_run: bool = False,
+    ) -> pd.DataFrame:
+        """Create a DataFrame with mapping between run_id and some label string.
+        This function uses the first run_id in Parameter_Variation.reps  if lbl_f is set.
+
+        Args:
+            lbl_f (None | Callable[[int | Tuple[int, int]], str], optional): Function that takes a run_id to create a label. Defaults to None.
+
+        Returns:
+            pd.DataFrame: columns: [run_id, label]
+        """
+        df = []
+        for lbl, v in self.items():
+            if enumerate_run:
+                _df = pd.DataFrame(
+                    np.array([v.reps, np.arange(len(v.reps))]).T,
+                    columns=["run_id", "run_index"],
+                )
+            else:
+                _df = pd.DataFrame(v.reps, columns=["run_id"])
+            _df["label"] = lbl if lbl_f is None else lbl_f(v.reps[0])
+            df.append(_df)
+        df = pd.concat(df)
+        df = df.set_index(["run_id"])
+        return df
 
 
 class RunContext:
