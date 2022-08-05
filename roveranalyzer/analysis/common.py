@@ -10,7 +10,8 @@ from ast import Param
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
-from typing import Any, Callable, Dict, Iterator, List, Tuple
+from tokenize import group
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -38,7 +39,7 @@ class AnalysisBase:
         network_name="World",
         epsg_base=Project.UTM_32N,
     ) -> Tuple[str, Dcd.DcdHdfBuilder, OMNeT.CrownetSql]:
-
+        # todo: try catch here?
         builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
 
         sql = OMNeT.CrownetSql(
@@ -65,6 +66,7 @@ class AnalysisBase:
         data_root = join(
             data_root, "simulation_runs/outputs", f"Sample_{parameter_id}_{run_id}", out
         )
+        print(data_root)
         builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
 
         sql = OMNeT.CrownetSql(
@@ -80,43 +82,37 @@ class AnalysisBase:
         return p.get_attribute("used_selection")
 
 
-class Parameter_Variation:
-    """Group of ids which belong to the same parameter variation but differ in the selected seed"""
-
-    def __init__(self, label: str, rep_ids: List[int]) -> None:
-        self.label = label
-        self.rep_ids = rep_ids
-
-    def __getitem__(self, key):
-        """Deprecated. Use self.label or self.reps to access attributes. Will be removed."""
-        if key == "rep":
-            return self.rep_ids
-        elif key == "lbl":
-            return self.label
-        else:
-            raise KeyError()
-
-    @property
-    def reps(self):
-        return self.rep_ids
-
-    def simulation_iter(self, study: SuqcStudy) -> Iterator[Tuple[int, Simulation]]:
-        for rep in self.rep_ids:
-            yield (rep, study.get_sim(rep))
-
-
 class RunMap(dict):
-    """Dictionary like class with label:str -> Parameter_Variation"""
+    """Dictionary like class with label:str -> SimulationGroup
 
-    def get_parameter_variations(self) -> List[Parameter_Variation]:
+    This class allows simple handling of multiple parameter variations with multiple seeds
+    per variation. RunMap inherits from dict and contains helper methods to filter and iterate
+    over SimulationGroups. The RunMap is mostly used in conjunction with roveranaluyzer.utis.parallel
+    to dispatch each parameter variation (i.e. SimulationGroup) to one subprocess to speed up the analysis.
+    """
+
+    def __init__(self, output_dir: str):
+        self.output_dir: str = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def path(self, *args):
+        return os.path.join(self.output_dir, *args)
+
+    def get_simulation_group(self) -> List[SimulationGroup]:
         return list(self.values())
 
     def filtered_parameter_variations(self, filter_f: Callable[[str], bool]):
-        return [v for v in self.values() if filter_f(v.label)]
+        return [v for v in self.get_simulation_group() if filter_f(v.group_name)]
+
+    def append_or_add(self, sim_group: SimulationGroup):
+        if sim_group.group_name in self:
+            self[sim_group.group_name].extend(sim_group)
+        else:
+            self[sim_group.group_name] = sim_group
 
     def id_to_label_series(
         self,
-        lbl_f: None | Callable[[int | Tuple[int, int]], str] = None,
+        lbl_f: None | Callable[[Simulation], str] = None,
         enumerate_run: bool = False,
     ) -> pd.DataFrame:
         """Create a DataFrame with mapping between run_id and some label string.
@@ -129,15 +125,17 @@ class RunMap(dict):
             pd.DataFrame: columns: [run_id, label]
         """
         df = []
-        for lbl, v in self.items():
+        for item in self.items():
+            lbl: str = item[0]
+            group: SimulationGroup = item[1]
             if enumerate_run:
                 _df = pd.DataFrame(
-                    np.array([v.reps, np.arange(len(v.reps))]).T,
-                    columns=["run_id", "run_index"],
+                    np.array([group.ids(), group.seeds(), np.arange(len(group))]).T,
+                    columns=["run_id", "seed", "run_index"],
                 )
             else:
-                _df = pd.DataFrame(v.reps, columns=["run_id"])
-            _df["label"] = lbl if lbl_f is None else lbl_f(v.reps[0])
+                _df = pd.DataFrame(group.ids, columns=["run_id"])
+            _df["label"] = group.group_name if lbl_f is None else lbl_f(group[0])
             df.append(_df)
         df = pd.concat(df)
         df = df.set_index(["run_id"])
@@ -176,6 +174,7 @@ class RunContext:
         self.data = data
         self._ns = read_config_file(self._dummy_runner(), self.data)
         self.args: ArgList = ArgList.from_flat_list(self.data["cmd_args"])
+        self._opp_seed = None
 
     @property
     def cwd(self):
@@ -195,6 +194,12 @@ class RunContext:
         return OppConfigFileBase.from_path(
             self.oppini_path, config=config, cfg_type=OppConfigType.READ_ONLY
         )
+
+    @property
+    def opp_seed(self) -> int:
+        if self._opp_seed is None:
+            self._opp_seed = int(self.oppini["seed-set"])
+        return self._opp_seed
 
     @property
     def par_id(self) -> int:
@@ -282,34 +287,57 @@ class Simulation:
     """
 
     @classmethod
-    def from_context(cls, ctx: RunContext, label=""):
-        return cls(ctx.resultdir, label=label, run_context=ctx)
+    def from_context(cls, ctx: RunContext, label="", id_offset: int = 0):
+        return cls(ctx.resultdir, label=label, run_context=ctx, id_offset=id_offset)
 
     @classmethod
-    def from_suqc_result(cls, data_root, label=""):
+    def from_suqc_result(cls, data_root, label="", id_offset: int = 0):
         for i, p in enumerate(data_root.split(os.sep)[::-1]):
             if p.startswith("Sample"):
                 label = f"{p}_{label}"
                 runcontext = join(data_root, "../../../", p, "runContext.json")
                 runcontext = os.path.abspath(runcontext.replace("Sample_", "Sample__"))
-                o = cls(data_root, label, RunContext.from_path(runcontext))
-                o.run_context = RunContext.from_path(runcontext)
+                o = cls(data_root, label, RunContext.from_path(runcontext), id_offset)
+                # o.run_context = RunContext.from_path(runcontext)
                 return o
         raise ValueError("data_root not an suq-controller output directory")
 
-    def __init__(self, data_root, label, run_context: RunContext | None = None):
+    def __init__(self, data_root, label, run_context: RunContext, id_offset: int = 0):
         self.label = label
-        (
-            self.data_root,
-            self.builder,
-            self.sql,
-        ) = AnalysisBase.builder_from_output_folder(data_root)
+        self._builder = None
+        self._sql = None
+        self.data_root = data_root
         self.run_context: RunContext = run_context
+        self._id_offset = id_offset
+
+    @property
+    def builder(self) -> Dcd.DcdHdfBuilder:
+        if self._builder is None:
+            self._builder = Dcd.DcdHdfBuilder.get("data.h5", self.data_root).epsg(
+                Project.UTM_32N
+            )
+        return self._builder
+
+    @property
+    def sql(self) -> OMNeT.CrownetSql:
+        if self._sql is None:
+            self._sql = OMNeT.CrownetSql(
+                vec_path=f"{self.data_root}/vars_rep_0.vec",
+                sca_path=f"{self.data_root}/vars_rep_0.sca",
+                network="World",
+            )
+        return self._sql
 
     def get_base_provider(self, group_name, path=None) -> BaseHdfProvider:
         return BaseHdfProvider(
             hdf_path=path or join(self.data_root, ""), group=group_name
         )
+
+    def global_id(self):
+        return self.run_context.par_id + self._id_offset
+
+    def study_id(self):
+        return self.run_context.par_id
 
     @property
     def pos(self) -> BaseHdfProvider:
@@ -376,19 +404,72 @@ class Simulation:
             logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
-class SuqcStudy:
-    """Class representing a Suq-Controller environment containing the definition and
-    results for one simulation study.
+class SimulationGroup:
+    """A named group of Simulation objects.
 
+    The grouped simulation have some similar property, mostly they are the of the
+    parameter variation but with different seeds. The Simulation object do not have to
+    be from the same SuqcRun. If Simulation objects from different runs are combined the
+    user must ensure that there are no id overlaps. Use the id_offset in the Simulation object.
+    See RunMap   and SuqcRun.update_run_map for details.
+    """
+
+    def __init__(self, group_name: str, data: List[Simulation]) -> None:
+        self.group_name: str = group_name
+        self.simulations: List[Simulation] = data
+
+    @property
+    def lbl(self):
+        """Alias for self.group_name"""
+        return self.group_name
+
+    @property
+    def reps(self):
+        """Alias for self.ids()"""
+        return self.ids()
+
+    @property
+    def label(self):
+        """Alias for self.group_name"""
+        return self.group_name
+
+    def extend(self, sim_group: SimulationGroup):
+        if self.group_name != sim_group.group_name:
+            raise ValueError(
+                f"cannot extend SimulationGroup with different names {self.group_name}!={sim_group.group_name}"
+            )
+        id_set = [*self.ids(), *sim_group.ids()]
+        if len(id_set) != len(set(id_set)):
+            raise ValueError(f"duplicated simulation ids in group found. {id_set}")
+        self.simulations.extend(sim_group.simulations)
+
+    def __getitem__(self, key) -> Simulation:
+        return self.simulations[key]
+
+    def ids(self) -> List[int]:
+        return [sim.global_id() for sim in self.simulations]
+
+    def seeds(self) -> list[int]:
+        return [sim.run_context.opp_seed for sim in self.simulations]
+
+    def simulation_iter(self) -> Iterator[Tuple[int, Simulation]]:
+        for sim in self.simulations:
+            yield (sim.global_id(), sim)
+
+    def __len__(self):
+        return len(self.simulations)
+
+
+class SuqcStudy:
+    """A light weight class representing a Suq-Controller environment containing the definition and
+    results for one simulation study.
 
     The class tries to guess the simulation prefix chosen during the study execution.
     It then links the each run (config files for *one* parameter variation) with the
     corresponding outputs.
 
-    For easy access to a single run outputs see Simulation class
-
-    Returns:
-        _type_: _description_
+    For easy access to a single simulation (or run) outputs see Simulation class. This class only
+    manages paths and does create Simulation objects lazily on demand
     """
 
     run_pattern = re.compile(r"(^.*?)_+(\d+)_(\d+)$")
@@ -477,6 +558,9 @@ class SuqcStudy:
             self.run_prefix = run_prefix
         self.runs: OrderedDict = self.get_run_paths(base_path, self.run_prefix)
 
+    def __len__(self):
+        return len(self.runs)
+
     @property
     def run_paths(self):
         return [r["run"] for r in self.runs]
@@ -489,6 +573,9 @@ class SuqcStudy:
     def output_folder(self):
         return join(self.base_path, "simulation_runs", "outputs")
 
+    def get_run_items(self, filter: Callable[[Tuple[int, int]], bool] = lambda x: True):
+        return [item for item in list(self.runs.items()) if filter(item[0])]
+
     def get_path(self, run, path_type):
         return self.runs[run][path_type]
 
@@ -498,7 +585,7 @@ class SuqcStudy:
     def out_path(self, key):
         return self.get_path(key, "out")
 
-    def get_sim(self, key: int | Tuple[int, int]) -> Simulation:
+    def get_sim(self, key: int | Tuple[int, int], id_offset: int = 0) -> Simulation:
         """Get a Simulation object based the suq-controller (par_id, run_id)
         where par_id := one parameter variation run_id := one repetition (different seeds).
         If only and integer is provided as key the run_id defaults to 0.
@@ -511,13 +598,14 @@ class SuqcStudy:
         """
         if isinstance(key, int):
             key = (key, 0)
-        return self.get_run_as_sim(key)
+        return self.get_run_as_sim(key, id_offset)
 
-    def get_run_as_sim(self, key):
+    def get_run_as_sim(self, key, id_offset: int = 0):
         run = self.runs[key]
         ctx = RunContext.from_path(join(run["run"], "runContext.json"))
         lbl = f"{self.name}_{self.run_prefix}_{key[0]}_{key[1]}"
-        return Simulation.from_context(ctx, lbl)
+        print(lbl)
+        return Simulation.from_context(ctx, lbl, id_offset)
 
     def get_run_context(
         self, key: int | Tuple[int, int], ctx_file_name: str = "runContext.json"
@@ -607,38 +695,52 @@ class SuqcStudy:
         ret = [r for r, _ in ret]
         return all(ret)
 
-    def create_run_map(
+    def update_run_map(
         self,
-        rep: int,
+        run_map: RunMap,
+        sim_per_group: int,
+        id_offset: int,
         lbl_f: Callable[[Simulation], Any],
-        id_filter: Callable[[Any], bool] = lambda x: True,
+        allow_new_groups: bool = True,
+        id_filter: Callable[[Tuple[int, int]], bool] = lambda x: True,
     ) -> RunMap:
-        """Create RunMap based on fixed number of seeds.
-
-        This is used if the suq-controller ids do not represent a run_id (aka seed index always 0.)
+        """Update given run_map object with simulations contained in this run.
 
         Args:
-            rep (int): number of seeds used for each parameter variation
-            lbl_f (Callable[[Simulation], Any]): Function to generate a label for each parameter variation
-            id_filter (_type_, optional): Function to filter specific id's before a Simulation object is created from it. Defaults to lambda x: True.
+            run_map (RunMap): Empty or possible filled run_map object. This object will be mutated.
+            sim_per_group (int): number of simulations which belong to the same parameter variation (i.e. only differ in the seed value)
+            id_offset (int): In case the RunMap contains simulations form multiple SuqcStudies the id offset ensures unique simulation ids in one RunMap.
+            lbl_f (Callable[[Simulation], Any]): Function to create the label. Note the first simulation for each group used to create the label. It is assumed that each
+                                                 Simulation object in one group would create the same label.
+            allow_new_groups (bool, optional): In case the run_map object was already populated by a previous SuqcStudy this ensures that no new groups are created. Defaults to True
+            id_filter (_type_, optional): Function to filter ids of the SuqcStudy *BEFORE* a Simulation object is created. The user must ensure that after the filter the number of
+                                          runs is devisable by the sim_per_group method argument. Defaults to lambda x:True (i.e select all).
+
+        Raises:
+            ValueError: Number or runs not devisable by sim_per_group
+            ValueError: New group_name found in case all_new_groups is False
 
         Returns:
-            RunMap:  A dictionary with [str, ParameterVariation]
+            RunMap: Updated RunMap object. The run_map method argument is mutated.
         """
+        run_items = np.array(self.get_run_items(filter=id_filter))
+        if len(run_items) % sim_per_group != 0:
+            raise ValueError(
+                "Number of runs is not divisible by sim_per_group. check id_filter function or sim_per_group count."
+            )
+        groups = run_items.reshape((-1, sim_per_group, 2))
 
-        class Rep:
-            def __init__(self):
-                self.num = 0
+        for idx in range(groups.shape[0]):
+            group = groups[idx]
+            simulations: List[Simulation] = [
+                self.get_sim(item[0], id_offset) for item in group
+            ]
+            group_name = lbl_f(simulations[0])
+            sim_group: SimulationGroup = SimulationGroup(group_name, simulations)
+            if group_name not in run_map and not allow_new_groups:
+                raise ValueError(
+                    f"RunMap is in append mode only. New group_name '{group_name}' found. Expected: [{run_map.keys()}]"
+                )
+            run_map.append_or_add(sim_group)
 
-            def __call__(self, count=3) -> List[int]:
-                ret = range(self.num, self.num + count)
-                self.num += count
-                return list(ret)
-
-        r = Rep()
-        number_sim = int(len(self.runs) / rep)
-        run_map = [r(rep) for _ in range(number_sim)]
-        run_map = [r for r in run_map if id_filter(r)]
-        run_map = {lbl_f(self.get_sim(rep_list[0])): rep_list for rep_list in run_map}
-        run_map = RunMap({k: Parameter_Variation(k, v) for k, v in run_map.items()})
         return run_map

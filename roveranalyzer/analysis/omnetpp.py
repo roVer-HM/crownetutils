@@ -17,9 +17,9 @@ import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.analysis.common import (
     AnalysisBase,
-    Parameter_Variation,
     RunMap,
     Simulation,
+    SimulationGroup,
     SuqcStudy,
 )
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
@@ -747,8 +747,7 @@ class _OppAnalysis(AnalysisBase):
 
     def collect_cell_mse_for_parameter_variation(
         self,
-        study: SuqcStudy,
-        run_dict: Parameter_Variation,
+        sim_group: SimulationGroup,
         cell_count: int,
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.Series:
@@ -765,21 +764,23 @@ class _OppAnalysis(AnalysisBase):
             pd.Series: cell mean squared error over time and run_id index: [simtime, run_id]
         """
         df = []
-        for rep, sim in run_dict.simulation_iter(study):
+        print(f"execut group: {sim_group.group_name}")
+        for rep, sim in sim_group.simulation_iter():
             _df = sim.get_dcdMap().cell_count_measure(columns=["cell_mse"])
             _df = _df.groupby(by=["simtime"]).sum() / cell_count
             _df.columns = [rep]
             _df.columns.name = "run_id"
+            print(f"add: {sim_group.group_name}_{sim.run_context.opp_seed}")
             df.append(_df)
         df = pd.concat(df, axis=1, verify_integrity=True)
         df = consumer(df)
         df = df.stack()  # series
         df.name = "cell_mse"
+        print(f"done group: {sim_group.group_name}")
         return df
 
     def get_mse_cell_data_for_study(
         self,
-        study: SuqcStudy,
         run_map: RunMap,
         hdf_path: str,
         cell_count: int,
@@ -799,20 +800,20 @@ class _OppAnalysis(AnalysisBase):
             pd.DataFrame: cell mean squared error over time, run_id and parameter variation.
                         Index [simtime, run_id]. 'run_id' encodes parameter variations and different seeds.
         """
-        if os.path.exists(study.path(hdf_path)):
-            data = pd.read_hdf(study.path(hdf_path), key="cell_mse")
+        if os.path.exists(run_map.path(hdf_path)):
+            data = pd.read_hdf(run_map.path(hdf_path), key="cell_mse")
         else:
             data: List[(pd.DataFrame, dict)] = run_kwargs_map(
                 self.collect_cell_mse_for_parameter_variation,
                 [
-                    dict(study=study, run_dict=v, cell_count=cell_count)
-                    for v in run_map.get_parameter_variations()
+                    dict(sim_group=v, cell_count=cell_count)
+                    for v in run_map.get_simulation_group()
                 ],
                 pool_size=pool_size,
             )
             data: pd.DataFrame = pd.concat(data, axis=0, verify_integrity=True)
             data = data.sort_index()
-            data.to_hdf(study.path(hdf_path), key="cell_mse", format="table")
+            data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
         return data
 
 
