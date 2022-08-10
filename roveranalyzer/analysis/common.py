@@ -11,7 +11,18 @@ from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
 from tokenize import group
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Tuple
+from typing import (
+    IO,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Protocol,
+    TextIO,
+    Tuple,
+)
 
 import numpy as np
 import pandas as pd
@@ -101,7 +112,9 @@ class RunMap(dict):
     def get_simulation_group(self) -> List[SimulationGroup]:
         return list(self.values())
 
-    def filtered_parameter_variations(self, filter_f: Callable[[str], bool]):
+    def filtered_parameter_variations(
+        self, filter_f: Callable[[str], bool] = lambda x: True
+    ):
         return [v for v in self.get_simulation_group() if filter_f(v.group_name)]
 
     def append_or_add(self, sim_group: SimulationGroup):
@@ -109,6 +122,45 @@ class RunMap(dict):
             self[sim_group.group_name].extend(sim_group)
         else:
             self[sim_group.group_name] = sim_group
+
+    def save_json(self, fd: str | TextIO | None = None):
+        ret = {}
+        ret["output_dir"] = self.output_dir
+        ret["groups"] = {}
+
+        for group in self.get_simulation_group():
+            g = {}
+            g["attr"] = group.attr
+            g["group_name"] = group.group_name
+            g["data"] = [
+                (sim.run_context.ctx_path, sim.label, sim._id_offset) for sim in group
+            ]
+            ret["groups"][group.group_name] = g
+
+        fd = self.path("run_map.json") if fd is None else fd
+        if isinstance(fd, str):
+            with open(fd, "w") as fd:
+                json.dump(ret, fd, indent=2)
+        else:
+            json.dump(ret, fd, indent=2)
+
+    @classmethod
+    def load_from_json(cls, fd: str | TextIO) -> RunMap:
+        if isinstance(fd, str):
+            with open(fd, "r") as fd:
+                map: dict = json.load(fd)
+        else:
+            map: dict = json.load(fd)
+
+        ret = cls(map["output_dir"])
+        for g_name, group in map["groups"].items():
+            sims = [
+                Simulation.from_context(ctx, label, id_offset)
+                for ctx, label, id_offset in group["data"]
+            ]
+            sim_group = SimulationGroup(g_name, data=sims, attr=group["attr"])
+            ret.append_or_add(sim_group)
+        return ret
 
     def id_to_label_series(
         self,
@@ -168,10 +220,11 @@ class RunContext:
     @classmethod
     def from_path(cls, path):
         with open(path, "r", encoding="utf-8") as fd:
-            return cls(json.load(fd))
+            return cls(json.load(fd), path)
 
-    def __init__(self, data) -> None:
+    def __init__(self, data, ctx_path: str | None = None) -> None:
         self.data = data
+        self.ctx_path = ctx_path
         self._ns = read_config_file(self._dummy_runner(), self.data)
         self.args: ArgList = ArgList.from_flat_list(self.data["cmd_args"])
         self._opp_seed = None
@@ -194,6 +247,21 @@ class RunContext:
         return OppConfigFileBase.from_path(
             self.oppini_path, config=config, cfg_type=OppConfigType.READ_ONLY
         )
+
+    def ini_get(
+        self,
+        key: str,
+        regex: str | None = None,
+        apply: Callable[[Any], Any] = lambda x: x,
+    ):
+        value = self.oppini[key]
+        if regex is not None:
+            pattern = re.compile(regex)
+            match = pattern.match(value)
+            if not match:
+                raise ValueError(f"no match for {key}={value} in regex {pattern}")
+            value = match.groups()[0]
+        return apply(value)
 
     @property
     def opp_seed(self) -> int:
@@ -287,7 +355,9 @@ class Simulation:
     """
 
     @classmethod
-    def from_context(cls, ctx: RunContext, label="", id_offset: int = 0):
+    def from_context(cls, ctx: str | RunContext, label="", id_offset: int = 0):
+        if isinstance(ctx, str):
+            ctx = RunContext.from_path(ctx)
         return cls(ctx.resultdir, label=label, run_context=ctx, id_offset=id_offset)
 
     @classmethod
@@ -414,14 +484,17 @@ class SimulationGroup:
     See RunMap   and SuqcRun.update_run_map for details.
     """
 
-    def __init__(self, group_name: str, data: List[Simulation]) -> None:
+    def __init__(
+        self, group_name: str, data: List[Simulation], attr: dict | None = None, **kwds
+    ) -> None:
         self.group_name: str = group_name
         self.simulations: List[Simulation] = data
+        self.attr: dict = {} if attr is None else attr
 
     @property
     def lbl(self):
         """Alias for self.group_name"""
-        return self.group_name
+        return self.label
 
     @property
     def reps(self):
@@ -430,8 +503,15 @@ class SimulationGroup:
 
     @property
     def label(self):
-        """Alias for self.group_name"""
-        return self.group_name
+        """Label of default to self.group_name if not set"""
+        if "lbl" in self.attr:
+            return self.attr["lbl"]
+        else:
+            return self.group_name
+
+    @label.setter
+    def label(self, val):
+        self.attr["lbl"] = val
 
     def extend(self, sim_group: SimulationGroup):
         if self.group_name != sim_group.group_name:
@@ -443,21 +523,37 @@ class SimulationGroup:
             raise ValueError(f"duplicated simulation ids in group found. {id_set}")
         self.simulations.extend(sim_group.simulations)
 
-    def __getitem__(self, key) -> Simulation:
-        return self.simulations[key]
-
     def ids(self) -> List[int]:
         return [sim.global_id() for sim in self.simulations]
 
     def seeds(self) -> list[int]:
         return [sim.run_context.opp_seed for sim in self.simulations]
 
-    def simulation_iter(self) -> Iterator[Tuple[int, Simulation]]:
-        for sim in self.simulations:
-            yield (sim.global_id(), sim)
+    def simulation_iter(self, enum: bool = False) -> Iterator[Tuple[int, Simulation]]:
+        for idx, sim in enumerate(self.simulations):
+            if enum:
+                yield (idx, sim.global_id(), sim)
+            else:
+                yield (sim.global_id(), sim)
+
+    def __getitem__(self, key) -> Simulation:
+        return self.simulations[key]
+
+    def __iter__(self) -> Iterator[Simulation]:
+        return iter(self.simulations)
 
     def __len__(self):
         return len(self.simulations)
+
+
+class SimulationGroupFactory(Protocol):
+    """Create a SimulationGroup using one simulation to access config to derive name
+    or label information. **kwds must provide all necessary attributes to build the
+    SimulaitonGroup object. Implementer might override **kwds if needed.
+    """
+
+    def __call__(self, sim: Simulation, **kwds: Any) -> SimulationGroup:
+        ...
 
 
 class SuqcStudy:
@@ -618,6 +714,10 @@ class SuqcStudy:
     def get_simulations(self):
         return [self.get_run_as_sim(k) for k in self.runs.keys()]
 
+    def sim_iter(self) -> Iterable[Simulation]:
+        for k in self.runs.keys():
+            yield self.get_run_as_sim(k)
+
     def get_simulation_dict(self, lbl_key=False):
 
         ret = {k: self.get_run_as_sim(k) for k in self.runs.keys()}
@@ -700,7 +800,7 @@ class SuqcStudy:
         run_map: RunMap,
         sim_per_group: int,
         id_offset: int,
-        lbl_f: Callable[[Simulation], Any],
+        sim_group_factory: SimulationGroupFactory,
         allow_new_groups: bool = True,
         id_filter: Callable[[Tuple[int, int]], bool] = lambda x: True,
     ) -> RunMap:
@@ -735,8 +835,10 @@ class SuqcStudy:
             simulations: List[Simulation] = [
                 self.get_sim(item[0], id_offset) for item in group
             ]
-            group_name = lbl_f(simulations[0])
-            sim_group: SimulationGroup = SimulationGroup(group_name, simulations)
+            sim_group: SimulationGroup = sim_group_factory(
+                simulations[0], data=simulations, attr={}
+            )
+            group_name = sim_group.group_name
             if group_name not in run_map and not allow_new_groups:
                 raise ValueError(
                     f"RunMap is in append mode only. New group_name '{group_name}' found. Expected: [{run_map.keys()}]"

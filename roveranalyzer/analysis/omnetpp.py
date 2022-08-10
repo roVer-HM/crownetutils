@@ -673,9 +673,7 @@ class _OppAnalysis(AnalysisBase):
 
     def merge_maps(
         self,
-        study: SuqcStudy,
-        scenario_lbl: str,
-        rep_ids: List[int],
+        sim_group: SimulationGroup,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
         drop_nan: bool = True,
@@ -683,16 +681,14 @@ class _OppAnalysis(AnalysisBase):
         """Average density map over multiple runs / seeds
 
         Args:
-            study (SuqcRun): Suqc study object (access to run definitions and output)
-            scenario_lbl (str): Label for scenario
-            ids (list): List of runs over which to average. len(rep_ids) := N (number of seeds)
 
         Returns:
             pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
         """
         df = []
-        for i, id in enumerate(rep_ids):
-            _map = study.get_sim(id).get_dcdMap()
+        scenario_lbl = sim_group.group_name
+        for i, _, sim in sim_group.simulation_iter(enum=True):
+            _map = sim.get_dcdMap()
             if data is None:
                 _df = (
                     _map.map_count_measure()
@@ -722,17 +718,42 @@ class _OppAnalysis(AnalysisBase):
         df = frame_consumer(df)
         return df
 
+    def merge_maps_for_run_map(
+        self,
+        run_map: RunMap,
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+        hdf_path: str | None = None,
+        pool_size=10,
+    ) -> pd.DateOffset:
+        if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
+            return pd.read_hdf(run_map.path(hdf_path), key="dcd_map")
+
+        data = run_kwargs_map(
+            self.merge_maps,
+            [
+                dict(
+                    sim_group=g,
+                    data=data,
+                    frame_consumer=frame_consumer,
+                    drop_nan=drop_nan,
+                )
+                for g in run_map.values()
+            ],
+            pool_size=pool_size,
+        )
+        data = pd.concat(data, axis=0)
+        return data
+
     def merge_position(
         self,
-        study: SuqcStudy,
-        run_dict: dict,
+        sim_group: SimulationGroup,
         time_slice=slice(0.0),
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
         df = []
-        rep_list = run_dict["rep"]
-        for run_id in rep_list:
-            sim = study.get_sim(run_id)
+        for run_id, sim in sim_group.simulation_iter():
             _pos = sim.sql.host_position(
                 module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
             )
