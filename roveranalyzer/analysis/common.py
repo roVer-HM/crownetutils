@@ -123,6 +123,11 @@ class RunMap(dict):
         else:
             self[sim_group.group_name] = sim_group
 
+    @property
+    def max_id(self) -> int:
+        """Return biggest id used in any simulation in any SimulationGroup"""
+        return max([max(sim.ids()) for sim in self.get_simulation_group()])
+
     def save_json(self, fd: str | TextIO | None = None):
         ret = {}
         ret["output_dir"] = self.output_dir
@@ -549,7 +554,7 @@ class SimulationGroup:
 class SimulationGroupFactory(Protocol):
     """Create a SimulationGroup using one simulation to access config to derive name
     or label information. **kwds must provide all necessary attributes to build the
-    SimulaitonGroup object. Implementer might override **kwds if needed.
+    SimulationGroup object. Implementer might override **kwds if needed.
     """
 
     def __call__(self, sim: Simulation, **kwds: Any) -> SimulationGroup:
@@ -714,9 +719,9 @@ class SuqcStudy:
     def get_simulations(self):
         return [self.get_run_as_sim(k) for k in self.runs.keys()]
 
-    def sim_iter(self) -> Iterable[Simulation]:
+    def sim_iter(self, id_offset: int = 0) -> Iterable[Simulation]:
         for k in self.runs.keys():
-            yield self.get_run_as_sim(k)
+            yield self.get_run_as_sim(k, id_offset=id_offset)
 
     def get_simulation_dict(self, lbl_key=False):
 
