@@ -107,7 +107,12 @@ class RunMap(dict):
         os.makedirs(self.output_dir, exist_ok=True)
 
     def path(self, *args):
+        """Return path relative to RunMap ouput_dir"""
         return os.path.join(self.output_dir, *args)
+
+    def path_exists(self, *args) -> bool:
+        """Check if path relative to RunMap output_dir exists."""
+        return os.path.exists(self.path(*args))
 
     def get_simulation_group(self) -> List[SimulationGroup]:
         return list(self.values())
@@ -808,6 +813,7 @@ class SuqcStudy:
         sim_group_factory: SimulationGroupFactory,
         allow_new_groups: bool = True,
         id_filter: Callable[[Tuple[int, int]], bool] = lambda x: True,
+        attr: dict | None = None,
     ) -> RunMap:
         """Update given run_map object with simulations contained in this run.
 
@@ -841,7 +847,7 @@ class SuqcStudy:
                 self.get_sim(item[0], id_offset) for item in group
             ]
             sim_group: SimulationGroup = sim_group_factory(
-                simulations[0], data=simulations, attr={}
+                simulations[0], data=simulations, attr={} if attr is None else attr
             )
             group_name = sim_group.group_name
             if group_name not in run_map and not allow_new_groups:
