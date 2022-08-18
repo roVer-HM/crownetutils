@@ -93,6 +93,15 @@ class AnalysisBase:
         return p.get_attribute("used_selection")
 
 
+class RunMapCreateFunction(Protocol):
+    """Interface to create RunMap using output_path as the RunMap root directory.
+    Use *args and **kwds for specific implementation
+    """
+
+    def __call__(self, output_path, *args: Any, **kwds: Any) -> RunMap:
+        ...
+
+
 class RunMap(dict):
     """Dictionary like class with label:str -> SimulationGroup
 
@@ -105,6 +114,23 @@ class RunMap(dict):
     def __init__(self, output_dir: str):
         self.output_dir: str = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+
+    @staticmethod
+    def load_or_create(
+        create_f: RunMapCreateFunction,
+        output_path: str,
+        file_name: str = "run_map.json",
+        load_if_present: bool = True,
+        *args,
+        **kwargs,
+    ) -> RunMap:
+        """Load from filesystem if RunMap json exists, otherwise use provided factory function """
+        if load_if_present and os.path.exists(os.path.join(output_path, file_name)):
+            return RunMap.load_from_json(os.path.join(output_path, file_name))
+
+        run_map = create_f(output_path, *args, **kwargs)
+        run_map.save_json(os.path.join(output_path, file_name))
+        return run_map
 
     def path(self, *args):
         """Return path relative to RunMap ouput_dir"""
@@ -564,6 +590,28 @@ class SimulationGroupFactory(Protocol):
 
     def __call__(self, sim: Simulation, **kwds: Any) -> SimulationGroup:
         ...
+
+
+class NamedSimulationGroupFactory(SimulationGroupFactory):
+    """SimulationGroup factory which provides group names based on name list or
+    generic group names "group_{idx}" no list is provided."""
+
+    def __init__(self, name_list: list[str] | None = None) -> None:
+        self.group_count = 0
+        self.name_list = name_list
+
+    def __call__(self, sim: Simulation, **kwds: Any) -> SimulationGroup:
+        if self.name_list is None:
+            g_name = f"group_{self.group_count}"
+        else:
+            if self.group_count < len(self.name_list):
+                g_name = self.name_list[self.group_count]
+            else:
+                raise IndexError(
+                    f"Only {len(self.name_list)} group names defined but {self.group_count +1} groups requested."
+                )
+        self.group_count += 1
+        return SimulationGroup(g_name, **kwds)
 
 
 class SuqcStudy:
