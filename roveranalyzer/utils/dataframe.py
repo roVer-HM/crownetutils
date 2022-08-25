@@ -5,11 +5,16 @@ from typing import Protocol
 import pandas as pd
 
 
+class EmptyFrameConsumer:
+    def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
+        return df
+
+
 class FrameConsumer(Protocol):
     """Function that will alter the provided DataFrame in some way. FrameConsumer.EMPTY will do nothing."""
 
     # the 'do nothing consumer'
-    EMPTY: FrameConsumer = lambda df: df
+    EMPTY: FrameConsumer = EmptyFrameConsumer()
 
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass
