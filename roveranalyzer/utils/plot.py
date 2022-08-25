@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import itertools
 import os
 import random
+from contextlib import contextmanager
 from functools import wraps
-from typing import Any, List, Union
+from typing import Any, ContextManager, List, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -30,6 +33,20 @@ def matplotlib_set_latex_param():
         }
     )
     matplotlib.rcParams["text.usetex"] = True
+
+
+def remove_seaborn_legend_title(ax: plt.Axes):
+    ax.get_legend().set_title(None)
+    return ax
+
+
+def rename_legend(ax: plt.Axes, rename: dict | None = None, **kwargs) -> plt.Axes:
+    rename = {} if rename is None else rename
+    rename.update(kwargs)
+    for t in ax.get_legend().texts:
+        if t.get_text() in rename:
+            t.set_text(rename[t.get_text()])
+    return ax
 
 
 class Style:
@@ -193,6 +210,15 @@ def check_ax(ax=None, **kwargs):
         f = ax.get_figure()
 
     return f, ax
+
+
+@contextmanager
+def empty_fig(title) -> ContextManager[plt.figure]:
+    fig, ax = check_ax()
+    ax.axis("off")
+    fig.text(0.5, 0.5, title, ha="center", va="center")
+    yield fig
+    plt.close(fig)
 
 
 def update_dict(_dic: dict, **defaults):

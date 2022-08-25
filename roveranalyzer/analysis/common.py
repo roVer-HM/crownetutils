@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import timeit as it
 from ast import Param
+from contextlib import contextmanager
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
@@ -15,6 +16,7 @@ from typing import (
     IO,
     Any,
     Callable,
+    ContextManager,
     Dict,
     Iterable,
     Iterator,
@@ -27,11 +29,13 @@ from typing import (
 import numpy as np
 import pandas as pd
 from hjson import OrderedDict
+from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.entrypoint.parser import ArgList
+from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.crownet.runner import read_config_file
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils import Project, logger
@@ -140,6 +144,21 @@ class RunMap(dict):
         """Check if path relative to RunMap output_dir exists."""
         return os.path.exists(self.path(*args))
 
+    @contextmanager
+    def pdf_page(
+        self, *args, keep_empty: bool = True, metadata=None
+    ) -> ContextManager[PdfPages]:
+        with PdfPages(self.path(*args), keep_empty=True, metadata=metadata) as pdf:
+            yield pdf
+
+    # def open(self, path, mode):
+
+    def attr(self, group, key, _default: Any = None):
+        if _default is None:
+            return self[group].attr[key]
+        else:
+            return self[group].attr.get(key, _default)
+
     def get_simulation_group(self) -> List[SimulationGroup]:
         return list(self.values())
 
@@ -151,6 +170,7 @@ class RunMap(dict):
     def append_or_add(self, sim_group: SimulationGroup):
         if sim_group.group_name in self:
             self[sim_group.group_name].extend(sim_group)
+            self[sim_group.group_name].attr.update(sim_group.attr)
         else:
             self[sim_group.group_name] = sim_group
 
@@ -451,7 +471,7 @@ class Simulation:
             join(self.data_root, "trajectories.h5"), group="trajectories"
         )
 
-    def get_dcdMap(self):
+    def get_dcdMap(self) -> DcdMap2D:
         sel = self.builder.map_p.get_attribute("used_selection")
         if sel is None:
             raise ValueError("selection not set!")

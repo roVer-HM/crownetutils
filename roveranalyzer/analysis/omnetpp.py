@@ -3,14 +3,18 @@ from __future__ import annotations
 import itertools
 import os
 from os.path import join
-from typing import List, Protocol
+from typing import IO, Any, List, Protocol, TextIO, Tuple
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+
+sns.set(font_scale=1.0, rc={"text.usetex": True})
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
+from scipy.stats import kstest, mannwhitneyu
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
@@ -725,12 +729,19 @@ class _OppAnalysis(AnalysisBase):
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
         drop_nan: bool = True,
         hdf_path: str | None = None,
+        hdf_key: str = "maps",
         pool_size=10,
-    ) -> pd.DateOffset:
+    ) -> pd.DataFrame:
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
-            return pd.read_hdf(run_map.path(hdf_path), key="dcd_map")
+            df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
+            data_index = list(df.index.get_level_values("data").unique())
+            if not all([d in data_index for d in data]):
+                raise ValueError(
+                    f"expected at least '{data}' in data index but got '{data_index}' "
+                )
+            return df
 
-        data = run_kwargs_map(
+        df = run_kwargs_map(
             self.merge_maps,
             [
                 dict(
@@ -743,8 +754,11 @@ class _OppAnalysis(AnalysisBase):
             ],
             pool_size=pool_size,
         )
-        data = pd.concat(data, axis=0)
-        return data
+        df = pd.concat(df, axis=0)
+
+        if hdf_path is not None:
+            df.to_hdf(run_map.path(hdf_path), key=hdf_key, format="table")
+        return df
 
     def merge_position(
         self,
@@ -836,6 +850,157 @@ class _OppAnalysis(AnalysisBase):
             data = data.sort_index()
             data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
         return data
+
+    def stat_test_equality(
+        self,
+        data: pd.DataFrame,
+        combination: list[Tuple[Any, Any]] | None = None,
+        lbl_dict: dict | None = None,
+        ax: plt.Axes | None = None,
+        path: str | None = None,
+    ):
+        lbl_dict = {} if lbl_dict is None else lbl_dict
+        if combination is None:
+            combination = list(itertools.combinations(data.columns, 2))
+        res = []
+        for left, right in combination:
+            _s = {}
+            _mw = mannwhitneyu(data[left], data[right], method="asymptotic")
+            _ks = kstest(data[left], data[right])
+            _s["pair"] = f"{lbl_dict.get(left, left)} - {lbl_dict.get(right, right)}"
+            _s["mw_stat"] = _mw.statistic
+            _s["mw_p"] = _mw.pvalue
+            _s["mw_H"] = "$H_0$ (same)" if _s["mw_p"] > 0.05 else "$H_1$ (different)"
+            _s["ks_stat"] = _ks.statistic
+            _s["ks_p"] = _ks.pvalue
+            _s["ks_H"] = "$H_0$ (same)" if _s["ks_p"] > 0.05 else "$H_1$ (different)"
+            res.append(_s)
+        df = pd.DataFrame.from_records(res, index="pair")
+        df.update(df[["mw_stat", "mw_p", "ks_stat", "ks_p"]].applymap("{:.6e}".format))
+        df = df.reset_index()
+
+        if path is not None:
+            df.to_csv(path)
+
+        if ax is None:
+            return df
+        else:
+            ax.set_title("Test for similarity of distribution")
+            ax.axis("off")
+            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+            tbl.scale(1, 2)
+            ax.get_figure().tight_layout()
+            return df, ax
+
+    def count_stat_plots(
+        self,
+        data: pd.DataFrame,
+        lbl_dict: dict,
+        run_map: RunMap,
+        out_name: str,
+        stat_col_combination: List[Tuple[Any, Any]] | None = None,
+        palette=None,
+    ):
+        with run_map.pdf_page(out_name) as pdf:
+
+            fig, ax = _Plot.check_ax()
+            self.stat_test_equality(
+                data,
+                combination=stat_col_combination,
+                lbl_dict=lbl_dict,
+                ax=ax,
+                path=run_map.path(out_name.replace(".pdf", "_stats.csv")),
+            )
+            pdf.savefig(fig)
+            plt.close(fig)
+
+            fig, ax = _Plot.check_ax()
+            ax.set_title("Summary Statistics")
+            df = data.describe().applymap("{:.6f}".format).reset_index()
+            df.to_csv(run_map.path(out_name.replace(".pdf", "_summary.csv")))
+            ax.axis("off")
+            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+            tbl.scale(1, 2)
+            fig.tight_layout()
+            pdf.savefig(fig)
+            plt.close(fig)
+
+            # Line plot
+            f, ax = _Plot.check_ax()
+            sns.lineplot(data=data, ax=ax, palette=palette)
+            ax.set_title(f"Time Series")
+            ax.set_xlabel("time in seconds")
+            ax.set_ylabel("Pedestrian count")
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf.savefig(f)
+            plt.close(f)
+
+            # Hist cumulative plot
+            f, ax = _Plot.check_ax()
+            sns.histplot(
+                data=data,
+                cumulative=True,
+                common_norm=False,
+                stat="percent",
+                element="step",
+                ax=ax,
+                palette=palette,
+            )
+            ax.set_title(f"Cumml. histogram of pedestrian count")
+            ax.set_xlabel("Pedestrian count")
+            ax.get_legend().set_title(None)
+            sns.move_legend(ax, "upper left")
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf.savefig(f)
+            plt.close(f)
+
+            # ECDF plot
+            f, ax = _Plot.check_ax()
+            sns.ecdfplot(data, ax=ax, palette=palette)
+            ax.set_title(f"ECDF pedestrian count")
+            ax.set_xlabel("Pedestrian count")
+            ax.get_legend().set_title(None)
+            sns.move_legend(ax, "upper left")
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf.savefig(f)
+            plt.close(f)
+
+            # Hist plot
+            f, ax = _Plot.check_ax()
+            sns.histplot(
+                data,
+                cumulative=False,
+                common_norm=False,
+                stat="percent",
+                element="step",
+                ax=ax,
+                palette=palette,
+            )
+            ax.set_title(f"Histogram of pedestrian count")
+            ax.set_xlabel("Pedestrian count")
+            ax.get_legend().set_title(None)
+            sns.move_legend(ax, "upper left")
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf.savefig(f)
+            plt.close(f)
+
+            # Box plot
+            f, ax = _Plot.check_ax()
+            sns.boxplot(data=data, ax=ax, palette=palette)
+            ax.set_title(f"Boxplot of pedestrian count")
+            ax.set_xlabel("Data")
+            ax.set_ylabel("Pedestrian Count")
+            pdf.savefig(f)
+            plt.close(f)
+
+            # Violin plot
+            f, ax = _Plot.check_ax()
+            sns.violinplot(data=data, ax=ax, palette=palette)
+            ax.set_title(f"Violin of pedestrian count")
+            ax.set_xlabel("Data")
+            ax.set_ylabel("Pedestrian Count")
+            pdf.savefig(f)
+            plt.close(f)
 
 
 OppAnalysis = _OppAnalysis()
