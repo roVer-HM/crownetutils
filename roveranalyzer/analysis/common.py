@@ -530,6 +530,13 @@ class Simulation:
             logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
+class SimGroupFilter(Protocol):
+    """Callable which takes a """
+
+    def __call__(self, sim_group: SimulationGroup) -> bool:
+        ...
+
+
 class SimulationGroup:
     """A named group of Simulation objects.
 
