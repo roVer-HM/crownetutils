@@ -216,7 +216,7 @@ def generate_traces(
     if not os.path.isabs(scenario):
         raise ValueError(f"scenario mut be provided as an absolute path.")
     os.makedirs(base_output_path, exist_ok=True)
-    out = f"{os.path.basename(scenario).split('.')[0]}.out"
+    out = f"{scenario_name}.out"
     setup: DictVariation = DictVariation(
         scenario_path=scenario,
         parameter_dict_list=par_var,
