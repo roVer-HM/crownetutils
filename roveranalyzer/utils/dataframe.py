@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Protocol
+from glob import escape
+from typing import Callable, Protocol
 
 import pandas as pd
+from pandas.io.formats.style import Styler
 
 
 class EmptyFrameConsumer:
@@ -18,6 +20,47 @@ class FrameConsumer(Protocol):
 
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass
+
+
+def save_as_tex_table(
+    df: pd.DataFrame,
+    path: str,
+    selected_only: bool = True,
+    rename: dict | None = None,
+    col_format: dict | None = None,
+    str_replace: Callable[[str], str] = lambda x: x,
+):
+
+    _df: pd.DataFrame = df.copy(deep=True)
+    if rename is not None:
+        _df = _df.rename(columns=rename)
+    if selected_only:
+        _df = _df.loc[:, col_format.keys()]
+    _df = _df.reset_index()
+
+    # Use styler api to format the table environment.
+    s: Styler = _df.style
+
+    # set default escape on alle columns
+    s.format(escape="latex")
+    # add specific formatter
+    if col_format is not None:
+        for col, func in col_format.items():
+            s = s.format(formatter=func, subset=col, escape="latex")
+
+    s = s.format_index(escape="latex", axis=1)
+    s.set_table_styles(
+        [
+            {"selector": "toprule", "props": ":toprule"},
+            {"selector": "midrule", "props": ":midrule"},
+            {"selector": "bottomrule", "props": ":bottomrule"},
+        ],
+        overwrite=False,
+    )
+    s = s.hide(axis="index")
+
+    with open(path, "w") as fd:
+        fd.write(str_replace(s.to_latex(column_format="c" * _df.shape[1])))
 
 
 class LazyDataFrame(object):

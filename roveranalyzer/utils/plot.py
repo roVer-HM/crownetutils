@@ -9,6 +9,7 @@ from typing import Any, ContextManager, List, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
@@ -18,7 +19,9 @@ import roveranalyzer.utils.logging as _log
 logger = _log.logger
 
 
-def matplotlib_set_latex_param():
+def matplotlib_set_latex_param(locale: str = "EN"):
+    sns.set(font_scale=1.0, rc={"text.usetex": True})
+    sns.set_style("whitegrid")
     matplotlib.rcParams["pdf.fonttype"] = 42
     matplotlib.rcParams["ps.fonttype"] = 42
     matplotlib.rcParams["pgf.texsystem"] = "pdflatex"
@@ -27,11 +30,27 @@ def matplotlib_set_latex_param():
             "font.family": "serif",
             "font.size": 18,
             "axes.labelsize": 20,
-            "axes.titlesize": 24,
-            "legend.fontsize": 24,
-            "figure.titlesize": 28,
+            "axes.titlesize": 22,
+            "legend.fontsize": 22,
+            "figure.titlesize": 24,
+            "pgf.preamble": "\n".join(
+                [  # plots will use this preamble
+                    r"\usepackage[utf8]{inputenc}",
+                    r"\usepackage[T1]{fontenc}",
+                    r"\usepackage[detect-all,round-mode=places,tight-spacing=true]{siunitx}",
+                ]
+            ),
         }
     )
+
+    p = "\n".join(
+        [  # plots will use this preamble
+            r"\usepackage[utf8]{inputenc}",
+            r"\usepackage[T1]{fontenc}",
+            r"\usepackage[detect-all,round-mode=places,tight-spacing=true]{siunitx}",
+        ]
+    )
+    matplotlib.rc("text.latex", preamble=p)
     matplotlib.rcParams["text.usetex"] = True
 
 
@@ -196,6 +215,14 @@ class _PlotUtil:
 
 
 PlotUtil = _PlotUtil()
+
+
+def tex_1col_fig(ratio=16 / 9, *arg, **kwargs):
+    return plt.subplots(*arg, **kwargs, figsize=(5, 5 / ratio))
+
+
+def tex_2col_fig(ratio=16 / 9, *arg, **kwargs):
+    return plt.subplots(*arg, **kwargs, figsize=(18, 18 / ratio))
 
 
 def check_ax(ax=None, **kwargs):
