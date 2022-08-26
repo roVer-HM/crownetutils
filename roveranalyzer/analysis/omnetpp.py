@@ -851,7 +851,7 @@ class _OppAnalysis(AnalysisBase):
             data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
         return data
 
-    def stat_test_equality(
+    def calculate_equality_tests(
         self,
         data: pd.DataFrame,
         combination: list[Tuple[Any, Any]] | None = None,
@@ -892,77 +892,81 @@ class _OppAnalysis(AnalysisBase):
             ax.get_figure().tight_layout()
             return df, ax
 
-    def count_stat_plots(
+    def plot_descriptive_comparison(
         self,
         data: pd.DataFrame,
         lbl_dict: dict,
         run_map: RunMap,
         out_name: str,
         stat_col_combination: List[Tuple[Any, Any]] | None = None,
+        pdf_file=None,
         palette=None,
+        value_axes_label: str = "value",
     ):
-        with run_map.pdf_page(out_name) as pdf:
+        """Save mulitple descriptive plots and statisitcs based on given data.
+        DataFrame must be in the long format with a single index.
+        """
 
-            fig, ax = _Plot.check_ax()
-            self.stat_test_equality(
+        if pdf_file is None:
+            with run_map.pdf_page(out_name) as pdf:
+                self.plot_descriptive_comparison(
+                    data,
+                    lbl_dict,
+                    run_map,
+                    out_name,
+                    stat_col_combination,
+                    pdf,
+                    palette,
+                )
+        else:
+
+            if data.shape[1] <= 3:
+                f, (stat_ax, descr_ax) = plt.subplots(2, 1, figsize=(16, 9))
+                f = [f]
+            else:
+                f_1, stat_ax = _Plot.check_ax()
+                f_2, descr_ax = _Plot.check_ax()
+                f = [f_1, f_2]
+
+            self.calculate_equality_tests(
                 data,
                 combination=stat_col_combination,
                 lbl_dict=lbl_dict,
-                ax=ax,
+                ax=stat_ax,
                 path=run_map.path(out_name.replace(".pdf", "_stats.csv")),
             )
-            pdf.savefig(fig)
-            plt.close(fig)
 
-            fig, ax = _Plot.check_ax()
-            ax.set_title("Summary Statistics")
+            descr_ax.set_title("Summary Statistics")
             df = data.describe().applymap("{:.6f}".format).reset_index()
             df.to_csv(run_map.path(out_name.replace(".pdf", "_summary.csv")))
-            ax.axis("off")
-            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+            descr_ax.axis("off")
+            tbl = descr_ax.table(cellText=df.values, colLabels=df.columns, loc="center")
             tbl.scale(1, 2)
-            fig.tight_layout()
-            pdf.savefig(fig)
-            plt.close(fig)
+
+            for _f in f:
+                _f.tight_layout()
+                pdf_file.savefig(_f)
+                plt.close(_f)
 
             # Line plot
             f, ax = _Plot.check_ax()
             sns.lineplot(data=data, ax=ax, palette=palette)
             ax.set_title(f"Time Series")
             ax.set_xlabel("time in seconds")
-            ax.set_ylabel("Pedestrian count")
+            ax.set_ylabel(value_axes_label)
             _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf.savefig(f)
-            plt.close(f)
-
-            # Hist cumulative plot
-            f, ax = _Plot.check_ax()
-            sns.histplot(
-                data=data,
-                cumulative=True,
-                common_norm=False,
-                stat="percent",
-                element="step",
-                ax=ax,
-                palette=palette,
-            )
-            ax.set_title(f"Cumml. histogram of pedestrian count")
-            ax.set_xlabel("Pedestrian count")
-            ax.get_legend().set_title(None)
-            sns.move_legend(ax, "upper left")
-            _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf.savefig(f)
+            pdf_file.savefig(f)
             plt.close(f)
 
             # ECDF plot
             f, ax = _Plot.check_ax()
             sns.ecdfplot(data, ax=ax, palette=palette)
             ax.set_title(f"ECDF pedestrian count")
-            ax.set_xlabel("Pedestrian count")
+            ax.set_xlabel(value_axes_label)
             ax.get_legend().set_title(None)
             sns.move_legend(ax, "upper left")
             _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf.savefig(f)
+            pdf_file.savefig(f)
             plt.close(f)
 
             # Hist plot
@@ -977,30 +981,35 @@ class _OppAnalysis(AnalysisBase):
                 palette=palette,
             )
             ax.set_title(f"Histogram of pedestrian count")
-            ax.set_xlabel("Pedestrian count")
+            ax.set_xlabel(value_axes_label)
             ax.get_legend().set_title(None)
             sns.move_legend(ax, "upper left")
             _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf.savefig(f)
+            pdf_file.savefig(f)
             plt.close(f)
+
+            if data.shape[1] <= 3:
+                f, (box, violin) = plt.subplots(1, 2, figsize=(16, 9))
+                f = [f]
+            else:
+                f_box, box = _Plot.check_ax()
+                f_violin, violin = _Plot.check_ax()
+                f = [f_box, f_violin]
 
             # Box plot
-            f, ax = _Plot.check_ax()
-            sns.boxplot(data=data, ax=ax, palette=palette)
-            ax.set_title(f"Boxplot of pedestrian count")
-            ax.set_xlabel("Data")
-            ax.set_ylabel("Pedestrian Count")
-            pdf.savefig(f)
-            plt.close(f)
+            sns.boxplot(data=data, ax=box, palette=palette)
+            box.set_title(f"Boxplot of pedestrian count")
+            box.set_xlabel("Data")
+            box.set_ylabel(value_axes_label)
 
             # Violin plot
-            f, ax = _Plot.check_ax()
-            sns.violinplot(data=data, ax=ax, palette=palette)
-            ax.set_title(f"Violin of pedestrian count")
-            ax.set_xlabel("Data")
-            ax.set_ylabel("Pedestrian Count")
-            pdf.savefig(f)
-            plt.close(f)
+            sns.violinplot(data=data, ax=violin, palette=palette)
+            violin.set_title(f"Violin of pedestrian count")
+            violin.set_xlabel("Data")
+            violin.set_ylabel(value_axes_label)
+            for _f in f:
+                pdf_file.savefig(_f)
+                plt.close(_f)
 
 
 OppAnalysis = _OppAnalysis()
