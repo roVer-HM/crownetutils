@@ -739,7 +739,7 @@ class _OppAnalysis(AnalysisBase):
                 raise ValueError(
                     f"expected at least '{data}' in data index but got '{data_index}' "
                 )
-            return df
+            return df.to_frame() if isinstance(df, pd.Series) else df
 
         df = run_kwargs_map(
             self.merge_maps,
