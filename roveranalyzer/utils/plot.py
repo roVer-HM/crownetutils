@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 
 import roveranalyzer.utils.logging as _log
@@ -19,7 +20,7 @@ import roveranalyzer.utils.logging as _log
 logger = _log.logger
 
 
-def matplotlib_set_latex_param(locale: str = "EN"):
+def matplotlib_set_latex_param():
     sns.set(font_scale=1.0, rc={"text.usetex": True})
     sns.set_style("whitegrid")
     matplotlib.rcParams["pdf.fonttype"] = 42
