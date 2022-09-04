@@ -8,6 +8,7 @@ import subprocess
 import timeit as it
 from ast import Param
 from contextlib import contextmanager
+from functools import partial
 from glob import glob
 from multiprocessing import get_context
 from os.path import basename, join
@@ -217,6 +218,14 @@ class RunMap(dict):
             sim_group = SimulationGroup(g_name, data=sims, attr=group["attr"])
             ret.append_or_add(sim_group)
         return ret
+
+    def attr_df(self):
+        """Create DataFrame with group key as index and attributes as columns"""
+        idx = pd.Index(self.keys())
+        records = [g.attr for g in self.values()]
+        _df = pd.DataFrame.from_records(records, index=idx)
+        _df = _df.apply(partial(pd.to_numeric, errors="ignore"))
+        return _df
 
     def id_to_label_series(
         self,
