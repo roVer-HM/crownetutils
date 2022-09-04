@@ -675,19 +675,17 @@ class _OppAnalysis(AnalysisBase):
 
         return fig
 
-    def merge_maps(
+    def collect_maps(
         self,
         sim_group: SimulationGroup,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
-        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
         drop_nan: bool = True,
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
-        """Average density map over multiple runs / seeds
-
-        Args:
+        """Collect density maps over all runs for one simulation group (no average)
 
         Returns:
-            pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
+            pd.DataFrame: _description_
         """
         df = []
         scenario_lbl = sim_group.group_name
@@ -705,7 +703,6 @@ class _OppAnalysis(AnalysisBase):
                 [[scenario_lbl], [i], _df.columns], names=["sim", "run", "data"]
             )
             df.append(_df)
-
         df = pd.concat(df, axis=1, verify_integrity=True)
         if df.isna().any(axis=1).any():
             nan_index = list(df.index[df.isna().any(axis=1)])
@@ -713,12 +710,68 @@ class _OppAnalysis(AnalysisBase):
             if drop_nan:
                 print(f"dropping time index due to nan: {nan_index}")
                 df = df[~(df.isna().any(axis=1))]
-
         df = df.unstack()
+        if isinstance(df, pd.Series):
+            df = df.to_frame()
+        return frame_consumer(df)
+
+    def collect_maps_for_run_map(
+        self,
+        run_map: RunMap,
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+        hdf_path: str | None = None,
+        hdf_key: str = "maps",
+        pool_size=10,
+    ) -> pd.DataFrame:
+        """_summary_
+        todo:
+        """
+        if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
+            df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
+        else:
+            df = run_kwargs_map(
+                self.collect_maps,
+                [
+                    dict(
+                        sim_group=g,
+                        data=data,
+                        frame_consumer=frame_consumer,
+                        drop_nan=drop_nan,
+                    )
+                    for g in run_map.values()
+                ],
+                pool_size=pool_size,
+            )
+            df = pd.concat(df, axis=0)
+
+            if hdf_path is not None:
+                df.to_hdf(run_map.path(hdf_path), mode="a", key=hdf_key, format="table")
+        return df.to_frame() if isinstance(df, pd.Series) else df
+
+    def merge_maps(
+        self,
+        sim_group: SimulationGroup,
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+    ) -> pd.DataFrame:
+        """Average density map over multiple runs / seeds
+
+        Args:
+
+        Returns:
+            pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
+        """
+        df = self.collect_maps(sim_group, data, drop_nan)
+
         df = df.groupby(level=["sim", "simtime", "data"]).agg(
             ["mean", "std", percentile(0.5)]
         )  # over multiple runs/seeds
 
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.droplevel(0, axis=1)
         df = frame_consumer(df)
         return df
 
@@ -734,31 +787,25 @@ class _OppAnalysis(AnalysisBase):
     ) -> pd.DataFrame:
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
             df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
-            data_index = list(df.index.get_level_values("data").unique())
-            if not all([d in data_index for d in data]):
-                raise ValueError(
-                    f"expected at least '{data}' in data index but got '{data_index}' "
-                )
-            return df.to_frame() if isinstance(df, pd.Series) else df
+        else:
+            df = run_kwargs_map(
+                self.merge_maps,
+                [
+                    dict(
+                        sim_group=g,
+                        data=data,
+                        frame_consumer=frame_consumer,
+                        drop_nan=drop_nan,
+                    )
+                    for g in run_map.values()
+                ],
+                pool_size=pool_size,
+            )
+            df = pd.concat(df, axis=0)
 
-        df = run_kwargs_map(
-            self.merge_maps,
-            [
-                dict(
-                    sim_group=g,
-                    data=data,
-                    frame_consumer=frame_consumer,
-                    drop_nan=drop_nan,
-                )
-                for g in run_map.values()
-            ],
-            pool_size=pool_size,
-        )
-        df = pd.concat(df, axis=0)
-
-        if hdf_path is not None:
-            df.to_hdf(run_map.path(hdf_path), key=hdf_key, format="table")
-        return df
+            if hdf_path is not None:
+                df.to_hdf(run_map.path(hdf_path), key=hdf_key, format="table")
+        return df.to_frame() if isinstance(df, pd.Series) else df
 
     def merge_position(
         self,

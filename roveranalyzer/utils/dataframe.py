@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from functools import partial
 from glob import escape
-from typing import Callable, Protocol
+from typing import Any, Callable, List, Protocol
 
 import pandas as pd
 from pandas.io.formats.style import Styler
@@ -9,6 +10,23 @@ from pandas.io.formats.style import Styler
 
 class EmptyFrameConsumer:
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
+        return df
+
+
+class FrameConsumerList:
+    """Class implementing the FrameConsumer protocol where
+    multiple FrameConsumers are chained"""
+
+    @classmethod
+    def get(cls, *fc):
+        return cls(fc)
+
+    def __init__(self, fc_list: List[FrameConsumer]) -> None:
+        self.fc_list = fc_list
+
+    def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
+        for fc in self.fc_list:
+            df = fc(df, *args, **kwargs)
         return df
 
 
@@ -20,6 +38,34 @@ class FrameConsumer(Protocol):
 
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass
+
+
+def siunitx_format(val, cmd, options=None):
+    if options is None:
+        return f"\{cmd}{{{val}}}"
+    else:
+        return f"\{cmd}[{options}]{{{val}}}"
+
+
+def siunitx(cmd="num", precision: int = 4, *args, **kwargs) -> Callable[[Any], str]:
+    options = [f"round-precision={precision}"]
+    options.extend(args)
+    options.extend([f"{k}={v}" for k, v in kwargs.items()])
+    options = ",".join(options)
+    return partial(siunitx_format, cmd=cmd, options=options)
+
+
+def format_frame(df: pd.DataFrame, si_func=lambda x: f"\\num{{{x}}}") -> pd.DataFrame:
+
+    _df: pd.DataFrame = df.copy(deep=True)
+    if isinstance(si_func, dict):
+        for col, _func in si_func.items():
+            if col in _df.columns:
+                _df[col] = _df[col].apply(_func)
+    else:
+        _df = _df.applymap(si_func)
+
+    return _df
 
 
 def save_as_tex_table(
