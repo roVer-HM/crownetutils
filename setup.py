@@ -14,7 +14,7 @@ def requirements():
 
 setup(
     name="roveranalyzer",
-    version="1.5.16",
+    version="1.5.18",
     description="roVer results analysis tool",
     long_description=readme(),
     author="Stefan Schuhbäck",

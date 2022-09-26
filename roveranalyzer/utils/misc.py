@@ -1,4 +1,5 @@
 import time
+from typing import List
 
 import numpy as np
 
@@ -15,6 +16,33 @@ def intersect(line1, line2):
     return ccw(line1[0], line2[0], line2[1]) != ccw(
         line1[1], line2[0], line2[1]
     ) and ccw(line1[0], line1[1], line2[0]) != ccw(line1[0], line1[1], line2[1])
+
+
+def apply_str_filter(filter: str, data: List[int]):
+    data = list(data)
+    data.sort()
+    groups = filter.split(",")
+    ranges = [g.split("-") for g in groups]
+    output = []
+    try:
+        for r in ranges:
+            if len(r) == 1:
+                val = int(r[0])
+                if val in data:
+                    output.append(val)
+            elif len(r) == 2:
+                if r[1] == "":
+                    r[1] = max(data)
+                left, right = [int(i) for i in r]
+                if left > right:
+                    raise ValueError("")
+                for v in data:
+                    if v >= left and v <= right:
+                        output.append(v)
+    except ValueError:
+        raise ValueError(f"cannot parse filter {filter}")
+
+    return output
 
 
 class ProgressCmd:
