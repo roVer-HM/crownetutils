@@ -86,6 +86,7 @@ def plot_pnode_positions(
     combine_plots=True,
     xlim=None,
     ylim=None,
+    remove_xticks=False
 ):
     """
     For a simulation: Returns multiple comparable matplotlib figures plotting pNode positions.
@@ -121,6 +122,9 @@ def plot_pnode_positions(
 
     if combine_plots:
         fig, ax = plt.subplots(1, len(dfs_plot))
+        # fig.set_size_inches(5, 5)
+        # fig.subplots_adjust(bottom=0.13)
+        # fig.subplots_adjust(left=0.1)
         figs = [(fig, a) for a in ax]
         ret = (fig, ax)
     else:
@@ -129,17 +133,24 @@ def plot_pnode_positions(
 
     for i, df_plot in enumerate(dfs_plot):
         fig, ax = figs[i]
-        df_plot.plot.scatter(x="x", y="y", ax=ax, xlim=xlim, ylim=ylim, style="o", s=3)
+        df_plot.plot.scatter(x="x", y="y", ax=ax, xlim=xlim, ylim=ylim, style="o", s=9)
         ax.set_aspect("equal", "box")
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.invert_yaxis()
-        fig.suptitle(f"pNode positions for {sim.desc}")
+        # fig.suptitle(f"pNode positions for {sim.desc}")
         fig.supylabel("y [m]")
         fig.supxlabel("x [m]")
-        ax.set_title(f"at {times[i]}s")
+        ax.set_title(f"{times[i]}s")
         ax.tick_params(axis="x", labelrotation=30)
-
+        # remove last tick from x-axis (overlaps for striping plots)
+        if remove_xticks:
+            plt.setp(ax.get_xticklabels()[0], visible=False)
+            plt.setp(ax.get_xticklabels()[1], visible=False)
+        if i > 0:
+            plt.setp(ax.get_yticklabels(), visible=False)
+        # plt.show()
+    plt.tight_layout()
     return ret
 
 
@@ -629,12 +640,15 @@ def _find_simulations(
             if name.endswith(file_extension) and (
                 not must_contain or all(e in root or e in name for e in must_contain)
             ):
-                date_time_str = re.search(r"\d{8}-\d{2}:\d{2}:\d{2}", root).group(0)
-                date_time_obj = datetime.datetime.strptime(
-                    date_time_str, "%Y%m%d-%H:%M:%S"
-                )
-                if timeframe is None or timeframe[0] <= date_time_obj <= timeframe[1]:
+                if timeframe is None:
                     result.append(os.path.join(root, name))
+                else:
+                    date_time_str = re.search(r"\d{8}-\d{2}:\d{2}:\d{2}", root).group(0)
+                    date_time_obj = datetime.datetime.strptime(
+                        date_time_str, "%Y%m%d-%H:%M:%S"
+                    )
+                    if timeframe[0] <= date_time_obj <= timeframe[1]:
+                        result.append(os.path.join(root, name))
     return result
 
 
