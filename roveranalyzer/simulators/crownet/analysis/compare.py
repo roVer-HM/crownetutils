@@ -86,7 +86,7 @@ def plot_pnode_positions(
     combine_plots=True,
     xlim=None,
     ylim=None,
-    remove_xticks=False
+    remove_xticks=False,
 ):
     """
     For a simulation: Returns multiple comparable matplotlib figures plotting pNode positions.
