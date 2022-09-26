@@ -2,7 +2,7 @@ from roveranalyzer.simulators.vadere.vadere_project import VadereProject
 
 
 class SameSeedTrajectory:
-    """Compare postvis.trajectory files from different runs but with same seed."""
+    """ Compare postvis.trajectory files from different runs but with same seed."""
 
     def __init__(self, project_dir):
         self.project = VadereProject(project_dir)

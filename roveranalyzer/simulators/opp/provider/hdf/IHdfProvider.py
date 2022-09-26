@@ -384,7 +384,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             store.put(key=self.group, value=data, format="table", data_columns=True)
 
     def exists(self) -> bool:
-        """check for HDF store"""
+        """ check for HDF store """
         return os.path.exists(self._hdf_path)
 
     def _select_where(
