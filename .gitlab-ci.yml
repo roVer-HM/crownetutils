@@ -2,13 +2,14 @@ stages:
   - test
   - code_analysis
 
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - ./venv
+# caching does not lead to a speed-up in our case - disabled
+# cache:
+#   key: ${CI_COMMIT_REF_SLUG}
+#   paths:
+#     - ./venv
 
 before_script:
-  - virtualenv --system-site-packages --python py38 ./venv
+  - virtualenv --python py38 ./venv
   - source ./venv/bin/activate
   - pip3 install -q -I -r requirements-dev.txt
 
