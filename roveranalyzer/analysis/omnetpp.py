@@ -1,28 +1,38 @@
 from __future__ import annotations
 
 import itertools
+import os
 from os.path import join
-from tkinter import E
-from typing import List, Protocol
+from typing import IO, Any, List, Protocol, TextIO, Tuple
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+
+sns.set(font_scale=1.0, rc={"text.usetex": True})
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
-from shapely.geometry import Polygon
+from scipy.stats import kstest, mannwhitneyu
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.analysis.common import AnalysisBase, Simulation, SuqcRun
+from roveranalyzer.analysis.common import (
+    AnalysisBase,
+    RunMap,
+    Simulation,
+    SimulationGroup,
+    SuqcStudy,
+)
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
 from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
+from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
 
 PlotUtil = _Plot.PlotUtil
 
@@ -665,28 +675,22 @@ class _OppAnalysis(AnalysisBase):
 
         return fig
 
-    def merge_maps(
+    def collect_maps(
         self,
-        study: SuqcRun,
-        scenario_lbl: str,
-        rep_ids: List[int],
+        sim_group: SimulationGroup,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
-        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
         drop_nan: bool = True,
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
-        """Average density map over multiple runs / seeds
-
-        Args:
-            study (SuqcRun): Suqc study object (access to run definitions and output)
-            scenario_lbl (str): Label for scenario
-            ids (list): List of runs over which to average. len(rep_ids) := N (number of seeds)
+        """Collect density maps over all runs for one simulation group (no average)
 
         Returns:
-            pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
+            pd.DataFrame: _description_
         """
         df = []
-        for i, id in enumerate(rep_ids):
-            _map = study.get_sim(id).get_dcdMap()
+        scenario_lbl = sim_group.group_name
+        for i, _, sim in sim_group.simulation_iter(enum=True):
+            _map = sim.get_dcdMap()
             if data is None:
                 _df = (
                     _map.map_count_measure()
@@ -699,7 +703,6 @@ class _OppAnalysis(AnalysisBase):
                 [[scenario_lbl], [i], _df.columns], names=["sim", "run", "data"]
             )
             df.append(_df)
-
         df = pd.concat(df, axis=1, verify_integrity=True)
         if df.isna().any(axis=1).any():
             nan_index = list(df.index[df.isna().any(axis=1)])
@@ -707,26 +710,111 @@ class _OppAnalysis(AnalysisBase):
             if drop_nan:
                 print(f"dropping time index due to nan: {nan_index}")
                 df = df[~(df.isna().any(axis=1))]
-
         df = df.unstack()
+        if isinstance(df, pd.Series):
+            df = df.to_frame()
+        return frame_consumer(df)
+
+    def collect_maps_for_run_map(
+        self,
+        run_map: RunMap,
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+        hdf_path: str | None = None,
+        hdf_key: str = "maps",
+        pool_size=10,
+    ) -> pd.DataFrame:
+        """_summary_
+        todo:
+        """
+        if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
+            df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
+        else:
+            df = run_kwargs_map(
+                self.collect_maps,
+                [
+                    dict(
+                        sim_group=g,
+                        data=data,
+                        frame_consumer=frame_consumer,
+                        drop_nan=drop_nan,
+                    )
+                    for g in run_map.values()
+                ],
+                pool_size=pool_size,
+            )
+            df = pd.concat(df, axis=0)
+
+            if hdf_path is not None:
+                df.to_hdf(run_map.path(hdf_path), mode="a", key=hdf_key, format="table")
+        return df.to_frame() if isinstance(df, pd.Series) else df
+
+    def merge_maps(
+        self,
+        sim_group: SimulationGroup,
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+    ) -> pd.DataFrame:
+        """Average density map over multiple runs / seeds
+
+        Args:
+
+        Returns:
+            pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
+        """
+        df = self.collect_maps(sim_group, data, drop_nan)
+
         df = df.groupby(level=["sim", "simtime", "data"]).agg(
             ["mean", "std", percentile(0.5)]
         )  # over multiple runs/seeds
 
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.droplevel(0, axis=1)
         df = frame_consumer(df)
         return df
 
+    def merge_maps_for_run_map(
+        self,
+        run_map: RunMap,
+        data: List[str] | None = ("map_glb_count", "map_mean_count"),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+        drop_nan: bool = True,
+        hdf_path: str | None = None,
+        hdf_key: str = "maps",
+        pool_size=10,
+    ) -> pd.DataFrame:
+        if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
+            df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
+        else:
+            df = run_kwargs_map(
+                self.merge_maps,
+                [
+                    dict(
+                        sim_group=g,
+                        data=data,
+                        frame_consumer=frame_consumer,
+                        drop_nan=drop_nan,
+                    )
+                    for g in run_map.values()
+                ],
+                pool_size=pool_size,
+            )
+            df = pd.concat(df, axis=0)
+
+            if hdf_path is not None:
+                df.to_hdf(run_map.path(hdf_path), key=hdf_key, format="table")
+        return df.to_frame() if isinstance(df, pd.Series) else df
+
     def merge_position(
         self,
-        study: SuqcRun,
-        run_dict: dict,
+        sim_group: SimulationGroup,
         time_slice=slice(0.0),
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
         df = []
-        rep_list = run_dict["rep"]
-        for run_id in rep_list:
-            sim = study.get_sim(run_id)
+        for run_id, sim in sim_group.simulation_iter():
             _pos = sim.sql.host_position(
                 module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
             )
@@ -738,6 +826,252 @@ class _OppAnalysis(AnalysisBase):
         df = df.set_index(["run_id", "hostId", "vecIdx", "drop_nodes"]).sort_index()
         df = frame_consumer(df)
         return df
+
+    def collect_cell_mse_for_parameter_variation(
+        self,
+        sim_group: SimulationGroup,
+        cell_count: int,
+        cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        consumer: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.Series:
+        """Collect cell mean squared error for each seed repetition in given Parameter_Variation.
+
+        Args:
+            study (SuqcRun): _description_
+            run_dict (Parameter_Variation): _description_
+            cell_count (int): Number of cells used for normalization. Might differ from map shape if not reachable cells are
+                            removed from the analysis. Removed cells must not have any error value.
+            consumer (FrameConsumer, optional): Post changes to the collected DataFrame. Defaults to FrameConsumer.EMPTY.
+
+        Returns:
+            pd.Series: cell mean squared error over time and run_id index: [simtime, run_id]
+        """
+        df = []
+        print(f"execut group: {sim_group.group_name}")
+        if (
+            isinstance(cell_slice, pd.MultiIndex)
+            and cell_count > 0
+            and cell_count != cell_slice.shape[0]
+        ):
+            raise ValueError(
+                "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
+            )
+        else:
+            cell_count = cell_slice.shape[0]
+
+        for rep, sim in sim_group.simulation_iter():
+            _df = sim.get_dcdMap().cell_count_measure(
+                columns=["cell_mse"], xy_slice=cell_slice
+            )
+            _df = _df.groupby(by=["simtime"]).sum() / cell_count
+            _df.columns = [rep]
+            _df.columns.name = "run_id"
+            print(f"add: {sim_group.group_name}_{sim.run_context.opp_seed}")
+            df.append(_df)
+        df = pd.concat(df, axis=1, verify_integrity=True)
+        df = consumer(df)
+        df = df.stack()  # series
+        df.name = "cell_mse"
+        print(f"done group: {sim_group.group_name}")
+        return df
+
+    def get_mse_cell_data_for_study(
+        self,
+        run_map: RunMap,
+        hdf_path: str,
+        cell_count: int,
+        cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        pool_size: int = 20,
+    ) -> pd.DataFrame:
+        """Collect cell mean squared error for *all* ParameterVariations present in given RunMap.
+
+        Args:
+            study (SuqcRun): Suq-controller run object containing the data.
+            run_map (RunMap): Map of ParameterVariations under investigation
+            hdf_path (str): Path to save result. If it already exist just load it.
+            cell_count (int): Number of cells used for normalization. Might differ from map shape if not reachable cells are
+                            removed from the analysis. Removed cells must not have any error value.
+            pool_size (int): Number of parallel processes used. Default 20.
+
+        Returns:
+            pd.DataFrame: cell mean squared error over time, run_id and parameter variation.
+                        Index [simtime, run_id]. 'run_id' encodes parameter variations and different seeds.
+        """
+        if os.path.exists(run_map.path(hdf_path)):
+            data = pd.read_hdf(run_map.path(hdf_path), key="cell_mse")
+        else:
+            data: List[(pd.DataFrame, dict)] = run_kwargs_map(
+                self.collect_cell_mse_for_parameter_variation,
+                [
+                    dict(sim_group=v, cell_count=cell_count, cell_slice=cell_slice)
+                    for v in run_map.get_simulation_group()
+                ],
+                pool_size=pool_size,
+            )
+            data: pd.DataFrame = pd.concat(data, axis=0, verify_integrity=True)
+            data = data.sort_index()
+            data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
+        return data
+
+    def calculate_equality_tests(
+        self,
+        data: pd.DataFrame,
+        combination: list[Tuple[Any, Any]] | None = None,
+        lbl_dict: dict | None = None,
+        ax: plt.Axes | None = None,
+        path: str | None = None,
+    ):
+        lbl_dict = {} if lbl_dict is None else lbl_dict
+        if combination is None:
+            combination = list(itertools.combinations(data.columns, 2))
+        res = []
+        for left, right in combination:
+            _s = {}
+            _mw = mannwhitneyu(data[left], data[right], method="asymptotic")
+            _ks = kstest(data[left], data[right])
+            _s["pair"] = f"{lbl_dict.get(left, left)} - {lbl_dict.get(right, right)}"
+            _s["mw_stat"] = _mw.statistic
+            _s["mw_p"] = _mw.pvalue
+            _s["mw_H"] = "$H_0$ (same)" if _s["mw_p"] > 0.05 else "$H_1$ (different)"
+            _s["ks_stat"] = _ks.statistic
+            _s["ks_p"] = _ks.pvalue
+            _s["ks_H"] = "$H_0$ (same)" if _s["ks_p"] > 0.05 else "$H_1$ (different)"
+            res.append(_s)
+        df = pd.DataFrame.from_records(res, index="pair")
+        df.update(df[["mw_stat", "mw_p", "ks_stat", "ks_p"]].applymap("{:.6e}".format))
+        df = df.reset_index()
+
+        if path is not None:
+            df.to_csv(path)
+
+        if ax is None:
+            return df
+        else:
+            ax.set_title("Test for similarity of distribution")
+            ax.axis("off")
+            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+            tbl.scale(1, 2)
+            ax.get_figure().tight_layout()
+            return df, ax
+
+    def plot_descriptive_comparison(
+        self,
+        data: pd.DataFrame,
+        lbl_dict: dict,
+        run_map: RunMap,
+        out_name: str,
+        stat_col_combination: List[Tuple[Any, Any]] | None = None,
+        pdf_file=None,
+        palette=None,
+        value_axes_label: str = "value",
+    ):
+        """Save mulitple descriptive plots and statisitcs based on given data.
+        DataFrame must be in the long format with a single index.
+        """
+
+        if pdf_file is None:
+            with run_map.pdf_page(out_name) as pdf:
+                self.plot_descriptive_comparison(
+                    data,
+                    lbl_dict,
+                    run_map,
+                    out_name,
+                    stat_col_combination,
+                    pdf,
+                    palette,
+                )
+        else:
+
+            if data.shape[1] <= 3:
+                f, (stat_ax, descr_ax) = plt.subplots(2, 1, figsize=(16, 9))
+                f = [f]
+            else:
+                f_1, stat_ax = _Plot.check_ax()
+                f_2, descr_ax = _Plot.check_ax()
+                f = [f_1, f_2]
+
+            self.calculate_equality_tests(
+                data,
+                combination=stat_col_combination,
+                lbl_dict=lbl_dict,
+                ax=stat_ax,
+                path=run_map.path(out_name.replace(".pdf", "_stats.csv")),
+            )
+
+            descr_ax.set_title("Summary Statistics")
+            df = data.describe().applymap("{:.6f}".format).reset_index()
+            df.to_csv(run_map.path(out_name.replace(".pdf", "_summary.csv")))
+            descr_ax.axis("off")
+            tbl = descr_ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+            tbl.scale(1, 2)
+
+            for _f in f:
+                _f.tight_layout()
+                pdf_file.savefig(_f)
+                plt.close(_f)
+
+            # Line plot
+            f, ax = _Plot.check_ax()
+            sns.lineplot(data=data, ax=ax, palette=palette)
+            ax.set_title(f"Time Series")
+            ax.set_xlabel("time in seconds")
+            ax.set_ylabel(value_axes_label)
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf_file.savefig(f)
+            plt.close(f)
+
+            # ECDF plot
+            f, ax = _Plot.check_ax()
+            sns.ecdfplot(data, ax=ax, palette=palette)
+            ax.set_title(f"ECDF pedestrian count")
+            ax.set_xlabel(value_axes_label)
+            ax.get_legend().set_title(None)
+            sns.move_legend(ax, "upper left")
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf_file.savefig(f)
+            plt.close(f)
+
+            # Hist plot
+            f, ax = _Plot.check_ax()
+            sns.histplot(
+                data,
+                cumulative=False,
+                common_norm=False,
+                stat="percent",
+                element="step",
+                ax=ax,
+                palette=palette,
+            )
+            ax.set_title(f"Histogram of pedestrian count")
+            ax.set_xlabel(value_axes_label)
+            ax.get_legend().set_title(None)
+            sns.move_legend(ax, "upper left")
+            _Plot.rename_legend(ax, rename=lbl_dict)
+            pdf_file.savefig(f)
+            plt.close(f)
+
+            if data.shape[1] <= 3:
+                f, (box, violin) = plt.subplots(1, 2, figsize=(16, 9))
+                f = [f]
+            else:
+                f_box, box = _Plot.check_ax()
+                f_violin, violin = _Plot.check_ax()
+                f = [f_box, f_violin]
+
+            # Box plot
+            sns.boxplot(data=data, ax=box, palette=palette)
+            box.set_title(f"Boxplot of pedestrian count")
+            box.set_xlabel("Data")
+            box.set_ylabel(value_axes_label)
+
+            # Violin plot
+            sns.violinplot(data=data, ax=violin, palette=palette)
+            violin.set_title(f"Violin of pedestrian count")
+            violin.set_xlabel("Data")
+            violin.set_ylabel(value_axes_label)
+            for _f in f:
+                pdf_file.savefig(_f)
+                plt.close(_f)
 
 
 OppAnalysis = _OppAnalysis()

@@ -113,7 +113,11 @@ class Scenario:
         else:
             raise ValueError("Expected POLYGON or RECTANGLE")
         if to_shapely:
-            return Polygon(points)
+            if all(points[0] == points[-1]):
+                return Polygon(points)
+            else:
+                return Polygon(np.append(points, points[0]).reshape((-1, 2)))
+
         else:
             return points
 
@@ -175,16 +179,36 @@ class VaderScenarioPlotHelper:
     def add_obstacles(self, ax: plt.Axes):
         return self.add_patches(ax, {"obstacles": "#B3B3B3"})
 
-    def add_patches(self, ax: plt.Axes, element_type_map: dict = None):
+    def add_patches(self, ax: plt.Axes, element_type_map: dict = None, bound=None):
 
         if element_type_map is None:
             element_type_map = self.default_colors
 
+        if bound is not None:
+            x, y, w, h = bound
+            bound: Polygon = Polygon(
+                [(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)]
+            )
+
         for element, color in element_type_map.items():
             elements = self.scenario.topography[element]
-            polygons = [self.scenario.shape_to_list(e["shape"]) for e in elements]
+            polygons = [
+                self.scenario.shape_to_list(e["shape"], to_shapely=True)
+                for e in elements
+            ]
             for poly in polygons:
-                patch = patches.Polygon(poly, facecolor=color, fill=True, closed=True)
+                if bound is not None:
+                    if poly.intersects(bound):
+                        poly = poly.intersection(bound)
+                # poly is closed patches does not have to close it,
+                patch = patches.Polygon(
+                    list(poly.exterior.coords),
+                    edgecolor=color,
+                    facecolor=color,
+                    fill=True,
+                    closed=False,
+                )
+
                 ax.add_patch(patch)
 
         return ax

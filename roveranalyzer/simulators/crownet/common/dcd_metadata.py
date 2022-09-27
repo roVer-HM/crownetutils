@@ -69,6 +69,12 @@ class DcdMetaData:
     def is_node(self):
         return self.node_id not in ["global", "all"]
 
+    def mgrid(self):
+        return np.mgrid[
+            slice(0, self.bound[0] + self.cell_size, self.cell_size),
+            slice(0, self.bound[1] + self.cell_size, self.cell_size),
+        ]
+
     def is_all(self):
         return self.node_id == "all"
 
@@ -97,7 +103,7 @@ class DcdMetaData:
             _df = _df.to_crs(epsg=crs.replace("EPSG:", ""))
         return _df
 
-    def grid_index_2d(self, real_coords=False):
+    def grid_index_2d(self, real_coords=False) -> pd.MultiIndex:
         """
         crate full (cartesian) index based on map dimension.
         If real_coords is set use lower left corner of cell as value

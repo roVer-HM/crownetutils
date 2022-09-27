@@ -1,12 +1,12 @@
 import argparse
 from typing import Dict
 
-from roveranalyzer.analysis.common import Simulation, SuqcRun
+from roveranalyzer.analysis.common import Simulation, SuqcStudy
 from roveranalyzer.analysis.flaskapp.application import init_app
 
 
 def run_app_ns(ns: argparse.Namespace):
-    run = SuqcRun(ns.suqc_dir)
+    run = SuqcStudy(ns.suqc_dir)
     if ns.run_filter is not None:
         if ns.run_filter[0] == "!":
             _f = lambda x: ns.run_filter not in x
