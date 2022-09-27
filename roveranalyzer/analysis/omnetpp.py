@@ -831,6 +831,7 @@ class _OppAnalysis(AnalysisBase):
         self,
         sim_group: SimulationGroup,
         cell_count: int,
+        cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.Series:
         """Collect cell mean squared error for each seed repetition in given Parameter_Variation.
@@ -847,8 +848,21 @@ class _OppAnalysis(AnalysisBase):
         """
         df = []
         print(f"execut group: {sim_group.group_name}")
+        if (
+            isinstance(cell_slice, pd.MultiIndex)
+            and cell_count > 0
+            and cell_count != cell_slice.shape[0]
+        ):
+            raise ValueError(
+                "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
+            )
+        else:
+            cell_count = cell_slice.shape[0]
+
         for rep, sim in sim_group.simulation_iter():
-            _df = sim.get_dcdMap().cell_count_measure(columns=["cell_mse"])
+            _df = sim.get_dcdMap().cell_count_measure(
+                columns=["cell_mse"], xy_slice=cell_slice
+            )
             _df = _df.groupby(by=["simtime"]).sum() / cell_count
             _df.columns = [rep]
             _df.columns.name = "run_id"
@@ -866,6 +880,7 @@ class _OppAnalysis(AnalysisBase):
         run_map: RunMap,
         hdf_path: str,
         cell_count: int,
+        cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
         pool_size: int = 20,
     ) -> pd.DataFrame:
         """Collect cell mean squared error for *all* ParameterVariations present in given RunMap.
@@ -888,7 +903,7 @@ class _OppAnalysis(AnalysisBase):
             data: List[(pd.DataFrame, dict)] = run_kwargs_map(
                 self.collect_cell_mse_for_parameter_variation,
                 [
-                    dict(sim_group=v, cell_count=cell_count)
+                    dict(sim_group=v, cell_count=cell_count, cell_slice=cell_slice)
                     for v in run_map.get_simulation_group()
                 ],
                 pool_size=pool_size,

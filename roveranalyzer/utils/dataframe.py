@@ -55,13 +55,18 @@ def siunitx(cmd="num", precision: int = 4, *args, **kwargs) -> Callable[[Any], s
     return partial(siunitx_format, cmd=cmd, options=options)
 
 
-def format_frame(df: pd.DataFrame, si_func=lambda x: f"\\num{{{x}}}") -> pd.DataFrame:
+def format_frame(
+    df: pd.DataFrame, si_func=lambda x: f"\\num{{{x}}}", col_list=None
+) -> pd.DataFrame:
 
     _df: pd.DataFrame = df.copy(deep=True)
     if isinstance(si_func, dict):
         for col, _func in si_func.items():
             if col in _df.columns:
                 _df[col] = _df[col].apply(_func)
+    elif col_list is not None:
+        for col in col_list:
+            _df[col] = _df[col].apply(si_func)
     else:
         _df = _df.applymap(si_func)
 
@@ -70,19 +75,22 @@ def format_frame(df: pd.DataFrame, si_func=lambda x: f"\\num{{{x}}}") -> pd.Data
 
 def save_as_tex_table(
     df: pd.DataFrame,
-    path: str,
-    selected_only: bool = True,
+    path: str | None = None,
+    selected_only: bool = False,
     rename: dict | None = None,
-    col_format: dict | None = None,
+    col_format: dict | List | None = None,
     str_replace: Callable[[str], str] = lambda x: x,
 ):
 
     _df: pd.DataFrame = df.copy(deep=True)
     if rename is not None:
         _df = _df.rename(columns=rename)
-    if selected_only:
-        _df = _df.loc[:, col_format.keys()]
-    _df = _df.reset_index()
+    if selected_only and col_format is not None:
+        if isinstance(col_format, dict):
+            _df = _df[col_format.keys()]
+        else:
+            c = [col[0] for col in col_format]
+            _df = _df[c]
 
     # Use styler api to format the table environment.
     s: Styler = _df.style
@@ -91,8 +99,14 @@ def save_as_tex_table(
     s.format(escape="latex")
     # add specific formatter
     if col_format is not None:
-        for col, func in col_format.items():
-            s = s.format(formatter=func, subset=col, escape="latex")
+        if isinstance(col_format, dict):
+            for col, func in col_format.items():
+                s = s.format(formatter=func, subset=col, escape="latex")
+        elif isinstance(col_format, list):
+            for col, func in col_format:
+                s = s.format(formatter=func, subset=col, escape="latex")
+        else:
+            s = s.format(formatter=col_format, subset=df.columns, escape="latex")
 
     s = s.format_index(escape="latex", axis=1)
     s.set_table_styles(
@@ -105,8 +119,11 @@ def save_as_tex_table(
     )
     s = s.hide(axis="index")
 
-    with open(path, "w") as fd:
-        fd.write(str_replace(s.to_latex(column_format="c" * _df.shape[1])))
+    if path is None:
+        return str_replace(s.to_latex(column_format="c" * _df.shape[1]))
+    else:
+        with open(path, "w") as fd:
+            fd.write(str_replace(s.to_latex(column_format="c" * _df.shape[1])))
 
 
 class LazyDataFrame(object):
@@ -189,3 +206,18 @@ class LazyDataFrame(object):
             else:
                 TypeError(f"Expected list or dict got {type(column_names)}")
         return df
+
+
+def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.DataFrame:
+    # save old index to recreate later
+    idx_old = df.index.names
+    # drop parts that do not match partial index
+    idx_drop = [i for i in df.index.names if i not in partial_idx.names]
+    df = df.reset_index(idx_drop)
+    if df.index.names != partial_idx.names:
+        raise ValueError("Index mismatch")
+    # select items and recreated index
+    idx = partial_idx.intersection(df.index)
+    df = df.loc[idx]
+    df = df.reset_index().set_index(idx_old)
+    return df

@@ -5,6 +5,7 @@ import os
 import random
 from contextlib import contextmanager
 from functools import wraps
+from tkinter import N
 from typing import Any, ContextManager, List, Union
 
 import matplotlib
@@ -14,6 +15,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm, to_rgba_array
+from shapely.geometry import Polygon
 
 import roveranalyzer.utils.logging as _log
 
@@ -29,10 +32,10 @@ def matplotlib_set_latex_param():
     matplotlib.rcParams.update(
         {
             "font.family": "serif",
-            "font.size": 18,
+            # "font.size": 18,
             "axes.labelsize": 20,
             "axes.titlesize": 22,
-            "legend.fontsize": 22,
+            "legend.fontsize": 18,
             "figure.titlesize": 24,
             "pgf.preamble": "\n".join(
                 [  # plots will use this preamble
@@ -53,6 +56,17 @@ def matplotlib_set_latex_param():
     )
     matplotlib.rc("text.latex", preamble=p)
     matplotlib.rcParams["text.usetex"] = True
+
+
+def paper_rc(tick_labelsize="xx-large", **kw):
+    rc = {
+        "axes.titlesize": "xx-large",
+        "xtick.labelsize": tick_labelsize,
+        "ytick.labelsize": tick_labelsize,
+        "legend.fontsize": "xx-large",
+    }
+    rc.update(**kw)
+    return rc
 
 
 def remove_seaborn_legend_title(ax: plt.Axes):
@@ -122,6 +136,18 @@ class _PlotUtil:
     def __init__(self) -> None:
         random.Random(13).shuffle(self.plot_color_markers)
         random.Random(13).shuffle(self.plot_color_lines)
+
+    def contour_two_slope_colors(
+        self, norm: TwoSlopeNorm, n_colors, c_map="coolwarm", mid_white: bool = False
+    ):
+        lvl = plt.MaxNLocator(nbins=n_colors)
+        levels = lvl.tick_values(norm.vmin, norm.vmax)
+        colors = plt.get_cmap(c_map)(norm(levels))
+
+        if mid_white:
+            colors[(levels == 0.0).argmax()] = [1.0, 1.0, 1.0, 1.0]
+            # colors[(levels==.0).argmax()-1] = [1., 1., 1., 1.]
+        return levels, colors
 
     def color_marker_lines(self, line_type="--"):
         return [f"{m}{line_type}" for m in self.plot_color_markers]
@@ -213,6 +239,38 @@ class _PlotUtil:
                 return method(self, *method_args, **method_kwargs)
 
         return _plot_decorator
+
+    def cell_to_tex(
+        self, polygons: List[Polygon] | pd.MultiIndex, c=5.0, fd=None, attr=None, **kwds
+    ):
+        ret = ""
+        if attr is None:
+            attr = ""
+        else:
+            attr = ", ".join(attr)
+        attr += ", ".join([f"{k}={v}" for k, v in kwds.items()])
+
+        if isinstance(polygons, pd.MultiIndex):
+            polygons = [
+                Polygon([[x, y], [x + c, y], [x + c, y + c], [x, y + c], [x, y]])
+                for x, y in polygons
+            ]
+
+        for cell_id, p in enumerate(polygons):
+            coords = list(p.exterior.coords)
+            ret += f"% {cell_id} Cell {coords[0][0]}{coords[0][1]}\n"
+            ret += f"\draw[{attr}] "
+            for i, (_x, _y) in enumerate(coords):
+                if i == (len(coords) - 1):
+                    ret += f"({_x}, {_y});"
+                else:
+                    ret += f"({_x}, {_y}) to "
+            ret += "\n"
+        if fd is None:
+            return ret
+        else:
+            with open(fd, "w", encoding="utf-8") as f:
+                f.write(ret)
 
 
 PlotUtil = _PlotUtil()

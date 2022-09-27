@@ -15,6 +15,7 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
+import roveranalyzer.utils.dataframe as FrameUtl
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
@@ -801,6 +802,7 @@ class DcdMap2D(DcdMap):
         self,
         load_cached_version: bool = True,
         index_slice: slice | Tuple(slice) = slice(None),
+        xy_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
         columns: slice | List[str] = slice(None),
     ) -> pd.DataFrame:
         """create cell based error measures over time to indicate **positional correctness**
@@ -853,7 +855,13 @@ class DcdMap2D(DcdMap):
 
         _i = pd.IndexSlice
         # total number of nodes at each time
-        glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+        if isinstance(xy_slice, pd.MultiIndex):
+            glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+            glb = FrameUtl.partial_index_match(glb, xy_slice)
+        else:
+            glb = self.count_p[
+                _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
+            ]  # only ground truth
         glb = glb.droplevel("ID")
         glb.columns = ["glb_count"]
         glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count) aka. M
@@ -862,9 +870,15 @@ class DcdMap2D(DcdMap):
         # all (time, x, y, id) based count, err, squerr cell values
         # without ground truth (see slice last slice `1:`)
         # The measurements are summed over all nodes (this will drop the id index )
-        nodes: pd.DataFrame = self.count_p[
-            _i[:, :, :, 1:], _i["count", "err", "sqerr"]
-        ]  # all but ground truth
+        if isinstance(xy_slice, pd.MultiIndex):
+            nodes: pd.DataFrame = self.count_p[
+                _i[:, :, :, 1:], _i["count", "err", "sqerr"]
+            ]  # all but ground truth
+            nodes = FrameUtl.partial_index_match(nodes, xy_slice)
+        else:
+            nodes: pd.DataFrame = self.count_p[
+                _i[:, xy_slice[0], xy_slice[1], 1:], _i["count", "err", "sqerr"]
+            ]  # all but ground truth
         nodes["abserr"] = np.abs(nodes["err"])
 
         # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]

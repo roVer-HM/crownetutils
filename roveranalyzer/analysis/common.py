@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import json
 import os
 import re
@@ -107,6 +108,93 @@ class RunMapCreateFunction(Protocol):
         ...
 
 
+class SimGroupAppendStrategy(enum.Enum):
+    APPEND = 1
+    DENY_APPEND = 2
+    DROP_OLD = 3
+    DROP_NEW = 4
+    DENY_NEW = 5
+
+
+class SimulationGroup:
+    """A named group of Simulation objects.
+
+    The grouped simulation have some similar property, mostly they are the of the
+    parameter variation but with different seeds. The Simulation object do not have to
+    be from the same SuqcRun. If Simulation objects from different runs are combined the
+    user must ensure that there are no id overlaps. Use the id_offset in the Simulation object.
+    See RunMap   and SuqcRun.update_run_map for details.
+    """
+
+    def __init__(
+        self, group_name: str, data: List[Simulation], attr: dict | None = None, **kwds
+    ) -> None:
+        self.group_name: str = group_name
+        self.simulations: List[Simulation] = data
+        self.attr: dict = {} if attr is None else attr
+
+    @property
+    def lbl(self):
+        """Alias for self.group_name"""
+        return self.label
+
+    @property
+    def reps(self):
+        """Alias for self.ids()"""
+        return self.ids()
+
+    @property
+    def label(self):
+        """Label of default to self.group_name if not set"""
+        if "lbl" in self.attr:
+            return self.attr["lbl"]
+        else:
+            return self.group_name
+
+    @label.setter
+    def label(self, val):
+        self.attr["lbl"] = val
+
+    def extend(self, sim_group: SimulationGroup):
+        if self.group_name != sim_group.group_name:
+            raise ValueError(
+                f"cannot extend SimulationGroup with different names {self.group_name}!={sim_group.group_name}"
+            )
+        id_set = [*self.ids(), *sim_group.ids()]
+        if len(id_set) != len(set(id_set)):
+            raise ValueError(f"duplicated simulation ids in group found. {id_set}")
+        self.simulations.extend(sim_group.simulations)
+
+    def ids(self) -> List[int]:
+        return [sim.global_id() for sim in self.simulations]
+
+    def seeds(self) -> list[int]:
+        return [sim.run_context.opp_seed for sim in self.simulations]
+
+    def simulation_iter(self, enum: bool = False) -> Iterator[Tuple[int, Simulation]]:
+        for idx, sim in enumerate(self.simulations):
+            if enum:
+                yield (idx, sim.global_id(), sim)
+            else:
+                yield (sim.global_id(), sim)
+
+    def __getitem__(self, key) -> Simulation:
+        return self.simulations[key]
+
+    def __iter__(self) -> Iterator[Simulation]:
+        return iter(self.simulations)
+
+    def __len__(self):
+        return len(self.simulations)
+
+
+class SimGroupFilter(Protocol):
+    """Callable which takes a """
+
+    def __call__(self, sim_group: SimulationGroup) -> bool:
+        ...
+
+
 class RunMap(dict):
     """Dictionary like class with label:str -> SimulationGroup
 
@@ -145,6 +233,14 @@ class RunMap(dict):
         """Check if path relative to RunMap output_dir exists."""
         return os.path.exists(self.path(*args))
 
+    def any(self, func: SimGroupFilter) -> SimulationGroup:
+        for g in self.values():
+            if func(g):
+                return g
+
+    def all(self, func: SimGroupFilter) -> List[SimulationGroup]:
+        return [g for g in self.values() if func(g)]
+
     @contextmanager
     def pdf_page(
         self, *args, keep_empty: bool = True, metadata=None
@@ -168,11 +264,29 @@ class RunMap(dict):
     ):
         return [v for v in self.get_simulation_group() if filter_f(v.group_name)]
 
-    def append_or_add(self, sim_group: SimulationGroup):
+    def append_or_add(
+        self,
+        sim_group: SimulationGroup,
+        strategy: SimGroupAppendStrategy = SimGroupAppendStrategy.APPEND,
+    ):
         if sim_group.group_name in self:
-            self[sim_group.group_name].extend(sim_group)
-            self[sim_group.group_name].attr.update(sim_group.attr)
+            if strategy == SimGroupAppendStrategy.APPEND:
+                self[sim_group.group_name].extend(sim_group)
+                self[sim_group.group_name].attr.update(sim_group.attr)
+            elif strategy == SimGroupAppendStrategy.DROP_OLD:
+                self[sim_group.group_name] = sim_group
+                self[sim_group.group_name].attr = sim_group.attr
+            elif strategy == SimGroupAppendStrategy.DROP_NEW:
+                pass  # do nothing
+            else:
+                raise (
+                    f"Cannot append/override group: {sim_group.group_name} with strategy {strategy.name}"
+                )
         else:
+            if strategy == SimGroupAppendStrategy.DENY_NEW:
+                raise (
+                    f"Cannot add new group {sim_group.group_name} with strategy {strategy.name}"
+                )
             self[sim_group.group_name] = sim_group
 
     @property
@@ -221,7 +335,7 @@ class RunMap(dict):
 
     def attr_df(self):
         """Create DataFrame with group key as index and attributes as columns"""
-        idx = pd.Index(self.keys())
+        idx = pd.Index(self.keys(), name="sim")
         records = [g.attr for g in self.values()]
         _df = pd.DataFrame.from_records(records, index=idx)
         _df = _df.apply(partial(pd.to_numeric, errors="ignore"))
@@ -537,85 +651,6 @@ class Simulation:
             )
         except Exception as e:
             logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
-
-
-class SimGroupFilter(Protocol):
-    """Callable which takes a """
-
-    def __call__(self, sim_group: SimulationGroup) -> bool:
-        ...
-
-
-class SimulationGroup:
-    """A named group of Simulation objects.
-
-    The grouped simulation have some similar property, mostly they are the of the
-    parameter variation but with different seeds. The Simulation object do not have to
-    be from the same SuqcRun. If Simulation objects from different runs are combined the
-    user must ensure that there are no id overlaps. Use the id_offset in the Simulation object.
-    See RunMap   and SuqcRun.update_run_map for details.
-    """
-
-    def __init__(
-        self, group_name: str, data: List[Simulation], attr: dict | None = None, **kwds
-    ) -> None:
-        self.group_name: str = group_name
-        self.simulations: List[Simulation] = data
-        self.attr: dict = {} if attr is None else attr
-
-    @property
-    def lbl(self):
-        """Alias for self.group_name"""
-        return self.label
-
-    @property
-    def reps(self):
-        """Alias for self.ids()"""
-        return self.ids()
-
-    @property
-    def label(self):
-        """Label of default to self.group_name if not set"""
-        if "lbl" in self.attr:
-            return self.attr["lbl"]
-        else:
-            return self.group_name
-
-    @label.setter
-    def label(self, val):
-        self.attr["lbl"] = val
-
-    def extend(self, sim_group: SimulationGroup):
-        if self.group_name != sim_group.group_name:
-            raise ValueError(
-                f"cannot extend SimulationGroup with different names {self.group_name}!={sim_group.group_name}"
-            )
-        id_set = [*self.ids(), *sim_group.ids()]
-        if len(id_set) != len(set(id_set)):
-            raise ValueError(f"duplicated simulation ids in group found. {id_set}")
-        self.simulations.extend(sim_group.simulations)
-
-    def ids(self) -> List[int]:
-        return [sim.global_id() for sim in self.simulations]
-
-    def seeds(self) -> list[int]:
-        return [sim.run_context.opp_seed for sim in self.simulations]
-
-    def simulation_iter(self, enum: bool = False) -> Iterator[Tuple[int, Simulation]]:
-        for idx, sim in enumerate(self.simulations):
-            if enum:
-                yield (idx, sim.global_id(), sim)
-            else:
-                yield (sim.global_id(), sim)
-
-    def __getitem__(self, key) -> Simulation:
-        return self.simulations[key]
-
-    def __iter__(self) -> Iterator[Simulation]:
-        return iter(self.simulations)
-
-    def __len__(self):
-        return len(self.simulations)
 
 
 class SimulationGroupFactory(Protocol):
