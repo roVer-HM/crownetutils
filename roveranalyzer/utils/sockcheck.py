@@ -1,39 +1,53 @@
-import socket
 import time
+import subprocess
 from roveranalyzer.utils import logger
 
 SOCKET_TIMEOUT = 10
 
 
-def check(host: str, port: int, time_to_wait: int = 30, retry_timeout: int = 3) -> bool:
-    test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    test_socket.settimeout(SOCKET_TIMEOUT)
+def check(
+    container: str, port: int, time_to_wait: int = 30, retry_timeout: int = 3
+) -> bool:
 
     start_time = time.time()
     end_time = start_time + time_to_wait
     success = False
 
-    while time.time() < end_time:
+    while time.time() < end_time and not success:
         try:
-            # try to establish a TCP connection
-            test_socket.connect((host, port))
-            success = True
-            break
-        except socket.error as msg:
-            logger.debug(
-                f"Server is NOT available: Connection to {host}:{port} failed ({msg})."
+            # check if a process is listening on the specified port
+            result = subprocess.check_output(
+                [
+                    "docker",
+                    "exec",
+                    container,
+                    "bash",
+                    "-c",
+                    f'cat /proc/net/tcp | grep ":{port:04X} " >/dev/null ; echo $?',
+                ]
             )
-            if time.time() < end_time:
-                logger.debug("Retrying...")
-                time.sleep(retry_timeout)
+            result_str = result.decode("utf-8")
+            if result_str == "0\n":
+                success = True
+            else:
+                logger.debug(
+                    f"Server is NOT available: on container {container} no process is listening on port {port} ({result_str})."
+                )
+        except subprocess.CalledProcessError as e:
+            logger.debug(
+                f"Server is NOT available: Subprocess error for container {container}:{port}: ({e})."
+            )
+        if time.time() < end_time and not success:
+            logger.debug("Retrying...")
+            time.sleep(retry_timeout)
 
     if success:
         logger.debug(
-            f"Server is available: Connection to {host}:{port} can be established."
+            f"Server on container {container} is available: Connection to port {port} can be established."
         )
     else:
         logger.warn(
-            f"Server {host}:{port} is NOT available - retry limit reached - giving up."
+            f"Server on container {container}:{port} is NOT available - retry limit reached - giving up."
         )
 
     return success
