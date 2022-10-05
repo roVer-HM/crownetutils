@@ -571,6 +571,21 @@ class OppSql:
         else:
             return None
 
+    def get_app_config(self):
+        mm = ["misc", "pNode", "vNode"]
+        ret = {}
+        for m in mm:
+            _r = {}
+            num_apps = self.get_run_config(f"*.{m}[*].numApps", full_match=True)
+            if num_apps is not None:
+                num_apps = int(num_apps)
+                for i in range(num_apps):
+                    _r[i] = self.get_run_config(
+                        f"*.{m}[*].app[{i}].typename", full_match=True
+                    )
+                ret[m] = _r
+        return ret
+
     def get_all_run_config(self, run_id=1, order="ASC"):
         df = self.query_sca(
             f"select r.configOrder, r.configKey, r.configValue from runConfig as r where r.runId=={run_id} ORDER By r.configOrder {order}"
@@ -1056,6 +1071,23 @@ class CrownetSql(OppSql):
             vec_data = vec_data.set_index(keys=_idx, verify_integrity=True)
             vec_data = vec_data.sort_index()
         return vec_data
+
+    def get_app_selector(self):
+        ret = {}
+        cfg = self.get_app_config()
+        for key, value in cfg.items():
+            for app_num, app_type in value.items():
+                if "map" in app_type.lower():
+                    if app_num == 1:
+                        ret["map"] = self.m_app1()
+                    else:
+                        ret["map"] = self.m_app0()
+                elif "beacon" in app_type.lower():
+                    if app_num == 1:
+                        ret["beacon"] = self.m_app1()
+                    else:
+                        ret["beacon"] = self.m_app0()
+        return ret
 
     # some default module selectors based on the vector database
 
