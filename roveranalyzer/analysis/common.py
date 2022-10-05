@@ -36,6 +36,7 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp as OMNeT
+from roveranalyzer.analysis.base import AnalysisBase
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.crownet.runner import read_config_file
@@ -43,60 +44,6 @@ from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvid
 from roveranalyzer.utils import Project, logger
 from roveranalyzer.utils.misc import apply_str_filter
 from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
-
-
-class AnalysisBase:
-    @classmethod
-    def builder_from_output_folder(
-        cls,
-        data_root: str,
-        hdf_file="data.h5",
-        vec_name="vars_rep_0.vec",
-        sca_name="vars_rep_0.sca",
-        network_name="World",
-        epsg_base=Project.UTM_32N,
-    ) -> Tuple[str, Dcd.DcdHdfBuilder, OMNeT.CrownetSql]:
-        # todo: try catch here?
-        builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
-
-        sql = OMNeT.CrownetSql(
-            vec_path=f"{data_root}/{vec_name}",
-            sca_path=f"{data_root}/{sca_name}",
-            network=network_name,
-        )
-        return data_root, builder, sql
-
-    @classmethod
-    def builder_from_suqc_output(
-        cls,
-        data_root: str,
-        out,
-        parameter_id,
-        run_id=0,
-        hdf_file="data.h5",
-        vec_name="vars_rep_0.vec",
-        sca_name="vars_rep_0.sca",
-        network_name="World",
-        epsg_base=Project.UTM_32N,
-    ) -> Tuple[str, Dcd.DcdHdfBuilder, OMNeT.CrownetSql]:
-
-        data_root = join(
-            data_root, "simulation_runs/outputs", f"Sample_{parameter_id}_{run_id}", out
-        )
-        print(data_root)
-        builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
-
-        sql = OMNeT.CrownetSql(
-            vec_path=f"{data_root}/{vec_name}",
-            sca_path=f"{data_root}/{sca_name}",
-            network=network_name,
-        )
-        return data_root, builder, sql
-
-    @staticmethod
-    def find_selection_method(builder: Dcd.DcdHdfBuilder):
-        p = builder.build().map_p
-        return p.get_attribute("used_selection")
 
 
 class RunMapCreateFunction(Protocol):
@@ -550,6 +497,17 @@ class Simulation:
                 # o.run_context = RunContext.from_path(runcontext)
                 return o
         raise ValueError("data_root not an suq-controller output directory")
+
+    @classmethod
+    def from_output_dir(cls, data_root, **kwds):
+        data_root, builder, sql = AnalysisBase.builder_from_output_folder(
+            data_root, **kwds
+        )
+        lbl = os.path.basename(data_root)
+        c = cls(data_root, lbl, run_context=None, id_offset=0)
+        c._builder = builder
+        c._sql = sql
+        return c
 
     def __init__(self, data_root, label, run_context: RunContext, id_offset: int = 0):
         self.label = label

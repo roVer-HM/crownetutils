@@ -19,13 +19,8 @@ from scipy.stats import kstest, mannwhitneyu
 import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
-from roveranalyzer.analysis.common import (
-    AnalysisBase,
-    RunMap,
-    Simulation,
-    SimulationGroup,
-    SuqcStudy,
-)
+from roveranalyzer.analysis.base import AnalysisBase
+from roveranalyzer.analysis.common import RunMap, Simulation, SimulationGroup
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
