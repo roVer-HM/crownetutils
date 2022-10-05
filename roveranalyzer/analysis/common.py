@@ -136,7 +136,7 @@ class SimulationGroup:
 
 
 class SimGroupFilter(Protocol):
-    """Callable which takes a """
+    """Callable which takes a"""
 
     def __call__(self, sim_group: SimulationGroup) -> bool:
         ...
@@ -164,7 +164,7 @@ class RunMap(dict):
         *args,
         **kwargs,
     ) -> RunMap:
-        """Load from filesystem if RunMap json exists, otherwise use provided factory function """
+        """Load from filesystem if RunMap json exists, otherwise use provided factory function"""
         if load_if_present and os.path.exists(os.path.join(output_path, file_name)):
             return RunMap.load_from_json(os.path.join(output_path, file_name))
 
