@@ -51,6 +51,7 @@ def build_position_df(glb_df):
         node_id=glb_loc_df["node_id"].str.split(r",\s*")
     ).explode("node_id")
     glb_loc_df["node_id"] = pd.to_numeric(glb_loc_df["node_id"], downcast="integer")
+    glb_loc_df = glb_loc_df.dropna()
     # remove node_id column from global
     glb_df = glb_df.drop(labels=["node_id"], axis="columns")
     return glb_loc_df, glb_df
