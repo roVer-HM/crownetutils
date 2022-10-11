@@ -40,6 +40,35 @@ class FrameConsumer(Protocol):
         pass
 
 
+class MissingValueImputationStrategy(Protocol):
+    """Imputation strategy to fill or remove missing values from a frame. Note that in case of removing the whole
+    row will be removed."""
+
+    def __call__(
+        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
+    ) -> pd.DataFrame:
+        ...
+
+
+class ArbitraryValueImputation(MissingValueImputationStrategy):
+    def __init__(self, fill_value=0.0) -> None:
+        self.fill_value = fill_value
+
+    def __call__(
+        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
+    ) -> pd.DataFrame:
+        df[data_column] = df[data_column].fillna(self.fill_value)
+        return df
+
+
+class DeleteMissingImputation(MissingValueImputationStrategy):
+    def __call__(
+        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
+    ) -> pd.DataFrame:
+        mask = ~df[data_column].isna()
+        return df[mask].copy()
+
+
 def siunitx_format(val, cmd, options=None):
     if options is None:
         return f"\{cmd}{{{val}}}"
