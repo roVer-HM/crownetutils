@@ -34,6 +34,7 @@ class DcdMetaData:
             node_id,
             map_type=meta.get("MAP_TYPE", ""),
             version=meta.get("VERSION", "0.1"),
+            data_type=meta.get("DATATYPE", "pedestrianCount"),
         )
         if all([k in meta for k in ["XOFFSET", "YOFFSET"]]):
             _meta.offset = [float(meta["XOFFSET"]), float(meta["YOFFSET"])]
@@ -51,6 +52,7 @@ class DcdMetaData:
         map_extend_y=[0, 0],
         map_type="",
         version="0.1",
+        data_type="pedestrianCount",
     ):
         self.cell_size = cell_size
         self.cell_count = cell_count
@@ -62,6 +64,7 @@ class DcdMetaData:
         self.map_extend_y = map_extend_y
         self.map_type = map_type
         self.version = ProviderVersion(version)
+        self.data_type = data_type
 
     def is_global(self):
         return self.node_id == "global" or self.node_id == -1

@@ -4,6 +4,7 @@ from os.path import join
 from typing import Tuple
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
+from roveranalyzer.simulators.crownet.dcd.dcd_map import MapType
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.utils.general import Project
 
@@ -22,11 +23,15 @@ class AnalysisBase:
         # todo: try catch here?
         builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
 
-        sql = CrownetSql(
+        sql: CrownetSql = CrownetSql(
             vec_path=f"{data_root}/{vec_name}",
             sca_path=f"{data_root}/{sca_name}",
             network=network_name,
         )
+        if sql.is_entropy_map:
+            builder.set_map_type(MapType.ENTROPY)
+        else:
+            builder.set_map_type(MapType.DENSITY)
         return data_root, builder, sql
 
     @classmethod
@@ -54,6 +59,10 @@ class AnalysisBase:
             sca_path=f"{data_root}/{sca_name}",
             network=network_name,
         )
+        if sql.is_entropy_map:
+            builder.set_map_type(MapType.ENTROPY)
+        else:
+            builder.set_map_type(MapType.DENSITY)
         return data_root, builder, sql
 
     @staticmethod

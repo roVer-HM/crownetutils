@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import copy
 import glob
 import json
 import multiprocessing
 import os
 import pickle
+from functools import partial
 from typing import Union
 
 import numpy as np
@@ -14,7 +14,11 @@ from pandas import IndexSlice as Idx
 
 import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
 from roveranalyzer.simulators.crownet.common import DcdMetaData
-from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D, DcdMap2DMulti
+from roveranalyzer.simulators.crownet.dcd.dcd_map import (
+    DcdMap2D,
+    DcdMap2DMulti,
+    MapType,
+)
 from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
     DcdGlobalDensity,
     DcdGlobalPosition,
@@ -22,9 +26,14 @@ from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
 )
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils import logging
-from roveranalyzer.utils.dataframe import FrameConsumer
+from roveranalyzer.utils.dataframe import (
+    ArbitraryValueImputation,
+    FrameConsumer,
+    MissingValueImputationStrategy,
+)
 
 
 def _hdf_job(args):
@@ -80,7 +89,6 @@ class DcdProviders:
 
 
 class DcdHdfBuilder(FrameConsumer):
-
     F_selected_only = DcdUtil.remove_not_selected_cells
 
     def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -135,15 +143,18 @@ class DcdHdfBuilder(FrameConsumer):
         self.hdf_path = hdf_path
         self.map_paths = map_paths
         self.global_path = global_path
-        self._epsg = epsg
-        self._only_selected_cells = True
         # providers
         self.count_p = DcdMapCount(self.hdf_path)
         self.map_p = DcdMapProvider(self.hdf_path)
         self.position_p = DcdGlobalPosition(self.hdf_path)
         self.global_p = DcdGlobalDensity(self.hdf_path)
+        # options:
         # filters used during csv processing
         self.single_df_filters = []
+        self._only_selected_cells = True
+        self._epsg = epsg
+        self._imputation_function = ArbitraryValueImputation(0.0)
+        self._map_type: MapType = MapType.DENSITY
 
         # set later on
         self.global_df = None
@@ -157,6 +168,16 @@ class DcdHdfBuilder(FrameConsumer):
     def only_selected_cells(self, val=True):
         self._only_selected_cells = val
         return self
+
+    def set_imputation_strategy(self, s: MissingValueImputationStrategy):
+        self._imputation_function = s
+
+    def set_map_type(self, t: MapType):
+        self._map_type = t
+
+    @property
+    def map_type(self) -> MapType:
+        return self._map_type
 
     def build(
         self,
@@ -182,7 +203,9 @@ class DcdHdfBuilder(FrameConsumer):
             bound=self.position_p.get_attribute("cell_bound"),
             offset=self.position_p.get_attribute("offset"),
             epsg=self.position_p.get_attribute("epsg"),
-            version=self.position_p.get_attribute("version"),
+            version=self.position_p.get_attribute(
+                "version", default=ProviderVersion.current()
+            ),
             node_id=0,
         )
         return DcdProviders(
@@ -267,9 +290,12 @@ class DcdHdfBuilder(FrameConsumer):
             .sort_values()
             .to_numpy()
         )
+        # add self as frame_consumer to build count_map iteratively
         self.map_p.create_from_csv(
             self.map_paths,
-            [self],
+            frame_consumer=[
+                partial(self.create_count_map, imputation_f=self._imputation_function)
+            ],
             global_position=self.position_df,
             global_metadata=meta,
         )
@@ -292,6 +318,7 @@ class DcdHdfBuilder(FrameConsumer):
             p.set_attribute("offset", meta.offset)
             p.set_attribute("epsg", self._epsg)
             p.set_attribute("version", meta.version)
+            p.set_attribute("data_type", meta.data_type)
             p.set_attribute(
                 "time_interval", [np.min(self._all_times), np.max(self._all_times)]
             )
@@ -348,7 +375,11 @@ class DcdHdfBuilder(FrameConsumer):
             "count": self.count_p,
         }
 
-    def create_count_map(self, df: pd.DataFrame):
+    def create_count_map(
+        self,
+        df: pd.DataFrame,
+        imputation_f: MissingValueImputationStrategy = ArbitraryValueImputation(),
+    ):
         """
         Creates dataframe of the form:
           index: [simtime, x, y, ID]
@@ -382,8 +413,19 @@ class DcdHdfBuilder(FrameConsumer):
         # the global map does not have any values -> thus count=0
         _df = pd.concat([self.global_df, _df], axis=1)
         _df.columns = ["glb_count", "count", "x_owner", "y_owner"]
-        # _df["glb_count"] = _df["glb_count"].fillna(0)
-        _df = _df.fillna(0)
+        # add marker column for which data imputation is used.
+        missing_value_idx = _df[_df["count"].isna().values].index
+        _df["missing_value"] = False
+        _df.loc[missing_value_idx, ["missing_value"]] = True
+        # use arbitrary value imputation with value=0
+        # For the default scenario (counting pedestrians via beacons) a count of
+        # zero (i.e. value=0) is a reasonable assumption because in the case of
+        # perfect reception and zero package loss no information from a given cell
+        # translates to no pedestrian in this cell, thus a count of zero. For other
+        # measurements this assumption is not automatically right and other imputation
+        # methods or deletion might be better.
+        _df = imputation_f(_df, "count")
+        # _df = _df.fillna(0)
 
         # remove times where node is not part of simulation
         _df = _df.loc[Idx[present_at_times, :, :], :]
@@ -414,6 +456,7 @@ class DcdHdfBuilder(FrameConsumer):
         _df["err"] = 0.0
         _df["sqerr"] = 0.0
         _df["owner_dist"] = 0.0
+        _df["missing_value"] = False
         _df = _df.set_index(["ID"], drop=True, append=True)
         self.append_to_provider(self.count_p, _df)
 
