@@ -1089,6 +1089,13 @@ class CrownetSql(OppSql):
                         ret["beacon"] = self.m_app0()
         return ret
 
+    def is_entropy_map(self):
+        cfg = self.get_run_config("*.globalDensityMap.typename", full_match=True)
+        return "entropy" in cfg.lower()
+
+    def is_count_map(self):
+        return not self.is_entropy_map()
+
     # some default module selectors based on the vector database
 
     def m_channel(self, modules: List[str] | None = None) -> SqlOp:
