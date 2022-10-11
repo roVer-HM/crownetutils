@@ -58,8 +58,8 @@ def build_position_df(glb_df):
 
 
 class DcdGlobalPosition(IHdfProvider):
-    def __init__(self, hdf_path):
-        super().__init__(hdf_path)
+    def __init__(self, hdf_path, version: str | None = None):
+        super().__init__(hdf_path, version)
 
     def group_key(self) -> str:
         return HdfGroups.DCD_GLOBAL_POS
@@ -133,8 +133,8 @@ class DcdGlobalPosition(IHdfProvider):
 
 
 class DcdGlobalDensity(IHdfProvider):
-    def __init__(self, hdf_path):
-        super().__init__(hdf_path)
+    def __init__(self, hdf_path, version: str | None = None):
+        super().__init__(hdf_path, version)
 
     def group_key(self) -> str:
         return HdfGroups.DCD_GLOBAL_DENSITY

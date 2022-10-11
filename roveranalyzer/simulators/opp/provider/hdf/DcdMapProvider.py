@@ -16,6 +16,7 @@ from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
     IHdfProvider,
     ProviderVersion,
+    VersionDict,
 )
 from roveranalyzer.utils.dataframe import FrameConsumer, LazyDataFrame
 from roveranalyzer.utils.logging import logger
@@ -48,43 +49,47 @@ class DcdMapKey:
     UPDATE_AGE = "update_age"
     SELECTION_RANK = "selectionRank"
 
-    types_csv_index = {
-        ProviderVersion.V0_1: {
-            SIMTIME: float,
-            X: float,
-            Y: float,
-            SOURCE: int,
-            # node id is added later
-        },
-        ProviderVersion.V0_2: {
-            SIMTIME: float,
-            X: float,
-            Y: float,
-            SOURCE: int,
-            # node id is added later
-        },
-    }
+    types_csv_index = VersionDict(
+        {
+            ProviderVersion.V0_1: {
+                SIMTIME: float,
+                X: float,
+                Y: float,
+                SOURCE: int,
+                # node id is added later
+            },
+            ProviderVersion.V0_2: {
+                SIMTIME: float,
+                X: float,
+                Y: float,
+                SOURCE: int,
+                # node id is added later
+            },
+        }
+    )
 
-    types_csv_columns = {
-        ProviderVersion.V0_1: {
-            COUNT: float,
-            MEASURE_TIME: float,
-            RECEIVED_TIME: float,
-            SELECTION: str,
-            OWN_CELL: int,
-        },
-        ProviderVersion.V0_2: {
-            COUNT: float,
-            MEASURE_TIME: float,
-            RECEIVED_TIME: float,
-            SELECTION: str,
-            OWN_CELL: int,
-            SOURCE_HOST: float,
-            SOURCE_ENTRY: float,
-            HOST_ENTRY: float,
-            SELECTION_RANK: float,
-        },
-    }
+    types_csv_columns = VersionDict(
+        {
+            ProviderVersion.V0_1: {
+                COUNT: float,
+                MEASURE_TIME: float,
+                RECEIVED_TIME: float,
+                SELECTION: str,
+                OWN_CELL: int,
+            },
+            ProviderVersion.V0_2: {
+                COUNT: float,
+                MEASURE_TIME: float,
+                RECEIVED_TIME: float,
+                SELECTION: str,
+                OWN_CELL: int,
+                SOURCE_HOST: float,
+                SOURCE_ENTRY: float,
+                HOST_ENTRY: float,
+                SELECTION_RANK: float,
+            },
+        }
+    )
 
     types_features = {
         X_OWNER: float,

@@ -182,10 +182,53 @@ class ProviderVersion(Enum):
 
     V0_1 = "0.1"
     V0_2 = "0.2"
+    V0_3 = "0.3"
 
     @classmethod
     def current(cls):
         return list(cls.__members__.values())[-1]
+
+    @classmethod
+    def to_list(cls, ascending: bool = True):
+        if ascending:
+            return list(cls.__members__.values())
+        else:
+            return list(cls.__members__.values())[::-1]
+
+
+class VersionDict:
+    """Provide a simple versioned dictionary with a fallback to 'highest'
+    previous version when the currently select version is not part of the
+    dictionary. Reasoning. If other parts of the HDF module changes which
+    needs a new version (i.e. new columns) other parts do not need to be
+    updated.
+    """
+
+    def __init__(self, data, **kwds) -> None:
+        self.data = data
+        for k, v in kwds.items():
+            self.data[self.parse_key(k)] = v
+
+    def current(self):
+        return self.data[ProviderVersion.current]
+
+    def parse_key(self, key):
+        key = ProviderVersion.current if key is None else key
+        if isinstance(key, ProviderVersion):
+            if key not in self.data:
+                for _biggest_key in ProviderVersion.to_list(ascending=False):
+                    if _biggest_key in self.data:
+                        return _biggest_key
+                raise KeyError(f"did not found matching key data for key {key}")
+            else:
+                return key
+        print("foo")
+
+    def __getitem__(self, key):
+        return self.data[self.parse_key(key)]
+
+    def __setitem__(self, key, value):
+        raise RuntimeError("ProviderBaseDict is read only")
 
 
 class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
@@ -199,18 +242,6 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         # self._hdf_path: str = hdf_path
         # self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
         # self.group: str = self.group_key()
-        self.idx_order: Dict = self.index_order()
-        self._dispatcher = {
-            int: self._handle_primitive,
-            float: self._handle_primitive,
-            str: self._handle_primitive,
-            list: self._handle_list,
-            slice: self._handle_slice,
-            tuple: self._handle_tuple,
-            Operation: self._handle_operation,
-        }
-        self._filters = set()
-        self.operators = Operation
         if version is None:
             # use version of provided hdf-file or default to current  version.
             self._version = self.get_attribute(
@@ -225,6 +256,18 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
                 )
             self._version = version
         logger.debug(f"HDF version: {self.version}")
+        self.idx_order: Dict = self.index_order()
+        self._dispatcher = {
+            int: self._handle_primitive,
+            float: self._handle_primitive,
+            str: self._handle_primitive,
+            list: self._handle_list,
+            slice: self._handle_slice,
+            tuple: self._handle_tuple,
+            Operation: self._handle_operation,
+        }
+        self._filters = set()
+        self.operators = Operation
 
     @property
     def version(self):

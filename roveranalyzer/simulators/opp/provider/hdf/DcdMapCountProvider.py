@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from distutils.version import Version
 from typing import Dict, List, Union
 
 import geopandas as gpd
@@ -5,7 +8,11 @@ import pandas as pd
 from shapely.geometry import box
 
 from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
+    IHdfProvider,
+    ProviderVersion,
+    VersionDict,
+)
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
 
 
@@ -18,30 +25,44 @@ class CountMapKey:
     ERR = "err"
     OWNER_DIST = "owner_dist"
     SQERR = "sqerr"
+    MISSING_VAL = "missing_value"
+
+    columns = VersionDict(
+        {
+            ProviderVersion.V0_1: [
+                COUNT,
+                ERR,
+                OWNER_DIST,
+                SQERR,
+            ],
+            ProviderVersion.V0_3: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL],
+        }
+    )
+
+    index_order = VersionDict(
+        {
+            ProviderVersion.V0_1: {
+                0: SIMTIME,
+                1: X,
+                2: Y,
+                3: ID,
+            }
+        }
+    )
 
 
 class DcdMapCount(IHdfProvider):
-    def __init__(self, hdf_path):
-        super().__init__(hdf_path)
+    def __init__(self, hdf_path, version: str | None = None):
+        super().__init__(hdf_path, version)
 
     def group_key(self) -> str:
         return HdfGroups.COUNT_MAP
 
     def index_order(self) -> Dict:
-        return {
-            0: CountMapKey.SIMTIME,
-            1: CountMapKey.X,
-            2: CountMapKey.Y,
-            3: CountMapKey.ID,
-        }
+        return CountMapKey.index_order[self.version]
 
     def columns(self) -> List[str]:
-        return [
-            CountMapKey.COUNT,
-            CountMapKey.ERR,
-            CountMapKey.OWNER_DIST,
-            CountMapKey.SQERR,
-        ]
+        return CountMapKey.columns[self.version]
 
     def default_index_key(self) -> str:
         return CountMapKey.SIMTIME
