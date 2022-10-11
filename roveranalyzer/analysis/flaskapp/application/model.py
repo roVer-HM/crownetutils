@@ -62,7 +62,11 @@ def get_host_ids(sim: Simulation):
 @threaded_lru(maxsize=64)
 @timing
 def get_topography_json(sim: Simulation):
-    name = split(sim.sql.vadere_scenario)[-1]
+    _s = sim.sql.vadere_scenario
+    if _s is None:
+        print("no Vadere scenario file found.")
+        return {}
+    name = split(_s)[-1]
     s = Scenario(join(sim.data_root, f"vadere.d/{name}"))
     df = s.topography_frame(to_crs=Project.WSG84_lat_lon)
     return json.loads(df.reset_index().to_json())
@@ -144,6 +148,9 @@ def get_cell_error_data(sim: Simulation, cell_id):
             where=f"(x == {float(_cell[0])}) & (y == {float(_cell[1])})",
         )
     ca = ca.reset_index(["x", "y"]).sort_index()
+
+    if sim.sql.is_entropy_map():
+        ca = ca[~ca["missing_value"]]
 
     # only ground truth for given cell
     ca_0 = ca.loc[i[:, 0], :]
