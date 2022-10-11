@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+from roveranalyzer.utils import dataframe
+
 sns.set(font_scale=1.0, rc={"text.usetex": True})
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
@@ -263,6 +265,50 @@ class _OppAnalysis(AnalysisBase):
         )
         return df
 
+    def plot_hist_enb_served_rb(self, data: pd.DataFrame, bins=25, enb=0):
+        ax: plt.Axes
+        fig, ax = _Plot.check_ax()
+        data = data["value"]
+        d = 1
+        left_of_first_bin = 0 - float(d) / 2
+        right_of_last_bin = bins + float(d) / 2
+        ax.hist(
+            data, np.arange(left_of_first_bin, right_of_last_bin + d, d), align="mid"
+        )
+        ax.set_xlim(-1, bins + 1)
+        ax.set_xticks(np.arange(0, bins + 1, 1))
+        ax.set_title(f"Resource block utilization of eNB {enb}")
+        ax.set_xlabel("Resource Blocks (RB's)")
+        ax.set_ylabel("Count")
+        return fig, ax
+
+    def plot_ecdf_enb_served_rb(self, data, bins=25, enb=0):
+        _x = data["value"].sort_values().values
+        _y = np.arange(len(_x)) / float(len(_x))
+        fig, ax = _Plot.check_ax()
+        ax.plot(_x, _y)
+        ax.set_title("ECDF of resource block utilization of eNB {enb}")
+        ax.set_xlabel("Resource Blocks (RB's)")
+        ax.set_ylabel("ECDF")
+        ax.set_xlim(-1, bins + 1)
+        ax.set_xticks(np.arange(0, bins + 1, 1))
+        return fig, ax
+
+    def plot_ts_enb_served_rb(self, data: pd.DataFrame, bins=25, enb=0):
+        interval = pd.interval_range(start=0.0, end=np.ceil(data.index.max()), freq=1.0)
+        data = data.groupby(pd.cut(data.index, interval)).mean()
+        data.index = interval.left
+        data.index.name = "time"
+        data = data.reset_index()
+        fig, ax = _Plot.check_ax()
+        ax.plot("time", "value", data=data)
+        ax.set_title("Average Resource Block (RB) usage over time. (time bin size 1s)")
+        ax.set_xlabel("time in [s]")
+        ax.set_ylabel("Resource blocks")
+        # ax.set_ylim(0, bins+1)
+        # ax.set_yticks(np.arange(0, bins+1, 1))
+        return fig, ax
+
     @timing
     def get_received_packet_delay(
         self,
@@ -453,7 +499,7 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     @timing
-    def create_common_plots(
+    def create_common_plots_density(
         self,
         data_root: str,
         builder: Dcd.DcdHdfBuilder,
@@ -469,6 +515,24 @@ class _OppAnalysis(AnalysisBase):
             intervals = [slice(time * i, time * i + time) for i in range(4)]
             for _slice in intervals:
                 dmap.plot_error_histogram(time_slice=_slice, savefig=pdf)
+
+    @timing
+    def create_common_plots_all(
+        self,
+        data_root: str,
+        builder: Dcd.DcdHdfBuilder,
+        sql: Scave.CrownetSql,
+    ):
+        num_enb = int(sql.get_run_config("*.numEnb"))
+        bins = int(sql.get_run_config("**.numBands"))
+        for n in range(num_enb):
+            data = self.get_avgServedBlocksUl(sql, enb_index=n)
+            fig, _ = self.plot_ts_enb_served_rb(data, bins, n)
+            fig.savefig(os.path.join(data_root, f"rb_utilization_ts_{n}.pdf"))
+            fig, _ = self.plot_hist_enb_served_rb(data, bins, n)
+            fig.savefig(os.path.join(data_root, f"rb_utilization_hist_{n}.pdf"))
+            fig, _ = self.plot_ecdf_enb_served_rb(data, bins, n)
+            fig.savefig(os.path.join(data_root, f"rb_utilization_ecdf_{n}.pdf"))
 
     @timing
     def append_count_diff_to_hdf(
@@ -490,21 +554,33 @@ class _OppAnalysis(AnalysisBase):
         sim: Simulation,
     ):
         map = sim.get_dcdMap()
-        group = "map_measure"
-        _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-        if _hdf.contains_group(group):
-            print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
-        else:
-            map_measure = map.map_count_measure()
-            _hdf.write_frame(group=group, frame=map_measure)
+        if sim.sql.is_count_map():
+            group = "map_measure"
+            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+            if _hdf.contains_group(group):
+                print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
+            else:
+                map_measure = map.map_count_measure(load_cached_version=False)
+                _hdf.write_frame(group=group, frame=map_measure)
 
-        group = "cell_measure"
-        _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-        if _hdf.contains_group(group):
-            print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
+        if sim.sql.is_entropy_map():
+            # use cell_value_measure method
+            group = "cell_measures"
+            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+            if _hdf.contains_group(group):
+                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
+            else:
+                cell_measure = map.cell_value_measure(load_cached_version=False)
+                _hdf.write_frame(group=group, frame=cell_measure)
         else:
-            cell_measure = map.cell_count_measure()
-            _hdf.write_frame(group=group, frame=cell_measure)
+            # use cell_count_measure method
+            group = "cell_measures"
+            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+            if _hdf.contains_group(group):
+                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
+            else:
+                cell_measure = map.cell_count_measure(load_cached_version=False)
+                _hdf.write_frame(group=group, frame=cell_measure)
 
     @timing
     def get_data_001(self, sim: Simulation):
@@ -822,6 +898,79 @@ class _OppAnalysis(AnalysisBase):
         df = frame_consumer(df)
         return df
 
+    def sg_get_packet_loss(
+        self,
+        sim_group: SimulationGroup,
+        app_name: str = "map",
+        hdf_path: str = "packet_loss.h5",
+        consumer: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.DataFrame:
+        """packet loss over time over all nodes in a single application. Losses are
+        binned over time in one second intervals [[0., 1) .... [N-1, N)]
+
+        Args:
+            sim_group (SimulationGroup): _description_
+            app_name (str, optional): _description_. Defaults to "map".
+            hdf_path (str, optional): _description_. Defaults to "packet_loss.h5".
+            consumer (FrameConsumer, optional): _description_. Defaults to FrameConsumer.EMPTY.
+
+        Returns:
+            pd.DataFrame: (time, rep)[lost, lost_cumsum, lost_relative]
+        """
+        df = []
+        for rep, sim in sim_group.simulation_iter():
+            hdf_store = BaseHdfProvider(os.path.join(sim.data_root, hdf_path))
+            if not hdf_store.hdf_file_exists:
+                logger.warn("no hdf file found build new one")
+                # todo raise?
+            raw: pd.DataFrame = hdf_store.get_dataframe(f"pkt_loss_raw_{app_name}")
+            # sort lost count by time only
+            raw = (
+                raw["lost"]
+                .fillna(0.0)
+                .reset_index("time")
+                .reset_index(drop=True)
+                .set_index("time")
+                .sort_index()
+            )
+            interval = pd.interval_range(
+                start=0.0, end=np.ceil(raw.index.max()), freq=1.0, closed="left"
+            )
+            raw = (
+                raw.groupby(pd.cut(raw.index, bins=interval))
+                .sum()
+                .reset_index(drop=True)
+            )
+            raw.index = interval.left
+            raw.index.name = "time"
+            raw["lost_cumsum"] = raw["lost"].cumsum()
+            raw["lost_relative"] = raw["lost_cumsum"] / raw["lost_cumsum"].max()
+            raw.columns = pd.MultiIndex.from_tuples(
+                [(rep, c) for c in raw.columns], names=["rep", "data"]
+            )
+            df.append(raw)
+        df = pd.concat(df, axis=1).stack(["rep"])
+        return consumer(df)
+
+    def run_get_packet_loss(
+        self,
+        run_map: RunMap,
+        app_name: str = "map",
+        consumer: FrameConsumer = FrameConsumer.EMPTY,
+        pool_size: int = 10,
+    ) -> pd.DataFrame:
+        data: List[(pd.DataFrame, dict)] = run_kwargs_map(
+            self.sg_get_packet_loss,
+            [
+                dict(sim_group=v, app_name=app_name, consumer=consumer)
+                for v in run_map.get_simulation_group()
+            ],
+            pool_size=pool_size,
+        )
+        data: pd.DataFrame = pd.concat(data, axis=0, verify_integrity=True)
+        data = data.sort_index()
+        return data
+
     def collect_cell_mse_for_parameter_variation(
         self,
         sim_group: SimulationGroup,
@@ -848,17 +997,31 @@ class _OppAnalysis(AnalysisBase):
             and cell_count > 0
             and cell_count != cell_slice.shape[0]
         ):
-            raise ValueError(
-                "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
-            )
-        else:
-            cell_count = cell_slice.shape[0]
+            if cell_count > 0 and cell_count != cell_slice.shape[0]:
+                raise ValueError(
+                    "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
+                )
+            else:
+                cell_count = cell_slice.shape[0]
 
         for rep, sim in sim_group.simulation_iter():
-            _df = sim.get_dcdMap().cell_count_measure(
-                columns=["cell_mse"], xy_slice=cell_slice
-            )
-            _df = _df.groupby(by=["simtime"]).sum() / cell_count
+            if sim.sql.is_count_map():
+                # handle based on density map counts
+                # missing values are set to a count of zero, assuming we do not count any
+                # nodes in these cells.
+                _df = sim.get_dcdMap().cell_count_measure(
+                    columns=["cell_mse"], xy_slice=cell_slice
+                )
+                _df = _df.groupby(by=["simtime"]).sum() / cell_count
+            else:
+                # any other kind of value (produced by the entropy map)
+                # missing values are removed and  not set to a reasonable estimate.
+                _df = sim.get_dcdMap().cell_value_measure(
+                    columns=["cell_mse"], xy_slice=cell_slice
+                )
+                _df = _df.groupby(
+                    by=["simtime"]
+                ).mean()  # mean of cell mean squared errror over all cels (i.e. MSME)
             _df.columns = [rep]
             _df.columns.name = "run_id"
             print(f"add: {sim_group.group_name}_{sim.run_context.opp_seed}")
