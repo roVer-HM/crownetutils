@@ -10,12 +10,14 @@ from typing import Any, ContextManager, List, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm, to_rgba_array
+from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
+from mpl_toolkits import axes_grid1
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from shapely.geometry import Polygon
 
 import roveranalyzer.utils.logging as _log
@@ -58,15 +60,55 @@ def matplotlib_set_latex_param():
     matplotlib.rcParams["text.usetex"] = True
 
 
-def paper_rc(tick_labelsize="xx-large", **kw):
-    rc = {
+def plt_rc_same(rc: None | dict = None, size="xx-large"):
+    _rc = {
+        "axes.titlesize": size,
+        "axes.labelsize": size,
+        "xtick.labelsize": size,
+        "ytick.labelsize": size,
+        "legend.fontsize": size,
+        "figure.titlesize": size,
+    }
+    if rc is None:
+        rc = _rc
+    else:
+        rc.update(**_rc)
+    return rc
+
+
+def paper_rc(tick_labelsize="xx-large", rc=None, **kw):
+    _rc = {
         "axes.titlesize": "xx-large",
         "xtick.labelsize": tick_labelsize,
         "ytick.labelsize": tick_labelsize,
         "legend.fontsize": "xx-large",
     }
-    rc.update(**kw)
+    if rc is None:
+        rc = _rc
+        rc.update(**kw)
+    else:
+        rc.update(**_rc)
+        rc.update(**kw)
     return rc
+
+
+def mult_locator(axis, major, minor=None):
+    axis.set_major_locator(MultipleLocator(major))
+    axis.set_minor_locator(MultipleLocator(minor))
+    _which = "major" if minor is None else "both"
+    _axis = axis.axis_name
+    axis.axes.grid(True, _which, _axis)
+
+
+def add_colorbar(im, aspect=20, pad_fraction=0.5, **kwargs):
+    """Add a vertical color bar to an image plot."""
+    divider = axes_grid1.make_axes_locatable(im.axes)
+    width = axes_grid1.axes_size.AxesY(im.axes, aspect=1.0 / aspect)
+    pad = axes_grid1.axes_size.Fraction(pad_fraction, width)
+    current_ax = plt.gca()
+    cax = divider.append_axes("right", size=width, pad=pad)
+    plt.sca(current_ax)
+    return im.axes.figure.colorbar(im, cax=cax, **kwargs)
 
 
 def remove_seaborn_legend_title(ax: plt.Axes):
@@ -81,6 +123,29 @@ def rename_legend(ax: plt.Axes, rename: dict | None = None, **kwargs) -> plt.Axe
         if t.get_text() in rename:
             t.set_text(rename[t.get_text()])
     return ax
+
+
+def tight_ax_grid(nrows, ncols, **kwds):
+    kwds.setdefault("sharey", "all")
+    kwds.setdefault("sharex", "all")
+    fig, axes = plt.subplots(nrows, ncols, **kwds)
+    for r in range(nrows):
+        for c in range(ncols):
+            ax = axes[r][c]
+            if r % nrows == 0 and c % ncols == 0:
+                # bottom left all axis
+                pass
+            elif r % nrows == 0:
+                # left only y axis
+                pass
+            elif c % ncols == 0:
+                # bootom only x axis
+                pass
+            else:
+                # center axis nothing
+                # ax.set_xticklabels([])
+                pass
+    return fig, axes
 
 
 class Style:
