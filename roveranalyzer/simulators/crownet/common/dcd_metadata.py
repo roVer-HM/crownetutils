@@ -138,6 +138,25 @@ class DcdMetaData:
             ]
         return pd.MultiIndex.from_product(_idx, names=("simtime", "x", "y"))
 
+    def create_min_grid_index(
+        self, map_idx: pd.MultiIndex, difference_only: bool = True
+    ):
+        x_min = map_idx.get_level_values("x").min()
+        x_max = map_idx.get_level_values("x").max()
+        y_min = map_idx.get_level_values("y").min()
+        y_max = map_idx.get_level_values("y").max()
+        _idx = pd.MultiIndex.from_product(
+            [
+                np.arange(x_min, x_max + self.cell_size, self.cell_size),
+                np.arange(y_min, y_max + self.cell_size, self.cell_size),
+            ],
+            names=map_idx.names,
+        )
+        if difference_only:
+            return _idx.difference(map_idx)
+        else:
+            return _idx
+
     def empty_df(self, value_name, real_coords=True):
         """
         Crate an empty dataframe containing all cells of the map.

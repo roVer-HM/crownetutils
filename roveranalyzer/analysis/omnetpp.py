@@ -3,13 +3,15 @@ from __future__ import annotations
 import itertools
 import os
 from os.path import join
-from typing import IO, Any, List, Protocol, TextIO, Tuple
+from typing import IO, Any, Dict, List, Protocol, TextIO, Tuple
+from xmlrpc.client import ProtocolError
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from pandas import IndexSlice as _i
 
 from roveranalyzer.utils import dataframe
 
@@ -32,6 +34,19 @@ from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
 
 PlotUtil = _Plot.PlotUtil
+
+
+def make_run_series(
+    df: pd.DataFrame, run_id: int, lvl_name: str = "rep", stack_index=None
+) -> pd.Series:
+    df.columns = pd.MultiIndex.from_tuples(
+        [(run_id, c) for c in df.columns], names=[lvl_name, "data"]
+    )
+    if stack_index is None:
+        df = df.stack([lvl_name, "data"])
+    else:
+        df = df.stack(stack_index)
+    return df
 
 
 class _hdf_Extractor(AnalysisBase):
@@ -1139,7 +1154,6 @@ class _OppAnalysis(AnalysisBase):
                     palette,
                 )
         else:
-
             if data.shape[1] <= 3:
                 f, (stat_ax, descr_ax) = plt.subplots(2, 1, figsize=(16, 9))
                 f = [f]
@@ -1172,7 +1186,7 @@ class _OppAnalysis(AnalysisBase):
             f, ax = _Plot.check_ax()
             sns.lineplot(data=data, ax=ax, palette=palette)
             ax.set_title(f"Time Series")
-            ax.set_xlabel("time in seconds")
+            ax.set_xlabel("Time in seconds")
             ax.set_ylabel(value_axes_label)
             _Plot.rename_legend(ax, rename=lbl_dict)
             pdf_file.savefig(f)
@@ -1232,5 +1246,360 @@ class _OppAnalysis(AnalysisBase):
                 plt.close(_f)
 
 
+class CellOccupancyInfo:
+    """Cell occupation (by time) for cells and the whole map."""
+
+    def __init__(self, data: dict) -> None:
+        if not all([k in self._keys for k in data.keys()]):
+            raise ValueError(f"expceted keys: {self._keys}")
+        self.data = data
+
+    def __iter__(self):
+        return iter(self.data)
+
+    @property
+    def occup_sim_by_cell(self) -> pd.Series:
+        return self.data["occup_sim_by_cell"]
+
+    @property
+    def occup_sim_by_cell_grid(self) -> pd.Series:
+        return self.data["occup_sim_by_cell_grid"]
+
+    @property
+    def occup_sim_describe(self) -> pd.Series:
+        return self.data["occup_sim_describe"]
+
+    @property
+    def occup_interval_by_cell(self) -> pd.Series:
+        return self.data["occup_interval_by_cell"]
+
+    @property
+    def occup_interval_describe(self) -> pd.Series:
+        return self.data["occup_interval_describe"]
+
+    @property
+    def _keys(self):
+        return [
+            "occup_sim_by_cell",
+            "occup_sim_by_cell_grid",
+            "occup_sim_describe",
+            "occup_interval_by_cell",
+            "occup_interval_describe",
+        ]
+
+
+class _CellOccupancy:
+    def sim_create_cell_value_knowledge_ratio(
+        self, sim: Simulation, frame_c: FrameConsumer = FrameConsumer.EMPTY
+    ):
+        """Callcualte the ratio of agents which have knowledge about a cell measruement at
+        each given time, either by sensing or by receiving the measruement value. A ratio a_c
+        close to 1 means that most of the agents in the simulaiton have acces to that cell.
+
+        Args:
+            sim (Simulation): _description_
+
+        Raises:
+            ValueError: (simtime, x, y)[present_count, missing_count, count, a_c]
+        """
+        c = sim.get_dcdMap().count_p[_i[:, :, :, 1:], ["missing_value"]]
+        c_count = c.groupby(["simtime", "x", "y"]).count().set_axis(["count"], axis=1)
+        c["count"] = 1
+        c_known_ration = (
+            c.groupby(["simtime", "x", "y", "missing_value"])
+            .count()
+            .unstack(["missing_value"])
+            .fillna(0.0)  # no missing or all missing
+            .droplevel(0, axis=1)
+            .rename(columns={False: "present_count", True: "missing_count"})
+        )
+        c_known_ration = pd.concat(
+            [c_known_ration, c_count], axis=1, verify_integrity=True
+        )
+        if c_known_ration.isnull().any(1).any():
+            raise ValueError("NAN found. should not be")
+        c_known_ration["a_c"] = (
+            c_known_ration["present_count"] / c_known_ration["count"]
+        )
+        print(c_known_ration.shape)
+        return frame_c(c_known_ration)
+
+    def sg_create_cell_knwoledge_ratio(
+        self, sim_group: SimulationGroup, frame_c: FrameConsumer = FrameConsumer.EMPTY
+    ):
+        df = []
+        for glb_id, sim in sim_group.simulation_iter():
+            print(f"cell knowledge_ratio: {sim_group.group_name}-{glb_id}")
+            _df = self.sim_create_cell_value_knowledge_ratio(sim, frame_c)
+            _df = make_run_series(_df, glb_id, lvl_name="rep", stack_index=["rep"])
+            df.append(_df)
+        df = pd.concat(df, axis=0)
+        return df
+
+    @timing
+    def run_create_cell_knowledge_ratio(
+        self,
+        run_map: RunMap,
+        hdf_path: str,
+        hdf_key: str = "knowledge_ratio",
+        pool_size: int = 20,
+        frame_c: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.DataFrame:
+        if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
+            logger.info("found H5-file. Read from file")
+            df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
+        else:
+            logger.info(
+                "file not found creat from scratch with pool size {}", pool_size
+            )
+            df = run_kwargs_map(
+                self.sg_create_cell_knwoledge_ratio,
+                [dict(sim_group=g, frame_c=frame_c) for g in run_map.values()],
+                pool_size=pool_size,
+            )
+            df = pd.concat(df, axis=0)
+
+            if hdf_path is not None:
+                logger.info("Save data to file {}", hdf_path)
+                df.to_hdf(run_map.path(hdf_path), mode="a", key=hdf_key, format="table")
+        return df.to_frame() if isinstance(df, pd.Series) else df
+
+    def sim_create_cell_occupation_info(
+        self,
+        sim: Simulation,
+        interval_bin_size: float = 100.0,
+        frame_c: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> CellOccupancyInfo:
+        """Creates occupation statistics on how long and when a cell is occupied by at
+        least one agent. This does not mean that the agent did any measurments in this
+        cell. It only tracks occupation over time.
+
+        Args:
+            sim (Simulation):
+
+        Returns:
+            CellOccupancyInfo:
+        """
+        time_index = sim.get_dcdMap().count_p[_i[:, :, :, 0], ["count"]]
+        time_index = pd.Index(
+            time_index.index.get_level_values("simtime").unique().sort_values(),
+            name="simtime",
+        )
+        other = time_index.to_frame().reset_index(drop=True)
+        d = sim.get_dcdMap().position_df.reset_index().set_index(["simtime", "x", "y"])
+        d = d.groupby(d.index.names).count().reset_index(["simtime"])
+        _df = []
+        for g, df in d.groupby(["x", "y"]):
+            # index (x, y, simtime). With number of nodes in the cell (x, y) at t.
+            # note that simtime will not contain all time steps if ther is no agent in
+            # that cell at this time
+            _d = df.reset_index().set_index(["x", "y", "simtime"]).copy()
+            _d.columns = ["cell_occupied"]
+            # prepair index of missing cell/time idenices which are not part of _d
+            other["x"] = g[0]
+            other["y"] = g[1]
+            other = other[["x", "y", "simtime"]]
+            idx = pd.MultiIndex.from_frame(other, names=["x", "y", "simtime"])
+            idx = idx.difference(_d.index)
+            # append missing cell/time indecies with cell_occupied value of 0.0
+            _d = pd.concat(
+                [_d, pd.DataFrame(0, columns=["cell_occupied"], index=idx)],
+                axis=0,
+                verify_integrity=False,
+            ).sort_index()
+            # make cell_occupied value to boolean column
+            _d["cell_occupied"] = _d["cell_occupied"] >= 1
+            # append time diff column to get the 'interval' length of the cell_occupied flag
+            # assume something for the first value. Will be removed anyway..
+            _time_diff = (
+                _d.index.get_level_values("simtime")
+                .to_frame()
+                .diff()
+                .fillna(1.0)
+                .values
+            )
+            _d["occupation_time_delta"] = _time_diff
+            _df.append(_d)
+            # move time diff one row up and add new value at the end
+            # todo empty_time not used (append to df.loc will not work )
+            # _diff = (df["simtime"].diff().fillna(0.0) - 1).values[1:]
+            # _diff = np.append(_diff, 0.)
+
+            # df.loc[g, ["empty_time"]] = _diff
+        _df = pd.concat(_df, axis=0, verify_integrity=True).sort_index()
+
+        _df = frame_c(_df)
+
+        occup = _df[_df["cell_occupied"]].drop(columns=["cell_occupied"])
+        occup_sim_by_cell = (
+            occup.groupby(["x", "y"]).sum()
+            / _df.index.get_level_values("simtime").max()
+        )
+        occup_sim_describe = occup_sim_by_cell.describe()
+
+        _t = _df.index.get_level_values("simtime").unique()
+        time_interval = pd.interval_range(
+            0.0, _t.max(), freq=interval_bin_size, closed="left"
+        )
+        occup["bins"] = pd.cut(occup.index.get_level_values(-1), time_interval)
+        occup_interval_by_cell = (
+            occup.reset_index()
+            .groupby(["x", "y", "bins"])["occupation_time_delta"]
+            .sum()
+            / interval_bin_size
+        )
+        occup_interval_by_cell = occup_interval_by_cell.to_frame()
+        occup_interval_describe = (
+            occup_interval_by_cell.groupby("bins").describe().droplevel(0, axis=1)
+        )
+
+        idx = sim.get_dcdMap().metadata.create_min_grid_index(
+            occup_sim_by_cell.index, difference_only=True
+        )
+        occup_grid = pd.concat(
+            [
+                occup_sim_by_cell,
+                pd.DataFrame(0.0, columns=["occupation_time_delta"], index=idx),
+            ],
+            axis=0,
+        ).sort_index()
+
+        return CellOccupancyInfo(
+            {
+                "occup_sim_by_cell": occup_sim_by_cell,
+                "occup_sim_by_cell_grid": occup_grid,
+                "occup_sim_describe": occup_sim_describe,
+                "occup_interval_by_cell": occup_interval_by_cell,
+                "occup_interval_describe": occup_interval_describe,
+            }
+        )
+
+    def sg_create_cell_occupation_info(
+        self,
+        sim_group: SimulationGroup,
+        interval_bin_size: float = 100.0,
+        same_mobility_seed: bool = True,
+        frame_c: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> CellOccupancyInfo:
+        """Creates occupation statistics on how long and when a cell is occupied for each simualtion in the given simulation group
+
+        Args:
+            sim_group (SimulationGroup): _description_
+            interval_bin_size (float, optional): _description_. Defaults to 100.0.
+            same_mobility_seed (bool, optional): Only create CellOccupancyInfo for the first simulation as the mobiliy is the same for all. Defaults to True.
+
+        Returns:
+            CellOccupancyInfo: _description_
+        """
+        ret = {
+            "occup_sim_by_cell": [],
+            "occup_sim_by_cell_grid": [],
+            "occup_sim_describe": [],
+            "occup_interval_by_cell": [],
+            "occup_interval_describe": [],
+        }
+
+        if same_mobility_seed:
+            # just run for first seed because all mobility seeds are identical
+            _ret = self.sim_create_cell_occupation_info(
+                sim_group[0], interval_bin_size=interval_bin_size, frame_c=frame_c
+            )
+            for k, df in _ret.data.items():
+                df.columns = pd.MultiIndex.from_tuples(
+                    [(0, c) for c in df.columns], names=["rep", "data"]
+                )
+                s = df.stack(["rep", "data"])
+                _df = ret.get(k, [])
+                _df.append(s)
+                ret[k] = _df
+        else:
+            for glb_id, sim in sim_group.simulation_iter():
+                _ret = self.sim_create_cell_occupation_info(
+                    sim, interval_bin_size=interval_bin_size, frame_c=frame_c
+                )
+
+                for k, df in _ret.data.items():
+                    df.columns = pd.MultiIndex.from_tuples(
+                        [(glb_id, c) for c in df.columns], names=["rep", "data"]
+                    )
+                    s = df.stack(["rep", "data"])
+                    _df = ret.get(k, [])
+                    _df.append(s)
+                    ret[k] = _df
+
+        for k, df in ret.items():
+            df = pd.concat(df, axis=0)
+            ret[k] = df
+
+        return CellOccupancyInfo(ret)
+
+    def plot_cell_occupation_info(self, info: CellOccupancyInfo, fig_path):
+        with plt.rc_context(_Plot.plt_rc_same(size="xx-large")):
+            sub_plt = "12;33;44"
+            fig, axes = plt.subplot_mosaic(sub_plt, figsize=(16, 3 * 9))
+            ahist = axes["1"]
+            agrid = axes["3"]
+            astat = axes["2"]
+            abox = axes["4"]
+            # fig, (ahist, astat, abox) = plt.subplots(3, 1, figsize=(16, 3*9))
+            # info.occup_sim_by_cell
+            ahist.hist(info.occup_sim_by_cell)
+            ahist.set_xlabel("cell occupancy (time) percentage")
+            ahist.set_ylabel("count")
+            ahist.set_title(
+                "Percentage of time a cell is occupied by at least one agent"
+            )
+
+            z = (
+                info.occup_sim_by_cell_grid.loc[_i[:, :, 0, :]]
+                .reset_index("data", drop=True)
+                .unstack("y")
+                .to_numpy()
+                .T
+            )
+            y_min = info.occup_sim_by_cell_grid.index.get_level_values("y").min()
+            y_max = info.occup_sim_by_cell_grid.index.get_level_values("y").max()
+            x_min = info.occup_sim_by_cell_grid.index.get_level_values("x").min()
+            x_max = info.occup_sim_by_cell_grid.index.get_level_values("x").max()
+            extent = (x_min, x_max, y_min, y_max)
+            im = agrid.imshow(z, origin="lower", extent=extent, cmap="Reds")
+            agrid.set_title("Cell occupancy in percentage")
+            agrid.set_ylabel("y in meter")
+            agrid.set_xlabel("x in meter")
+            cb = _Plot.add_colorbar(im, aspect=10, pad_fraction=0.5)
+
+            box = info.occup_interval_by_cell.reset_index()[["bins", 0]].boxplot(
+                column=[0],
+                by=["bins"],
+                rot=90,
+                meanline=True,
+                showmeans=True,
+                widths=0.25,
+                ax=abox,
+            )
+            astat.axis("off")
+            s = info.occup_sim_describe.reset_index().iloc[:, [0, -1]]
+            s.columns = ["stat", "value"]
+            # s = s.T
+            tbl = astat.table(cellText=s.values, colLabels=s.columns, loc="center")
+            tbl.set_fontsize(14)
+            tbl.scale(1, 2)
+            abox.set_xlabel("Simulation time intervals in [s]")
+            abox.set_ylabel("Cell (time) occupation in percentage")
+            abox.set_title(
+                "Interval grouped: Percentage of time a cell is occupied by at least one agent"
+            )
+            _d = info.occup_interval_describe.loc[_i[:, :, "mean"]]
+            abox.plot(
+                np.arange(1, _d.shape[0] + 1, 1),
+                _d,
+                linewidth=2,
+                label="mean occupation",
+            )
+            fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+            fig.savefig(fig_path)
+
+
+CellOccupancy = _CellOccupancy()
 OppAnalysis = _OppAnalysis()
 HdfExtractor = _hdf_Extractor()

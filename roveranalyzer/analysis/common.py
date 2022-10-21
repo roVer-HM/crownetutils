@@ -203,13 +203,25 @@ class RunMap(dict):
         else:
             return self[group].attr.get(key, _default)
 
-    def get_simulation_group(self) -> List[SimulationGroup]:
-        return list(self.values())
+    def get_simulation_group(
+        self, sort_by: None | Callable[[SimulationGroup], Any] = None
+    ) -> List[SimulationGroup]:
+        if sort_by is None:
+            return list(self.values())
+        else:
+            _g = list(self.values())
+            _g.sort(key=sort_by)
+            return _g
 
     def filtered_parameter_variations(
         self, filter_f: Callable[[str], bool] = lambda x: True
     ):
         return [v for v in self.get_simulation_group() if filter_f(v.group_name)]
+
+    def iter(self, filter_f: Callable[[SimulationGroup], bool]):
+        for g_name, g in self.items():
+            if filter_f(g):
+                yield g_name, g
 
     def append_or_add(
         self,
@@ -303,7 +315,7 @@ class RunMap(dict):
             pd.DataFrame: columns: [run_id, label]
         """
         df = []
-        for item in self.items():
+        for idx, item in enumerate(self.items()):
             lbl: str = item[0]
             group: SimulationGroup = item[1]
             if enumerate_run:
@@ -312,8 +324,9 @@ class RunMap(dict):
                     columns=["run_id", "seed", "run_index"],
                 )
             else:
-                _df = pd.DataFrame(group.ids, columns=["run_id"])
+                _df = pd.DataFrame(group.ids(), columns=["run_id"])
             _df["label"] = group.group_name if lbl_f is None else lbl_f(group[0])
+            _df["group_index"] = idx
             df.append(_df)
         df = pd.concat(df)
         df = df.set_index(["run_id"])
@@ -539,6 +552,9 @@ class Simulation:
         return BaseHdfProvider(
             hdf_path=path or join(self.data_root, ""), group=group_name
         )
+
+    def base_hdf(self, group_name) -> BaseHdfProvider:
+        return self.get_base_provider(group_name, join(self.data_root, "data.h5"))
 
     def global_id(self):
         return self.run_context.par_id + self._id_offset
