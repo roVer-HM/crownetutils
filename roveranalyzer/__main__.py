@@ -21,7 +21,8 @@ def parse_arguments():
     dash_parser = sub.add_parser(
         "dash", help="Start Dash/Plotly Server for live analysis", parents=[parent]
     )
-    dash_parser.add_argument("--suqc-dir", required=True, help="Suqc folder")
+    dash_parser.add_argument("--suqc-dir", required=False, help="Suqc folder")
+    dash_parser.add_argument("--run-cfg", required=False, help="Read run json config")
     dash_parser.add_argument(
         "--run-filter",
         "-f",

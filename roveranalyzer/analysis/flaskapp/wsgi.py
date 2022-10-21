@@ -1,23 +1,34 @@
 import argparse
 from typing import Dict
 
-from roveranalyzer.analysis.common import Simulation, SuqcStudy
+from roveranalyzer.analysis.common import RunMap, Simulation, SuqcStudy
 from roveranalyzer.analysis.flaskapp.application import init_app
 
 
 def run_app_ns(ns: argparse.Namespace):
 
+    runs = {}
     try:
-        run = SuqcStudy(ns.suqc_dir)
-        if ns.run_filter is not None:
-            if ns.run_filter[0] == "!":
-                _f = lambda x: ns.run_filter not in x
+        if ns.suqc_dir is not None:
+            run = SuqcStudy(ns.suqc_dir)
+            if ns.run_filter is not None:
+                if ns.run_filter[0] == "!":
+                    _f = lambda x: ns.run_filter not in x
+                else:
+                    _f = lambda x: ns.run_filter in x
+                runs = {
+                    k: v
+                    for k, v in run.get_simulation_dict(lbl_key=True).items()
+                    if _f(k)
+                }
             else:
-                _f = lambda x: ns.run_filter in x
-            runs = {
-                k: v for k, v in run.get_simulation_dict(lbl_key=True).items() if _f(k)
-            }
-    except ValueError:
+                runs = {k: v for k, v in run.get_simulation_dict(lbl_key=True).items()}
+        elif ns.run_cfg is not None:
+            run = RunMap.load_from_json(ns.run_cfg)
+            for sim_g in run.values():
+                for rep, sim in enumerate(sim_g):
+                    runs.setdefault(f"{sim_g.lbl} ({rep})", sim)
+    except Exception as e:
         print(
             f"Cannot read {ns.suqc_dir} as suqc study directory. Try to read single simulation result."
         )
