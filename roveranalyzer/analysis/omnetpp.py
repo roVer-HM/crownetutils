@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import os
+from functools import partial
 from os.path import join
 from typing import IO, Any, Dict, List, Protocol, TextIO, Tuple
 from xmlrpc.client import ProtocolError
@@ -24,11 +25,16 @@ import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.analysis.base import AnalysisBase
-from roveranalyzer.analysis.common import RunMap, Simulation, SimulationGroup
+from roveranalyzer.analysis.common import (
+    RunMap,
+    SimGroupFilter,
+    Simulation,
+    SimulationGroup,
+)
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
-from roveranalyzer.utils.dataframe import FrameConsumer
+from roveranalyzer.utils.dataframe import FrameConsumer, FrameConsumerList
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
@@ -1289,7 +1295,7 @@ class CellOccupancyInfo:
 
 
 class _CellOccupancy:
-    def sim_create_cell_value_knowledge_ratio(
+    def sim_create_cell_knowledge_ratio(
         self, sim: Simulation, frame_c: FrameConsumer = FrameConsumer.EMPTY
     ):
         """Callcualte the ratio of agents which have knowledge about a cell measruement at
@@ -1330,8 +1336,11 @@ class _CellOccupancy:
         df = []
         for glb_id, sim in sim_group.simulation_iter():
             print(f"cell knowledge_ratio: {sim_group.group_name}-{glb_id}")
-            _df = self.sim_create_cell_value_knowledge_ratio(sim, frame_c)
+            _df = self.sim_create_cell_knowledge_ratio(sim, frame_c)
             _df = make_run_series(_df, glb_id, lvl_name="rep", stack_index=["rep"])
+            _df["m_seed"] = sim.run_context.mobility_seed
+            idx = _df.index.names
+            _df = _df.reset_index().set_index([*idx, "m_seed"])
             df.append(_df)
         df = pd.concat(df, axis=0)
         return df
@@ -1343,6 +1352,7 @@ class _CellOccupancy:
         hdf_path: str,
         hdf_key: str = "knowledge_ratio",
         pool_size: int = 20,
+        sim_group_filter: SimGroupFilter = SimGroupFilter.EMPTY,
         frame_c: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
@@ -1352,9 +1362,10 @@ class _CellOccupancy:
             logger.info(
                 "file not found creat from scratch with pool size {}", pool_size
             )
+            sim_groups = [g for g in run_map.values() if sim_group_filter(g)]
             df = run_kwargs_map(
                 self.sg_create_cell_knwoledge_ratio,
-                [dict(sim_group=g, frame_c=frame_c) for g in run_map.values()],
+                [dict(sim_group=g, frame_c=frame_c) for g in sim_groups],
                 pool_size=pool_size,
             )
             df = pd.concat(df, axis=0)

@@ -115,8 +115,13 @@ class SimulationGroup:
     def ids(self) -> List[int]:
         return [sim.global_id() for sim in self.simulations]
 
-    def seeds(self) -> list[int]:
+    def opp_seeds(self) -> list[int]:
+        """Return OMNeT specific seed"""
         return [sim.run_context.opp_seed for sim in self.simulations]
+
+    def mobility_seeds(self) -> list[int]:
+        """Return mobility specific seed"""
+        return [sim.run_context.mobility_seed for sim in self.simulations]
 
     def simulation_iter(self, enum: bool = False) -> Iterator[Tuple[int, Simulation]]:
         for idx, sim in enumerate(self.simulations):
@@ -135,8 +140,15 @@ class SimulationGroup:
         return len(self.simulations)
 
 
+class EmptySimGroupFilter:
+    def __call__(self, sim_group: SimulationGroup) -> bool:
+        return True
+
+
 class SimGroupFilter(Protocol):
     """Callable which takes a"""
+
+    EMPTY = EmptySimGroupFilter()
 
     def __call__(self, sim_group: SimulationGroup) -> bool:
         ...
@@ -300,6 +312,21 @@ class RunMap(dict):
         _df = _df.apply(partial(pd.to_numeric, errors="ignore"))
         return _df
 
+    def get_sim_by_id(self, glb_id) -> Simulation:
+        g: SimulationGroup
+        for g in self.values():
+            for sim in g.simulations:
+                if sim.global_id == glb_id:
+                    return sim
+        raise KeyError(f"No simulation with id {glb_id} found.")
+
+    def get_group_by_sim_id(self, glb_id) -> SimulationGroup:
+        g: SimulationGroup
+        for g in self.values():
+            if glb_id in g.ids():
+                return g
+        raise KeyError(f"No simulation with id {glb_id} found.")
+
     def id_to_label_series(
         self,
         lbl_f: None | Callable[[Simulation], str] = None,
@@ -320,7 +347,7 @@ class RunMap(dict):
             group: SimulationGroup = item[1]
             if enumerate_run:
                 _df = pd.DataFrame(
-                    np.array([group.ids(), group.seeds(), np.arange(len(group))]).T,
+                    np.array([group.ids(), group.opp_seeds(), np.arange(len(group))]).T,
                     columns=["run_id", "seed", "run_index"],
                 )
             else:
@@ -367,6 +394,8 @@ class RunContext:
         self._ns = read_config_file(self._dummy_runner(), self.data)
         self.args: ArgList = ArgList.from_flat_list(self.data["cmd_args"])
         self._opp_seed = None
+        self._m_seed = None
+        self._mobility_type = None
 
     @property
     def cwd(self):
@@ -404,9 +433,55 @@ class RunContext:
 
     @property
     def opp_seed(self) -> int:
+        """Return OMNeT (communication) seed used in simulation"""
         if self._opp_seed is None:
             self._opp_seed = int(self.oppini["seed-set"])
         return self._opp_seed
+
+    @property
+    def mobility_seed(self) -> int:
+        """Return mobility seed used in simulation. This might be equal to
+        the opp_seed if OMNeT internal mobility patters are used. In case of
+        Vadere or trace based mobility the seed might differ."""
+        if self._m_seed is None:
+            _t = self.mobility_type
+            if _t == "bonnMotion":
+                return self._m_seed
+            elif _t == "opp":
+                return self._m_seed
+            else:
+                raise NotImplementedError("Not implemented for Vadere")
+        return self._m_seed
+
+    @property
+    def mobility_type(self) -> str:
+        if self._mobility_type is None:
+            # check bonnMotion
+            try:
+                seed = self.ini_get(
+                    "*.bonnMotionServer.traceFile",
+                    regex=r".*_(\d+)\.bonnMotion",
+                    apply=int,
+                )
+                self._mobility_type = "bonnMotion"
+                if self._m_seed is None:
+                    self._m_seed = seed
+                return self._mobility_type
+            except:
+                pass
+            # check vadere
+            try:
+                v = self.ini_get("**.vadereScenarioPath")
+                self._mobility_type = "vadere"
+                return self._mobility_type
+            except:
+                pass
+            # assume omnet
+            self._mobility_type = "opp"
+            if self._m_seed is None:
+                self._m_seed = self.opp_seed
+
+        return self._mobility_type
 
     @property
     def par_id(self) -> int:
