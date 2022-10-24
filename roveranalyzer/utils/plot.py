@@ -125,6 +125,32 @@ def rename_legend(ax: plt.Axes, rename: dict | None = None, **kwargs) -> plt.Axe
     return ax
 
 
+def fill_between(
+    ax: plt.Axes, data: pd.DataFrame, x=None, val=None, fill_val=None, alpha=0.2, **kwds
+) -> plt.Axes:
+    """Create error bar plot with filled area of same color with reduced alpha"""
+    if x is None:
+        x = data.index.get_level_values(0)
+    elif isinstance(x, str):
+        x = data[x]
+
+    if val is None:
+        val = data.iloc[:, 0]
+    elif isinstance(val, str):
+        val = data[val]
+
+    if fill_val is None:
+        fill_val = data.iloc[:, 1]
+    elif isinstance(fill_val, str):
+        fill_val = data[fill_val]
+
+    line = ax.plot(x, val, **kwds)[-1]
+    ax.fill_between(
+        x, val - fill_val, val + fill_val, alpha=alpha, color=line.get_color()
+    )
+    return ax
+
+
 def tight_ax_grid(nrows, ncols, **kwds):
     kwds.setdefault("sharey", "all")
     kwds.setdefault("sharex", "all")
