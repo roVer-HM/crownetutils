@@ -316,7 +316,7 @@ class RunMap(dict):
         g: SimulationGroup
         for g in self.values():
             for sim in g.simulations:
-                if sim.global_id == glb_id:
+                if sim.global_id() == glb_id:
                     return sim
         raise KeyError(f"No simulation with id {glb_id} found.")
 
