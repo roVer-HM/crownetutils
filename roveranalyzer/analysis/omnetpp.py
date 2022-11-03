@@ -1318,17 +1318,13 @@ class CellOccupancyInfo:
     def occup_sim_by_cell_grid(self) -> pd.Series:
         return self.data["occup_sim_by_cell_grid"]
 
-    # @property
-    # def occup_sim_describe(self) -> pd.Series:
-    #     return self.data["occup_sim_describe"]
+    @property
+    def occup_interval_length(self) -> pd.DataFrame:
+        return self.data["occup_interval_length"]
 
     @property
     def occup_interval_by_cell(self) -> pd.Series:
         return self.data["occup_interval_by_cell"]
-
-    # @property
-    # def occup_interval_describe(self) -> pd.Series:
-    #     return self.data["occup_interval_describe"]
 
     def to_hdf(self, path):
         for key, df in self.data.items():
@@ -1353,6 +1349,7 @@ class CellOccupancyInfo:
             "occup_sim_by_cell",
             "occup_sim_by_cell_grid",
             "occup_interval_by_cell",
+            "occup_interval_length",
         ]
 
 
@@ -1462,6 +1459,7 @@ class _CellOccupancy:
         d = sim.get_dcdMap().position_df.reset_index().set_index(["simtime", "x", "y"])
         d = d.groupby(d.index.names).count().reset_index(["simtime"])
         _df = []
+        _df_intervals = []
         for g, df in d.groupby(["x", "y"]):
             # index (x, y, simtime). With number of nodes in the cell (x, y) at t.
             # note that simtime will not contain all time steps if ther is no agent in
@@ -1492,16 +1490,53 @@ class _CellOccupancy:
                 .values
             )
             _d["occupation_time_delta"] = _time_diff
+            # create occupied/empty intervals for current cell
+            intervals = []
+            _start = None
+            _interval_type = None
+            changes = _d.index[_d["cell_occupied"].diff().fillna(True).values]
+            for c in changes:
+                if _start is None:
+                    # handle first loop
+                    _start = c
+                    _interval_type = _d.loc[c, "cell_occupied"]
+                    _start = c[-1]
+                    continue
+                _delta_t = c[-1] - _start
+                if len(intervals) == 0 and _interval_type == False:
+                    # first tracked intervall must be ouccupied
+                    # because the cell only get's occupied at the end of the interval
+                    # for the first time. Thus during the current interval we do not have any knowledge.
+                    pass
+                else:
+                    # save interval
+                    intervals.append((_interval_type, _start, c[-1], _delta_t))
+                _interval_type = _d.loc[c, "cell_occupied"]
+                _start = c[-1]
+            _idx = pd.MultiIndex.from_tuples(
+                [g for _ in range(len(intervals))], names=["x", "y"]
+            )
+            _df_intervals.append(
+                pd.DataFrame(
+                    intervals,
+                    columns=["cell_occupied", "start", "end", "delta"],
+                    index=_idx,
+                )
+            )
+            intervals.clear()
             _df.append(_d)
-            # move time diff one row up and add new value at the end
-            # todo empty_time not used (append to df.loc will not work )
-            # _diff = (df["simtime"].diff().fillna(0.0) - 1).values[1:]
-            # _diff = np.append(_diff, 0.)
 
-            # df.loc[g, ["empty_time"]] = _diff
+        # concat data and apply consumer 
         _df = pd.concat(_df, axis=0, verify_integrity=True).sort_index()
-
         _df = frame_c(_df)
+        
+        _df_intervals = (
+            pd.concat(_df_intervals, axis=0, verify_integrity=False)
+            .reset_index()
+            .set_index(["x", "y", "cell_occupied"])
+            .sort_index()
+        )
+        _df_intervals = frame_c(_df_intervals)
 
         occup = _df[_df["cell_occupied"]].drop(columns=["cell_occupied"])
         occup_sim_by_cell = (
@@ -1538,6 +1573,7 @@ class _CellOccupancy:
                 "occup_sim_by_cell": occup_sim_by_cell,
                 "occup_sim_by_cell_grid": occup_grid,
                 "occup_interval_by_cell": occup_interval_by_cell,
+                "occup_interval_length": _df_intervals,
             }
         )
 
@@ -1611,7 +1647,7 @@ class _CellOccupancy:
 
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
             logger.info("found H5-file. Read from file")
-            info = CellOccupancyInfo.from_hdf(hdf_path)
+            info = CellOccupancyInfo.from_hdf(run_map.path(hdf_path))
         else:
             infos = run_kwargs_map(
                 self.sg_create_cell_occupation_info,
