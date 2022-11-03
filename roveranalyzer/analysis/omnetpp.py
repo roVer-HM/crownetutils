@@ -772,14 +772,34 @@ class _OppAnalysis(AnalysisBase):
 
         return fig
 
-    def collect_maps(
+    def merge_position(
+        self,
+        sim_group: SimulationGroup,
+        time_slice=slice(0.0),
+        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
+    ) -> pd.DataFrame:
+        df = []
+        for run_id, sim in sim_group.simulation_iter():
+            _pos = sim.sql.host_position(
+                module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
+            )
+            _pos["run_id"] = run_id
+            _pos["drop_nodes"] = _pos["vecIdx"] >= (_pos["vecIdx"].max() + 1) / 2
+            df.append(_pos)
+
+        df: pd.DataFrame = pd.concat(df, axis=0, ignore_index=True)
+        df = df.set_index(["run_id", "hostId", "vecIdx", "drop_nodes"]).sort_index()
+        df = frame_consumer(df)
+        return df
+
+    def sg_collect_maps(
         self,
         sim_group: SimulationGroup,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
         drop_nan: bool = True,
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
-        """Collect density maps over all runs for one simulation group (no average)
+        """Collect density maps over all runs for given SimulationGroup (no aggregation)
 
         Returns:
             pd.DataFrame: _description_
@@ -812,7 +832,7 @@ class _OppAnalysis(AnalysisBase):
             df = df.to_frame()
         return frame_consumer(df)
 
-    def collect_maps_for_run_map(
+    def run_collect_maps(
         self,
         run_map: RunMap,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
@@ -822,14 +842,12 @@ class _OppAnalysis(AnalysisBase):
         hdf_key: str = "maps",
         pool_size=10,
     ) -> pd.DataFrame:
-        """_summary_
-        todo:
-        """
+        """Collect all density maps in provided RunMap. No aggregation performed"""
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
             df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
         else:
             df = run_kwargs_map(
-                self.collect_maps,
+                self.sg_collect_maps,
                 [
                     dict(
                         sim_group=g,
@@ -847,21 +865,22 @@ class _OppAnalysis(AnalysisBase):
                 df.to_hdf(run_map.path(hdf_path), mode="a", key=hdf_key, format="table")
         return df.to_frame() if isinstance(df, pd.Series) else df
 
-    def merge_maps(
+    def sg_get_merge_maps(
         self,
         sim_group: SimulationGroup,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
         frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
         drop_nan: bool = True,
     ) -> pd.DataFrame:
-        """Average density map over multiple runs / seeds
+        """Get aggregated map over all repetions for given SimulationGroup.
+        See sim_get_merge_maps for a single simulation.
 
         Args:
 
         Returns:
             pd.DataFrame: Index names ['simtime', ['scenario', 'data']]
         """
-        df = self.collect_maps(sim_group, data, drop_nan)
+        df = self.sg_collect_maps(sim_group, data, drop_nan)
 
         df = df.groupby(level=["sim", "simtime", "data"]).agg(
             ["mean", "std", percentile(0.5)]
@@ -872,7 +891,7 @@ class _OppAnalysis(AnalysisBase):
         df = frame_consumer(df)
         return df
 
-    def merge_maps_for_run_map(
+    def run_get_merge_maps(
         self,
         run_map: RunMap,
         data: List[str] | None = ("map_glb_count", "map_mean_count"),
@@ -882,11 +901,17 @@ class _OppAnalysis(AnalysisBase):
         hdf_key: str = "maps",
         pool_size=10,
     ) -> pd.DataFrame:
+        """Merge all measurement maps for all simulation groups in given RunMap.
+        See sg_merge_maps for simulation group function
+
+        Returns:
+            pd.DataFrame: _description_
+        """
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
             df = pd.read_hdf(run_map.path(hdf_path), key=hdf_key)
         else:
             df = run_kwargs_map(
-                self.merge_maps,
+                self.sg_get_merge_maps,
                 [
                     dict(
                         sim_group=g,
@@ -904,26 +929,6 @@ class _OppAnalysis(AnalysisBase):
                 df.to_hdf(run_map.path(hdf_path), key=hdf_key, format="table")
         return df.to_frame() if isinstance(df, pd.Series) else df
 
-    def merge_position(
-        self,
-        sim_group: SimulationGroup,
-        time_slice=slice(0.0),
-        frame_consumer: FrameConsumer = FrameConsumer.EMPTY,
-    ) -> pd.DataFrame:
-        df = []
-        for run_id, sim in sim_group.simulation_iter():
-            _pos = sim.sql.host_position(
-                module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
-            )
-            _pos["run_id"] = run_id
-            _pos["drop_nodes"] = _pos["vecIdx"] >= (_pos["vecIdx"].max() + 1) / 2
-            df.append(_pos)
-
-        df: pd.DataFrame = pd.concat(df, axis=0, ignore_index=True)
-        df = df.set_index(["run_id", "hostId", "vecIdx", "drop_nodes"]).sort_index()
-        df = frame_consumer(df)
-        return df
-
     def sg_get_packet_loss(
         self,
         sim_group: SimulationGroup,
@@ -931,7 +936,7 @@ class _OppAnalysis(AnalysisBase):
         hdf_path: str = "packet_loss.h5",
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.DataFrame:
-        """packet loss over time over all nodes in a single application. Losses are
+        """Packet loss for simulation group over time over all nodes in a single application. Losses are
         binned over time in one second intervals [[0., 1) .... [N-1, N)]
 
         Args:
@@ -985,6 +990,7 @@ class _OppAnalysis(AnalysisBase):
         consumer: FrameConsumer = FrameConsumer.EMPTY,
         pool_size: int = 10,
     ) -> pd.DataFrame:
+        """Get packet loss for RunMap"""
         data: List[(pd.DataFrame, dict)] = run_kwargs_map(
             self.sg_get_packet_loss,
             [
@@ -997,7 +1003,7 @@ class _OppAnalysis(AnalysisBase):
         data = data.sort_index()
         return data
 
-    def collect_cell_mse_for_parameter_variation(
+    def sg_get_msce_data(
         self,
         sim_group: SimulationGroup,
         cell_count: int,
@@ -1005,7 +1011,8 @@ class _OppAnalysis(AnalysisBase):
         cell_slice_fc: FrameConsumer = FrameConsumer.EMPTY,
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.Series:
-        """Collect cell mean squared error for each seed repetition in given Parameter_Variation.
+        """Mean squared (cell) error for all seed repetition in given SimulationGroup.
+        See DcDMap class for simulation based function.
 
         Args:
             study (SuqcRun): _description_
@@ -1060,7 +1067,7 @@ class _OppAnalysis(AnalysisBase):
         print(f"done group: {sim_group.group_name}")
         return df
 
-    def get_mse_cell_data_for_study(
+    def run_get_msce_data(
         self,
         run_map: RunMap,
         hdf_path: str,
@@ -1069,7 +1076,8 @@ class _OppAnalysis(AnalysisBase):
         cell_slice_fc: FrameConsumer = FrameConsumer.EMPTY,
         pool_size: int = 20,
     ) -> pd.DataFrame:
-        """Collect cell mean squared error for *all* ParameterVariations present in given RunMap.
+        """Mean squared (cell) error for *all* ParameterVariations present in given RunMap.
+        See sg_get_msce_data for simulation group based function
 
         Args:
             study (SuqcRun): Suq-controller run object containing the data.
@@ -1087,7 +1095,7 @@ class _OppAnalysis(AnalysisBase):
             data = pd.read_hdf(run_map.path(hdf_path), key="cell_mse")
         else:
             data: List[(pd.DataFrame, dict)] = run_kwargs_map(
-                self.collect_cell_mse_for_parameter_variation,
+                self.sg_get_msce_data,
                 [
                     dict(
                         sim_group=v,
