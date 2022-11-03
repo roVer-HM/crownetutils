@@ -1002,6 +1002,7 @@ class _OppAnalysis(AnalysisBase):
         sim_group: SimulationGroup,
         cell_count: int,
         cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        cell_slice_fc: FrameConsumer = FrameConsumer.EMPTY,
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.Series:
         """Collect cell mean squared error for each seed repetition in given Parameter_Variation.
@@ -1036,14 +1037,14 @@ class _OppAnalysis(AnalysisBase):
                 # missing values are set to a count of zero, assuming we do not count any
                 # nodes in these cells.
                 _df = sim.get_dcdMap().cell_count_measure(
-                    columns=["cell_mse"], xy_slice=cell_slice
+                    columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
                 )
                 _df = _df.groupby(by=["simtime"]).sum() / cell_count
             else:
                 # any other kind of value (produced by the entropy map)
                 # missing values are removed and  not set to a reasonable estimate.
                 _df = sim.get_dcdMap().cell_value_measure(
-                    columns=["cell_mse"], xy_slice=cell_slice
+                    columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
                 )
                 _df = _df.groupby(
                     by=["simtime"]
@@ -1065,6 +1066,7 @@ class _OppAnalysis(AnalysisBase):
         hdf_path: str,
         cell_count: int,
         cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        cell_slice_fc: FrameConsumer = FrameConsumer.EMPTY,
         pool_size: int = 20,
     ) -> pd.DataFrame:
         """Collect cell mean squared error for *all* ParameterVariations present in given RunMap.
@@ -1087,7 +1089,12 @@ class _OppAnalysis(AnalysisBase):
             data: List[(pd.DataFrame, dict)] = run_kwargs_map(
                 self.collect_cell_mse_for_parameter_variation,
                 [
-                    dict(sim_group=v, cell_count=cell_count, cell_slice=cell_slice)
+                    dict(
+                        sim_group=v,
+                        cell_count=cell_count,
+                        cell_slice=cell_slice,
+                        cell_slice_fc=cell_slice_fc,
+                    )
                     for v in run_map.get_simulation_group()
                 ],
                 pool_size=pool_size,

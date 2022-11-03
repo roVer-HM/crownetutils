@@ -16,12 +16,12 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
-import roveranalyzer.utils.dataframe as FrameUtl
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
+from roveranalyzer.utils.dataframe import FrameConsumer, FrameConsumerList
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import Style, check_ax, update_dict
 
@@ -814,6 +814,7 @@ class DcdMap2D(DcdMap):
         load_cached_version: bool = True,
         index_slice: slice | Tuple(slice) = slice(None),
         xy_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        fc: FrameConsumer = FrameConsumer.EMPTY,
         columns: slice | List[str] = slice(None),
     ) -> pd.DataFrame:
         """compare with cell_count_measure
@@ -833,7 +834,9 @@ class DcdMap2D(DcdMap):
         """
         group_name = "cell_measures"
         if self._map_p.contains_group(group_name) and load_cached_version:
-            return self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
+            return fc(
+                self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
+            )
 
         _i = pd.IndexSlice
         # ground truth of nodes at each time where at least one agent was present at some earlier time
@@ -912,13 +915,14 @@ class DcdMap2D(DcdMap):
 
         # remove uncessary columns
         # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
-        return cell_base.loc[index_slice, columns]
+        return fc(cell_base.loc[index_slice, columns])
 
     def cell_count_measure(
         self,
         load_cached_version: bool = True,
         index_slice: slice | Tuple(slice) = slice(None),
         xy_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        fc: FrameConsumer = FrameConsumer.EMPTY,
         columns: slice | List[str] = slice(None),
         remove_missing_values: bool = False,
     ) -> pd.DataFrame:
@@ -969,7 +973,9 @@ class DcdMap2D(DcdMap):
             "cell_measures_no_missing" if remove_missing_values else "cell_measures"
         )
         if self._map_p.contains_group(group_name) and load_cached_version:
-            return self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
+            return fc(
+                self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
+            )
 
         _i = pd.IndexSlice
         # total number of nodes at each time
@@ -1044,7 +1050,7 @@ class DcdMap2D(DcdMap):
 
         # remove uncessary columns
         # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
-        return cell_base.loc[index_slice, columns]
+        return fc(cell_base.loc[index_slice, columns])
 
     def count_diff(
         self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
