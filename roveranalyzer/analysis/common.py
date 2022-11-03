@@ -263,7 +263,10 @@ class RunMap(dict):
     @property
     def max_id(self) -> int:
         """Return biggest id used in any simulation in any SimulationGroup"""
-        return max([max(sim.ids()) for sim in self.get_simulation_group()])
+        if len(self.get_simulation_group()) == 0:
+            return -1
+        else:
+            return max([max(sim.ids()) for sim in self.get_simulation_group()])
 
     def save_json(self, fd: str | TextIO | None = None):
         ret = {}
