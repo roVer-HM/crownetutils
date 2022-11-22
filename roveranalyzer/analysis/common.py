@@ -165,6 +165,7 @@ class RunMap(dict):
 
     def __init__(self, output_dir: str):
         self.output_dir: str = output_dir
+        self._mobility_seeds = None
         os.makedirs(self.output_dir, exist_ok=True)
 
     @staticmethod
@@ -199,6 +200,16 @@ class RunMap(dict):
 
     def all(self, func: SimGroupFilter) -> List[SimulationGroup]:
         return [g for g in self.values() if func(g)]
+
+    def get_mobility_seed_set(self):
+        if self._mobility_seeds is None:
+            _seeds = set()
+            for sg in self.values():
+                sim: Simulation
+                for _, sim in sg.simulation_iter():
+                    _seeds.add(sim.run_context.mobility_seed)
+            self._mobility_seeds = list(_seeds)
+        return self._mobility_seeds
 
     @contextmanager
     def pdf_page(
