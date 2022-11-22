@@ -84,6 +84,21 @@ def siunitx(cmd="num", precision: int = 4, *args, **kwargs) -> Callable[[Any], s
     return partial(siunitx_format, cmd=cmd, options=options)
 
 
+def numeric_formatter(
+    cmd="num", precision: int = 4, *args, **kwargs
+) -> Callable[[Any], str]:
+    """Wrapper function to apply formatting to numeric values only"""
+    _si = siunitx(cmd, precision, *args, **kwargs)
+
+    def _f(val, *args, **kwargs):
+        if any([isinstance(val, _i) for _i in [float, int]]):
+            return _si(val)
+        else:
+            return str(val)
+
+    return _f
+
+
 def format_frame(
     df: pd.DataFrame, si_func=lambda x: f"\\num{{{x}}}", col_list=None
 ) -> pd.DataFrame:
@@ -108,6 +123,7 @@ def save_as_tex_table(
     selected_only: bool = False,
     rename: dict | None = None,
     col_format: dict | List | None = None,
+    add_default_latex_format: bool = True,
     str_replace: Callable[[str], str] = lambda x: x,
 ):
 
@@ -124,8 +140,9 @@ def save_as_tex_table(
     # Use styler api to format the table environment.
     s: Styler = _df.style
 
-    # set default escape on alle columns
-    s.format(escape="latex")
+    if add_default_latex_format:
+        # set default escape on alle columns
+        s.format(escape="latex")
     # add specific formatter
     if col_format is not None:
         if isinstance(col_format, dict):
@@ -235,6 +252,14 @@ class LazyDataFrame(object):
             else:
                 TypeError(f"Expected list or dict got {type(column_names)}")
         return df
+
+
+def append_index(df: pd.DataFrame, col: str, val=None):
+    if col not in df.columns and val is not None:
+        df[col] = val
+    _idx = [*df.index.names, col]
+    df = df.reset_index().set_index(_idx)
+    return df
 
 
 def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.DataFrame:
