@@ -62,6 +62,7 @@ class DcdMapCountProviderTest(unittest.TestCase):
             CountMapKey.ERR,
             CountMapKey.OWNER_DIST,
             CountMapKey.SQERR,
+            CountMapKey.MISSING_VAL,
         ]
         result_grp_key = self.provider.group_key()
         result_index_order = self.provider.index_order()
