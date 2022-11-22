@@ -373,6 +373,13 @@ class RunMap(dict):
         df = df.set_index(["run_id"])
         return df
 
+    def __getitem__(self, __key) -> SimulationGroup:
+        if isinstance(__key, int):
+            _items = list(self.values())
+            return _items[__key]
+        else:
+            return super().__getitem__(__key)
+
 
 class RunContext:
     class _dummy_runner:
