@@ -37,6 +37,7 @@ from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,
+    append_index,
     format_frame,
     siunitx,
 )
@@ -1588,7 +1589,7 @@ class _CellOccupancy:
             axis=0,
         ).sort_index()
 
-        return CellOccupancyInfo(
+        ret = CellOccupancyInfo(
             {
                 "occup_sim_by_cell": occup_sim_by_cell,
                 "occup_sim_by_cell_grid": occup_grid,
@@ -1596,6 +1597,11 @@ class _CellOccupancy:
                 "occup_interval_length": _df_intervals,
             }
         )
+
+        m_seed = sim.run_context.mobility_seed
+        for k in ret.data.keys():
+            ret.data[k] = append_index(ret.data[k], "seed", m_seed)
+        return ret
 
     def sg_create_cell_occupation_info(
         self,
@@ -1660,25 +1666,36 @@ class _CellOccupancy:
         run_map: RunMap,
         hdf_path: str,
         interval_bin_size: float = 100.0,
-        same_mobility_seed: bool = True,
         frame_c: FrameConsumer = FrameConsumer.EMPTY,
         pool_size: int = 20,
     ) -> CellOccupancyInfo:
+        """Cell occupation info for run_map.
+
+        The cell occupation only depends on the mobility seed. Thus collect occupation for
+        each mobility seed only once.
+        """
 
         if hdf_path is not None and os.path.exists(run_map.path(hdf_path)):
             logger.info("found H5-file. Read from file")
             info = CellOccupancyInfo.from_hdf(run_map.path(hdf_path))
         else:
+            # search for all mobility seeds
+            seed_set = {}
+            for sg in run_map.values():
+                for sim_id, sim in sg.simulation_iter():
+                    if sim.run_context.mobility_seed not in seed_set:
+                        seed_set[sim.run_context.mobility_seed] = sim_id
+
+            # collect data from seeds
             infos = run_kwargs_map(
-                self.sg_create_cell_occupation_info,
+                self.sim_create_cell_occupation_info,
                 [
                     dict(
-                        sim_group=g,
+                        sim=run_map.get_sim_by_id(sim_id),
                         interval_bin_size=interval_bin_size,
-                        same_mobility_seed=same_mobility_seed,
                         frame_c=frame_c,
                     )
-                    for g in run_map.values()
+                    for sim_id in seed_set.values()
                 ],
                 pool_size=pool_size,
             )
@@ -1690,9 +1707,8 @@ class _CellOccupancy:
         self, info: CellOccupancyInfo, run_map: RunMap, fig_path
     ):
         with run_map.pdf_page(fig_path) as pdf:
-            sim: Simulation
-            for sim in list(run_map.values())[0].simulations:
-                rep = sim.global_id()
+            m_seeds = run_map.get_mobility_seed_set()
+            for seed in m_seeds:
                 with plt.rc_context(_Plot.plt_rc_same(size="xx-large")):
                     sub_plt = "12;63;44;55"
                     fig, axes = plt.subplot_mosaic(sub_plt, figsize=(16, 3 * 9))
@@ -1712,14 +1728,14 @@ class _CellOccupancy:
                     )
 
                     zz = (
-                        info.occup_sim_by_cell_grid.loc[_i[:, :, rep]]
+                        info.occup_sim_by_cell_grid.loc[_i[:, :, seed]]
                         .groupby(["x", "y"])
                         .mean()
                     )
                     z = (
                         # info.occup_sim_by_cell_grid.loc[_i[:, :, 0 ]]
                         # .reset_index("data", drop=True)
-                        info.occup_sim_by_cell_grid.loc[_i[:, :, rep]]
+                        info.occup_sim_by_cell_grid.loc[_i[:, :, seed]]
                         .groupby(["x", "y"])
                         .mean()
                         .unstack("y")
@@ -1738,7 +1754,7 @@ class _CellOccupancy:
                     cb = _Plot.add_colorbar(im, aspect=10, pad_fraction=0.5)
 
                     box_df = (
-                        info.occup_interval_by_cell.loc[_i[:, :, :, rep]]
+                        info.occup_interval_by_cell.loc[_i[:, :, :, seed]]
                         .groupby(["x", "y", "bins"])
                         .mean()
                     )
@@ -1771,7 +1787,7 @@ class _CellOccupancy:
 
                     astat.axis("off")
                     s = (
-                        info.occup_sim_by_cell.loc[_i[:, :, rep]]
+                        info.occup_sim_by_cell.loc[_i[:, :, seed]]
                         .groupby(["x", "y"])
                         .mean()
                         .describe()
@@ -1791,7 +1807,9 @@ class _CellOccupancy:
 
                     #
                     ahist2.hist(
-                        info.occup_interval_length.loc[_i[:, :, False, rep], ["delta"]],
+                        info.occup_interval_length.loc[
+                            _i[:, :, False, seed], ["delta"]
+                        ],
                         bins=100,
                         label="Empty",
                     )
@@ -1801,7 +1819,7 @@ class _CellOccupancy:
 
                     astat2.axis("off")
                     s = (
-                        info.occup_interval_length.loc[_i[:, :, :, rep]]
+                        info.occup_interval_length.loc[_i[:, :, :, seed]]
                         .reset_index()
                         .groupby(["cell_occupied"])["delta"]
                         .describe()
@@ -1822,9 +1840,7 @@ class _CellOccupancy:
                     tbl.set_fontsize(14)
                     tbl.scale(1, 2)
                     # fix super title
-                    fig.suptitle(
-                        f"Cell occupation info for mobility seed {sim.run_context.mobility_seed}"
-                    )
+                    fig.suptitle(f"Cell occupation info for mobility seed {seed}")
                     print(f"create figure: {fig._suptitle.get_text()}")
                     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
                     pdf.savefig(fig)
