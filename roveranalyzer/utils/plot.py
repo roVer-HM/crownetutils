@@ -5,8 +5,7 @@ import os
 import random
 from contextlib import contextmanager
 from functools import wraps
-from tkinter import N
-from typing import Any, ContextManager, List, Union
+from typing import Any, ContextManager, List, Tuple, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -21,6 +20,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from shapely.geometry import Polygon
 
 import roveranalyzer.utils.logging as _log
+from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
 logger = _log.logger
 
@@ -87,7 +87,9 @@ def paper_rc(tick_labelsize="xx-large", rc=None, **kw):
         rc = _rc
         rc.update(**kw)
     else:
-        rc.update(**_rc)
+        for k, v in _rc.items():
+            if k not in rc:
+                rc[k] = v
         rc.update(**kw)
     return rc
 
@@ -330,6 +332,54 @@ class _PlotUtil:
                 return method(self, *method_args, **method_kwargs)
 
         return _plot_decorator
+
+    def get_vadere_legal_cells(
+        self,
+        scenario: VaderScenarioPlotHelper,
+        xy_slices: Tuple[slice, slice],
+        c: float | Tuple[float, float] = 5.0,
+    ):
+        """Creates free and obstacle covered cell indexes within the provided
+            rectangle area
+
+        Args:
+            scenario (VaderScenarioPlotHelper): Wrapper object of Vadere scenario file
+            xy_slices (Tuple[slice, slice]): rectangle area slice to use
+            c (float|Tuple[float, float], optional): Cell size if not provided as as slice step. Defaults to 5.0.
+        """
+
+        _covered = []
+        _free = []
+        _x, _y = xy_slices
+        c = (c, c) if isinstance(c, float) else c
+        _x_step = c[0] if _x.step is None else _x.step
+        _y_step = c[1] if _y.step is None else _y.step
+        obs: List[Polygon] = [
+            scenario.scenario.shape_to_list(s["shape"], to_shapely=True)
+            for s in scenario.scenario.obstacles
+        ]
+        for x in np.arange(_x.start, _x.stop, _x_step):
+            for y in np.arange(_y.start, _y.stop, _y_step):
+                idx = (x, y)
+                cell = Polygon(
+                    [
+                        [x, y],
+                        [x + _x_step, y],
+                        [x + _x_step, y + _y_step],
+                        [x, y + _y_step],
+                        [x, y],
+                    ]
+                )
+                for _o in obs:
+                    if _o.covers(cell):
+                        _covered.append(idx)
+                        break
+                if (len(_covered) == 0) or (_covered[-1] != idx):
+                    _free.append(idx)
+
+        _covered = pd.MultiIndex.from_tuples(_covered, names=["x", "y"])
+        _free = pd.MultiIndex.from_tuples(_free, names=["x", "y"])
+        return _free, _covered
 
     def cell_to_tex(
         self, polygons: List[Polygon] | pd.MultiIndex, c=5.0, fd=None, attr=None, **kwds
