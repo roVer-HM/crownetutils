@@ -837,6 +837,9 @@ class SuqcStudy:
                         return (
                             True  # failed (i.e some error found in output) simulation
                         )
+            journal_files = glob(os.path.join(out, "*-journal"))
+            if len(journal_files) > 0:
+                return True
 
             return False
 
