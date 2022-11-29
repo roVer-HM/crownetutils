@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import enum
 import json
 import os
@@ -993,6 +994,50 @@ class SuqcStudy:
         print(f"Study: took {(it.default_timer() - ts)/60:2.4f} minutes")
         ret = [r for r, _ in ret]
         return all(ret)
+
+    def rename_data_root(self, new_data_root: str):
+        """Rename data root folder and all existing  runContext.json containing an
+        absolute path.
+
+        Args:
+            new_data_root (str): new absolute path
+        """
+        # ensure absolute
+        if os.path.abspath(new_data_root) != new_data_root:
+            raise ValueError("Expected absolute path")
+        _ctx = "runContext.json"
+        old_data_root = self.base_path
+        context_json = []
+        new_runs = OrderedDict()
+        for key, value in self.runs.items():
+            _run = value["run"].replace(old_data_root, new_data_root)
+            _out = value["out"].replace(old_data_root, new_data_root)
+            new_runs.setdefault(key, {"run": _run, "out": _out})
+            context_json.append(
+                (os.path.join(value["run"], _ctx), os.path.join(_run, _ctx))
+            )
+        now = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
+        for ctx_old, ctx_new in context_json:
+            ctx_old_base = os.path.dirname(ctx_old)
+            ctx_old_name = os.path.basename(ctx_old)
+            ctx_bak = os.path.join(ctx_old_base, f"{ctx_old_name}_bak{now}")
+            if os.path.exists(ctx_bak):
+                raise ValueError("Backup file already exists")
+            print(f"create backup {ctx_bak}")
+            new_lines = []
+            with open(ctx_old, "r", encoding="utf-8") as fd:
+                for line in fd.readlines():
+                    new_lines.append(line.replace(old_data_root, new_data_root))
+                    # print(new_lines[-1])
+
+            shutil.copyfile(src=ctx_old, dst=ctx_bak)
+            if not os.path.exists(ctx_bak):
+                raise ValueError(f"Error while creating backup {ctx_bak}")
+            with open(ctx_old, "w", encoding="utf-8") as fd:
+                fd.writelines(new_lines)
+            new_lines = []
+
+        print("Hi")
 
     def update_run_map(
         self,
