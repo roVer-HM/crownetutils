@@ -140,6 +140,12 @@ class SimulationGroup:
     def __len__(self):
         return len(self.simulations)
 
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__} object at {hex(id(self))} group_name: {self.group_name} >"
+
+    # def __str__(self) -> str:
+    #     return self.__repr__()
+
 
 class EmptySimGroupFilter:
     def __call__(self, sim_group: SimulationGroup) -> bool:
@@ -544,8 +550,8 @@ class RunContext:
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
         print(f"run command:\n\t\t{cmd}")
         if args["log"]:
-            os.makedirs(os.path.dirname(args["log"]), exist_ok=True)
-            fd = open(os.path.join(args["cwd"], "log.out"), "a")
+            os.makedirs(os.path.dirname(args["cwd"]), exist_ok=True)
+            fd = open(os.path.join(args["cwd"], "log.out"), "w")
             out = fd
             err = fd
         if "clean_dir" in args:
@@ -627,6 +633,9 @@ class Simulation:
         self.run_context: RunContext = run_context
         self._id_offset = id_offset
 
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__} object at {hex(id(self))} {self.label} ({self.study_id()}[{self.global_id()}])>"
+
     @property
     def builder(self) -> Dcd.DcdHdfBuilder:
         if self._builder is None:
@@ -658,6 +667,10 @@ class Simulation:
 
     def study_id(self):
         return self.run_context.par_id
+
+    def path(self, *args):
+        """Create path relative to Simulation object data_root directory"""
+        return os.path.join(self.data_root, *args)
 
     @property
     def pos(self) -> BaseHdfProvider:
@@ -936,16 +949,23 @@ class SuqcStudy:
     @classmethod
     def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
         run: SuqcStudy = cls(path)
-
         args = []
         for sim in run.get_simulations():
             _arg = sim.run_context.create_postprocessing_args()
-            _arg["log"] = log
-            args.append(_arg)
-
+            log_file = os.path.join(sim.run_context.cwd, "log.out")
+            if kwargs["failed_only"]:
+                if os.path.exists(log_file):
+                    with open(log_file, "r", encoding="utf-8") as fd:
+                        for line in fd.readlines():
+                            if "Traceback (most recent call last):" in line:
+                                _arg["log"] = log
+                                args.append(_arg)
+                                break
+            else:
+                _arg["log"] = log
+                args.append(_arg)
         with get_context("spawn").Pool(processes=jobs) as pool:
             ret = pool.map(func=RunContext.exec_runscript, iterable=args)
-
         return all(ret)
 
     @classmethod

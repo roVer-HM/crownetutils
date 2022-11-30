@@ -24,6 +24,13 @@ def suqc_run_append_parser(
         default=4,
         help="Number of parallel runs",
     )
+    post.add_argument(
+        "--failed-only",
+        action="store_true",
+        default=False,
+        required=False,
+        help="Tries to guess based on log file in run folders if postprocessing failed.",
+    )
     post.add_argument("--log", action="store_true", default=False, required=False)
     post.set_defaults(main_func=lambda ns: SuqcStudy.rerun_postprocessing(**vars(ns)))
 
@@ -47,6 +54,7 @@ def suqc_run_append_parser(
         "--what",
         "-w",
         dest="what",
+        help="What should be rerun",
         choices=["failed", "all"],
         default="failed",
     )

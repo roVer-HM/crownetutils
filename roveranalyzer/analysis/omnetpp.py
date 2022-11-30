@@ -33,7 +33,7 @@ from roveranalyzer.analysis.common import (
 )
 from roveranalyzer.simulators.crownet.dcd.dcd_map import percentile
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
-from roveranalyzer.simulators.opp.scave import CrownetSql, SqlOp
+from roveranalyzer.simulators.opp.scave import CrownetSql, SqlEmptyResult, SqlOp
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,
@@ -75,10 +75,14 @@ class _hdf_Extractor(AnalysisBase):
     def extract_packet_loss(
         cls, hdf_file: str, group_suffix: str, sql: CrownetSql, app: SqlOp
     ):
-        pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
-        hdf_store = BaseHdfProvider(hdf_file)
-        hdf_store.write_frame(f"pkt_loss_{group_suffix}", pkt_loss)
-        hdf_store.write_frame(f"pkt_loss_raw_{group_suffix}", raw)
+        try:
+            pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
+            hdf_store = BaseHdfProvider(hdf_file)
+            hdf_store.write_frame(f"pkt_loss_{group_suffix}", pkt_loss)
+            hdf_store.write_frame(f"pkt_loss_raw_{group_suffix}", raw)
+        except SqlEmptyResult as e:
+            logger.error("No packets found")
+            logger.error(e)
 
 
 class _OppAnalysis(AnalysisBase):
