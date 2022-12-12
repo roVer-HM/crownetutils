@@ -1018,7 +1018,7 @@ class SuqcStudy:
         ret = [r for r, _ in ret]
         return all(ret)
 
-    def rename_data_root(self, new_data_root: str):
+    def rename_data_root(self, new_data_root: str, revert: bool = False):
         """Rename data root folder and all existing  runContext.json containing an
         absolute path.
 
@@ -1028,8 +1028,13 @@ class SuqcStudy:
         # ensure absolute
         if os.path.abspath(new_data_root) != new_data_root:
             raise ValueError("Expected absolute path")
+        if new_data_root.endswith(os.sep):
+            new_data_root = new_data_root[:-1]
+
         _ctx = "runContext.json"
-        old_data_root = self.base_path
+        old_data_root: str = self.base_path
+        if old_data_root.endswith(os.sep):
+            old_data_root = old_data_root[0:-1]
         context_json = []
         new_runs = OrderedDict()
         for key, value in self.runs.items():
@@ -1040,27 +1045,39 @@ class SuqcStudy:
                 (os.path.join(value["run"], _ctx), os.path.join(_run, _ctx))
             )
         now = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
-        for ctx_old, ctx_new in context_json:
-            ctx_old_base = os.path.dirname(ctx_old)
-            ctx_old_name = os.path.basename(ctx_old)
-            ctx_bak = os.path.join(ctx_old_base, f"{ctx_old_name}_bak{now}")
-            if os.path.exists(ctx_bak):
-                raise ValueError("Backup file already exists")
-            print(f"create backup {ctx_bak}")
-            new_lines = []
-            with open(ctx_old, "r", encoding="utf-8") as fd:
-                for line in fd.readlines():
-                    new_lines.append(line.replace(old_data_root, new_data_root))
-                    # print(new_lines[-1])
+        if revert:
+            for ctx_old, ctx_new in context_json:
+                ctx_old_base = os.path.dirname(ctx_old)
+                ctx_old_name = os.path.basename(ctx_old)
+                backup = glob(f"{ctx_old}_bak*", recursive=False)
+                if len(backup) == 0:
+                    print("no backup found for {ctx_old}")
+                    continue
+                elif len(backup) > 1:
+                    print("fount multiple backups for {ctx_old}. Skipping...")
+                    continue
+                print(f"revert to {backup[0]}")
+                shutil.move(src=backup[0], dst=ctx_old)
+        else:
+            for ctx_old, ctx_new in context_json:
+                ctx_old_base = os.path.dirname(ctx_old)
+                ctx_old_name = os.path.basename(ctx_old)
+                ctx_bak = os.path.join(ctx_old_base, f"{ctx_old_name}_bak{now}")
+                if os.path.exists(ctx_bak):
+                    raise ValueError("Backup file already exists")
+                print(f"create backup {ctx_bak}")
+                new_lines = []
+                with open(ctx_old, "r", encoding="utf-8") as fd:
+                    for line in fd.readlines():
+                        new_lines.append(line.replace(old_data_root, new_data_root))
+                        # print(new_lines[-1])
 
-            shutil.copyfile(src=ctx_old, dst=ctx_bak)
-            if not os.path.exists(ctx_bak):
-                raise ValueError(f"Error while creating backup {ctx_bak}")
-            with open(ctx_old, "w", encoding="utf-8") as fd:
-                fd.writelines(new_lines)
-            new_lines = []
-
-        print("Hi")
+                shutil.copyfile(src=ctx_old, dst=ctx_bak)
+                if not os.path.exists(ctx_bak):
+                    raise ValueError(f"Error while creating backup {ctx_bak}")
+                with open(ctx_old, "w", encoding="utf-8") as fd:
+                    fd.writelines(new_lines)
+                new_lines = []
 
     def update_run_map(
         self,
