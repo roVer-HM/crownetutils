@@ -12,7 +12,7 @@ class NoConnectionPoolFilter(logging.Filter):
 
 
 def set_default():
-    _l = logging.getLogger("roveranalyzer")
+    _l = logging.getLogger(__name__.split(".")[0])
 
     # create console handler and set level to debug
     ch = logging.StreamHandler()
