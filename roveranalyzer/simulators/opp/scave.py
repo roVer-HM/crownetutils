@@ -1091,6 +1091,11 @@ class CrownetSql(OppSql):
 
     def is_entropy_map(self):
         cfg = self.get_run_config("*.globalDensityMap.typename", full_match=True)
+        if cfg is None:
+            # fixme: typo in simulation setup...
+            cfg = self.get_run_config("*.gloablDensityMap.typename", full_match=True)
+        if cfg is None:
+            raise ValueError("Simulation does not contain a measurement map module.")
         return "entropy" in cfg.lower()
 
     def is_count_map(self):

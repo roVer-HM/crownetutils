@@ -21,7 +21,11 @@ from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils import logger
-from roveranalyzer.utils.dataframe import FrameConsumer, FrameConsumerList
+from roveranalyzer.utils.dataframe import (
+    FrameConsumer,
+    FrameConsumerList,
+    partial_index_match,
+)
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import Style, check_ax, update_dict
 
@@ -981,7 +985,7 @@ class DcdMap2D(DcdMap):
         # total number of nodes at each time
         if isinstance(xy_slice, pd.MultiIndex):
             glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            glb = FrameUtl.partial_index_match(glb, xy_slice)
+            glb = partial_index_match(glb, xy_slice)
         else:
             glb = self.count_p[
                 _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
@@ -1000,7 +1004,7 @@ class DcdMap2D(DcdMap):
             ]  # all but ground truth
             if remove_missing_values:
                 nodes = self.remove_missing_values(nodes, _i[:, :, :, 1:])
-            nodes = FrameUtl.partial_index_match(nodes, xy_slice)
+            nodes = partial_index_match(nodes, xy_slice)
         else:
             nodes: pd.DataFrame = self.count_p[
                 _i[:, xy_slice[0], xy_slice[1], 1:], _i["count", "err", "sqerr"]

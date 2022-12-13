@@ -1031,11 +1031,7 @@ class _OppAnalysis(AnalysisBase):
         """
         df = []
         print(f"execut group: {sim_group.group_name}")
-        if (
-            isinstance(cell_slice, pd.MultiIndex)
-            and cell_count > 0
-            and cell_count != cell_slice.shape[0]
-        ):
+        if isinstance(cell_slice, pd.MultiIndex):
             if cell_count > 0 and cell_count != cell_slice.shape[0]:
                 raise ValueError(
                     "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
