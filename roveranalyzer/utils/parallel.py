@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 from cmath import exp
 from functools import partial
 from itertools import repeat
@@ -19,8 +20,9 @@ def kwargs_with_try(func, kwargs, append_args: bool = False):
         else:
             return (True, ret)
     except Exception as e:
-        logger.info(f"Error in run for args {kwargs} message: {e}")
-        return (False, f"Error in args: {kwargs} message: {e}")
+        logger.exception(f"Error in run for args {kwargs} message: {e}")
+        trace = traceback.format_exc()
+        return (False, f"Error in args: {kwargs} message: {e}\n{trace}")
 
 
 def run_kwargs_map(
