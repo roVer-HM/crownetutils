@@ -23,7 +23,7 @@ class VadereRunner(DockerRunner):
     def __init__(
         self,
         image=DockerCfg("vadere"),
-        tag="latest",
+        tag=DockerCfg.tag,
         docker_client=None,
         name="",
         cleanup_policy=DockerCleanup.REMOVE,

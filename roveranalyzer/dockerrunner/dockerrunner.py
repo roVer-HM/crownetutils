@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pprint
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Union
@@ -12,8 +13,7 @@ from docker.models.containers import Container
 from docker.types import LogConfig
 from requests import ReadTimeout
 
-import time
-
+from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.utils import logger
 
 
@@ -70,7 +70,7 @@ class DockerRunner:
     def __init__(
         self,
         image,
-        tag="latest",
+        tag=DockerCfg.tag,
         docker_client=None,
         name="",
         cleanup_policy=DockerCleanup.KEEP_FAILED,

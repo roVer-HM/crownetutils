@@ -15,7 +15,7 @@ class OppRunner(DockerRunner):
     def __init__(
         self,
         image=DockerCfg("omnetpp"),
-        tag="latest",
+        tag=DockerCfg.tag,
         docker_client=None,
         name="",
         cleanup_policy=DockerCleanup.REMOVE,

@@ -118,9 +118,9 @@ def add_control_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
-        default="latest",
+        default=DockerCfg.tag,
         required=False,
-        help="Choose Control container. (Default: latest)",
+        help=f"Choose Control container. (Default: {DockerCfg.tag})",
     )
     parser.add_argument(
         "--ctrl.xxx",
@@ -186,9 +186,9 @@ def add_vadere_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--vadere-tag",
         dest="vadere_tag",
-        default="latest",
+        default=DockerCfg.tag,
         required=False,
-        help="Choose Vadere container. (Default: latest)",
+        help=f"Choose Vadere container. (Default: {DockerCfg.tag})",
     )
     parser.add_argument(
         "--v.loglevel",
@@ -233,9 +233,9 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--omnet-tag",
         dest="omnet_tag",
-        default="latest",
+        default=DockerCfg.tag,
         required=False,
-        help="Choose Omnet container. (Default: latest)",
+        help=f"Choose Omnet container. (Default: {DockerCfg.tag})",
     )
 
 
@@ -265,9 +265,9 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--sumo-tag",
         dest="sumo_tag",
-        default="latest",
+        default=DockerCfg.tag,
         required=False,
-        help="Choose Sumo container. (Default: latest)",
+        help=f"Choose Sumo container. (Default: {DockerCfg.tag})",
     )
 
 
@@ -276,7 +276,8 @@ def parse_args_as_dict(runner: Any, args=None) -> Dict:
 
     # parse arguments
     main: argparse.ArgumentParser = argparse.ArgumentParser(
-        prog="BaseRunner", description=f"Used docker registry: {DockerCfg.registry}"
+        prog="BaseRunner",
+        description=f"Used docker registry: {DockerCfg.registry}\n Default tag: {DockerCfg.tag}",
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands
