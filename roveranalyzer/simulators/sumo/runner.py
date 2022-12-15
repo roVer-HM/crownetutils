@@ -1,6 +1,7 @@
 import os
 import warnings
 
+from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
@@ -12,7 +13,7 @@ from roveranalyzer.utils import logger, sockcheck
 class SumoRunner(DockerRunner):
     def __init__(
         self,
-        image="sam-dev.cs.hm.edu:5023/rover/crownet/sumo",
+        image=DockerCfg("sumo"),
         tag="latest",
         docker_client=None,
         name="",

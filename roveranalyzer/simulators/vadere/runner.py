@@ -1,5 +1,6 @@
 import os
 
+from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
@@ -21,7 +22,7 @@ class VadereRunner(DockerRunner):
 
     def __init__(
         self,
-        image="sam-dev.cs.hm.edu:5023/rover/crownet/vadere",
+        image=DockerCfg("vadere"),
         tag="latest",
         docker_client=None,
         name="",

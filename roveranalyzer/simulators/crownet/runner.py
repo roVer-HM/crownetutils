@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import docker
 from requests.exceptions import ReadTimeout
 
+from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
     ContainerLogWriter,
     DockerCleanup,
@@ -275,7 +276,7 @@ def parse_args_as_dict(runner: Any, args=None) -> Dict:
 
     # parse arguments
     main: argparse.ArgumentParser = argparse.ArgumentParser(
-        prog="BaseRunner", description="Any description"
+        prog="BaseRunner", description=f"Used docker registry: {DockerCfg.registry}"
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands

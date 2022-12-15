@@ -1,5 +1,6 @@
 import os
 
+from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
     DockerCleanup,
     DockerReuse,
@@ -25,7 +26,7 @@ class ControlRunner(DockerRunner):
 
     def __init__(
         self,
-        image="sam-dev.cs.hm.edu:5023/rover/crownet/flowcontrol",
+        image=DockerCfg("flowcontrol"),
         tag="latest",
         docker_client=None,
         name="",
