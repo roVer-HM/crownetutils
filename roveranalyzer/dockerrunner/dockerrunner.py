@@ -70,7 +70,7 @@ class DockerRunner:
     def __init__(
         self,
         image,
-        tag=DockerCfg.tag,
+        tag="latest",
         docker_client=None,
         name="",
         cleanup_policy=DockerCleanup.KEEP_FAILED,
