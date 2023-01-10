@@ -118,9 +118,9 @@ def add_control_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--control-tag",
         dest="control_tag",
-        default=DockerCfg.tag,
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_CONTROL_TAG),
         required=False,
-        help=f"Choose Control container. (Default: {DockerCfg.tag})",
+        help=f"Choose Control container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_CONTROL_TAG)})",
     )
     parser.add_argument(
         "--ctrl.xxx",
@@ -186,9 +186,9 @@ def add_vadere_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--vadere-tag",
         dest="vadere_tag",
-        default=DockerCfg.tag,
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_VADERE_TAG),
         required=False,
-        help=f"Choose Vadere container. (Default: {DockerCfg.tag})",
+        help=f"Choose Vadere container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_VADERE_TAG)})",
     )
     parser.add_argument(
         "--v.loglevel",
@@ -233,9 +233,9 @@ def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--omnet-tag",
         dest="omnet_tag",
-        default=DockerCfg.tag,
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_OPP_TAG),
         required=False,
-        help=f"Choose Omnet container. (Default: {DockerCfg.tag})",
+        help=f"Choose Omnet container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_OPP_TAG)})",
     )
 
 
@@ -265,9 +265,9 @@ def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
     parser.add_argument(
         "--sumo-tag",
         dest="sumo_tag",
-        default=DockerCfg.tag,
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_SUMO_TAG),
         required=False,
-        help=f"Choose Sumo container. (Default: {DockerCfg.tag})",
+        help=f"Choose Sumo container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_SUMO_TAG)})",
     )
 
 
@@ -277,7 +277,7 @@ def parse_args_as_dict(runner: Any, args=None) -> Dict:
     # parse arguments
     main: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="BaseRunner",
-        description=f"Used docker registry: {DockerCfg.registry}\n Default tag: {DockerCfg.tag}",
+        description=f"Used docker registry: {DockerCfg.registry}",
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands

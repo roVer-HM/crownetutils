@@ -27,7 +27,7 @@ class ControlRunner(DockerRunner):
     def __init__(
         self,
         image=DockerCfg("flowcontrol"),
-        tag=DockerCfg.tag,
+        tag=DockerCfg.get_default_tag(DockerCfg.VAR_CONTROL_TAG),
         docker_client=None,
         name="",
         cleanup_policy=DockerCleanup.REMOVE,

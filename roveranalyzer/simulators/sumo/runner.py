@@ -14,7 +14,7 @@ class SumoRunner(DockerRunner):
     def __init__(
         self,
         image=DockerCfg("sumo"),
-        tag=DockerCfg.tag,
+        tag=DockerCfg.get_default_tag(DockerCfg.VAR_SUMO_TAG),
         docker_client=None,
         name="",
         cleanup_policy=DockerCleanup.REMOVE,
