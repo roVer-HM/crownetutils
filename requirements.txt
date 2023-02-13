@@ -8,6 +8,7 @@ dash~=2.4.1
 docker~=5.0.0
 drawnow
 folium
+tabulate
 fs~=2.4.13
 future~=0.18.2
 geobuf~=1.1.1
