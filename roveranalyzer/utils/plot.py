@@ -5,7 +5,7 @@ import os
 import random
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, ContextManager, List, Tuple, Union
+from typing import Any, ContextManager, List, Protocol, Tuple, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -23,6 +23,28 @@ import roveranalyzer.utils.logging as _log
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
 logger = _log.logger
+
+
+class FigureSaverSimple:
+    def __call__(self, figure, *args: Any):
+        figure.savefig(args[0])
+
+
+class FigureSaverPdfPages:
+    def __init__(self, pdf):
+        self.pdf = pdf
+
+    def __call__(self, figure, *args: Any):
+        self.pdf.savefig(figure)
+
+
+class FigureSaver(Protocol):
+    """Interface to save figures in some way"""
+
+    FIG = FigureSaverSimple()
+
+    def __call__(self, figure, *args: Any):
+        ...
 
 
 def matplotlib_set_latex_param():
@@ -279,7 +301,7 @@ class _PlotUtil:
         t.auto_set_font_size(False)
         t.set_fontsize(11)
         t.auto_set_column_width(col=(list(range(df.shape[1]))))
-        [c.set_height(0.04) for c in t.get_celld().values()]
+        [c.set_height(0.06) for c in t.get_celld().values()]
         ax.get_yaxis().set_visible(False)
         ax.get_xaxis().set_visible(False)
 
