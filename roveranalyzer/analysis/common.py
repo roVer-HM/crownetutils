@@ -625,7 +625,9 @@ class Simulation:
         c._sql = sql
         return c
 
-    def __init__(self, data_root, label, run_context: RunContext, id_offset: int = 0):
+    def __init__(
+        self, data_root, label, run_context: RunContext = None, id_offset: int = 0
+    ):
         self.label = label
         self._builder = None
         self._sql = None
@@ -738,9 +740,10 @@ class Simulation:
 
 
 class SimulationGroupFactory(Protocol):
-    """Create a SimulationGroup using one simulation to access config to derive name
-    or label information. **kwds must provide all necessary attributes to build the
-    SimulationGroup object. Implementer might override **kwds if needed.
+    """Create a SimulationGroup using one simulation to access config to derive
+    name or label information. **kwds must provide all necessary attributes to
+    build the SimulationGroup object. Implementer might override **kwds if
+    needed.
     """
 
     def __call__(self, sim: Simulation, **kwds: Any) -> SimulationGroup:
