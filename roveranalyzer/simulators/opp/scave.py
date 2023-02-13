@@ -1154,45 +1154,54 @@ class CrownetSql(OppSql):
         _m = modules if modules is not None else self.module_vectors
         return self.OR([f"{self.network}.{i}[%].cellularNic.phy" for i in _m])
 
-    def m_app0(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+    def m_app0(
+        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+    ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+        return self.OR([f"{self.network}.{i}[{idx}].app[0].{app_mod}" for i in _m])
 
-    def m_beacon(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+    def m_app1(
+        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+    ) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
+        return self.OR([f"{self.network}.{i}[{idx}].app[1].{app_mod}" for i in _m])
+
+    def m_beacon(
+        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+    ) -> SqlOp:
+        """SqlOperation to select beacon application"""
         _m = modules if modules is not None else self.module_vectors
         _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
         _t0 = self.parameter_data(_typename_0, "typename")
         if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
-            return self.m_app0(modules, idx)
+            return self.m_app0(modules, app_mod=app_mod, idx=idx)
 
         _typename_1 = self.OR(
             [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
         )
         _t1 = self.parameter_data(_typename_1, "typename")
         if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
-            return self.m_app1(modules, idx)
+            return self.m_app1(modules, app_mod=app_mod, idx=idx)
 
         raise ValueError("Did not find beacon application at index app[0] or app[1]")
 
-    def m_map(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
+    def m_map(
+        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+    ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
         _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
         _t0 = self.parameter_data(_typename_0, "typename")
         if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
-            return self.m_app0(modules, idx)
+            return self.m_app0(modules, app_mod=app_mod, idx=idx)
 
         _typename_1 = self.OR(
             [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
         )
         _t1 = self.parameter_data(_typename_1, "typename")
         if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
-            return self.m_app1(modules, idx)
+            return self.m_app1(modules, app_mod=app_mod, idx=idx)
 
         raise ValueError("Did not find beacon application at index app[0] or app[1]")
-
-    def m_app1(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
-        _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[{idx}].app[1].app" for i in _m])
 
     def m_enb(self, index: int = -1, module: str = "") -> str:
         if index < 0:
