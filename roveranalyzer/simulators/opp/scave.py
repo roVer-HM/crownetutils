@@ -381,6 +381,47 @@ class OppSql:
         else:
             raise ValueError("expected SqlOp or string")
 
+    def vector_exists(
+        self,
+        module_name: SqlOp | str,
+        vector_name: SqlOp | str,
+    ) -> bool:
+        """Check if at least one vector exists in given module_name"""
+        ret = self.find_vector_name(module_name, vector_name, raise_on_missing=False)
+        return ret is not None
+
+    def find_vector_name(
+        self,
+        module_name: SqlOp | str | None,
+        vector_name: str | List[str],
+        find_first: bool = True,
+        raise_on_missing: bool = True,
+    ):
+        """Check if a vector with a given name exists. If a list of vector names is given
+        they are checked in that order. If 'find_first' ist true the first vector name that
+        returns a none-empty vec_info data frame is returned. If no vector_name exists None
+        is returned or an ValueError is raised if 'raise_on_missing' is true."""
+
+        if isinstance(vector_name, str):
+            vector_name = [vector_name]
+
+        for vec_n in vector_name:
+            df = self.vec_info(module_name, vec_n)
+            if not df.empty and find_first:
+                return vec_n
+            elif df.empty and not find_first:
+                # all vectors must be present.
+                break
+
+        # no vectors found at this point
+        if raise_on_missing:
+            raise ValueError(
+                f"No or not all vectors found with names: {', '.join(vector_name)} at "
+                f"module: {module_name}"
+            )
+
+        return None
+
     def vec_info(
         self,
         module_name: SqlOp | str | None = None,
