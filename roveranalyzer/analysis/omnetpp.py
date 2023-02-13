@@ -76,10 +76,21 @@ class _hdf_Extractor(AnalysisBase):
         cls, hdf_file: str, group_suffix: str, sql: CrownetSql, app: SqlOp
     ):
         try:
-            pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
+            pkt_loss_g = f"pkt_loss_{group_suffix}"
+            raw_g = f"pkt_loss_raw_{group_suffix}"
             hdf_store = BaseHdfProvider(hdf_file)
-            hdf_store.write_frame(f"pkt_loss_{group_suffix}", pkt_loss)
-            hdf_store.write_frame(f"pkt_loss_raw_{group_suffix}", raw)
+            if (
+                hdf_store.hdf_file_exists
+                and hdf_store.contains_group(pkt_loss_g)
+                and hdf_store.contains_group(raw_g)
+            ):
+                logger.info(
+                    f"hdf store and groups: '{pkt_loss_g},{raw_g}' already exist skip."
+                )
+            else:
+                pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
+                hdf_store.write_frame(pkt_loss_g, pkt_loss)
+                hdf_store.write_frame(raw_g, raw)
         except SqlEmptyResult as e:
             logger.error("No packets found")
             logger.error(e)
@@ -296,6 +307,38 @@ class _OppAnalysis(AnalysisBase):
         )
         return df
 
+    @timing
+    def get_txAppInterval(
+        self,
+        sql: Scave.CrownetSql,
+        app_type: str = "beacon",
+        index: List[str] | None = ("time",),
+    ) -> pd.DataFrame:
+        if app_type.lower() == "beacon":
+            m = sql.m_beacon(app_mod="scheduler")
+        else:
+            m = sql.m_map(app_mod="scheduler")
+
+        df1 = sql.vector_ids_to_host(
+            module_name=m,
+            vector_name="txInterval:vector",
+            name_columns=["host", "hostId"],
+            pull_data=True,
+            value_name="txInterval",
+            index=["time", "host", "hostId"],
+        ).drop(columns=["vectorId"])
+        df2 = sql.vector_ids_to_host(
+            module_name=m,
+            vector_name="txDetInterval:vector",
+            name_columns=["host", "hostId"],
+            pull_data=True,
+            value_name="txDetInterval",
+            index=["time", "host", "hostId"],
+        ).drop(columns=["vectorId"])
+
+        df = pd.concat([df1, df2], axis=1, ignore_index=False)
+        return df
+
     def plot_hist_enb_served_rb(self, data: pd.DataFrame, bins=25, enb=0):
         ax: plt.Axes
         fig, ax = _Plot.check_ax()
@@ -325,8 +368,85 @@ class _OppAnalysis(AnalysisBase):
         ax.set_xticks(np.arange(0, bins + 1, 1))
         return fig, ax
 
-    def plot_ts_enb_served_rb(self, data: pd.DataFrame, bins=25, enb=0):
-        interval = pd.interval_range(start=0.0, end=np.ceil(data.index.max()), freq=1.0)
+    @timing
+    def plot_txinterval_all(
+        self,
+        data_root: str,
+        sql: Scave.CrownetSql,
+        app: str = "Beacon",
+        saver: _Plot.FigureSaver = _Plot.FigureSaver.FIG,
+    ):
+        data = self.get_txAppInterval(sql, app_type=app)
+        data = data.droplevel(["hostId", "host"]).sort_index()
+        fig, ax = plt.subplots()
+        _Plot.PlotUtil.df_to_table(
+            data.describe().applymap("{:1.4f}".format).reset_index(), ax
+        )
+        ax.set_title(f"Descriptive statistics for application {app}")
+        saver(fig, os.path.join(data_root, f"tx_AppIntervall_stat.pdf"))
+
+        fig, _ = self.plot_ts_txinterval(data, app_name=app, time_bucket_length=1.0)
+        saver(fig, os.path.join(data_root, f"txAppInterval_ts.pdf"))
+
+        fig, _ = self.plot_hist_txinterval(data)
+        saver(fig, os.path.join(data_root, f"tx_AppInterval_hist_.pdf"))
+
+        fig, _ = self.plot_ecdf_txinterval(data)
+        saver(fig, os.path.join(data_root, f"tx_AppInterval_ecdf.pdf"))
+
+    def plot_ts_txinterval(
+        self, data: pd.DataFrame, app_name="", time_bucket_length=1.0
+    ):
+        interval = pd.interval_range(
+            start=0.0, end=np.ceil(data.index.max()), freq=time_bucket_length
+        )
+        data = data.groupby(pd.cut(data.index, interval)).mean()
+        data.index = interval.left
+        data.index.name = "time"
+        cols = data.columns
+        data = data.reset_index()
+        fig, ax = _Plot.check_ax()
+        for c in cols:
+            ax.plot("time", c, data=data, label=f"{c} {app_name}")
+        ax.legend(loc="upper right")
+        ax.set_title(
+            "Average transmission interval of all nodes over time. (time bin size 1s)"
+        )
+        ax.set_xlabel("Time in seconds")
+        ax.set_ylabel("Transmission time interval in seconds")
+        return fig, ax
+
+    def plot_hist_txinterval(self, data: pd.DataFrame):
+        # use same bins for both data sets
+        fig, ax = _Plot.check_ax()
+        _range = (data["txInterval"].min(), data["txInterval"].max())
+        _bin_count = np.ceil(data["txInterval"].count() ** 0.5)
+        _bins = np.histogram(data, bins=int(_bin_count))[1]
+        for c in data.columns:
+            ax.hist(data[c], bins=_bins, range=_range, density=True, alpha=0.5, label=c)
+        ax.legend()
+        ax.set_title("Histogram of transmission time interval in seconds ")
+        ax.set_ylabel("Density")
+        ax.set_xlabel("Transmission time interval in seconds")
+        return fig, ax
+
+    def plot_ecdf_txinterval(self, data: pd.DataFrame):
+        fig, ax = _Plot.check_ax()
+        _x = data["txInterval"].sort_values().values
+        _y = np.arange(len(_x)) / float(len(_x))
+        ax.plot(_x, _y, label="txInterval")
+        _x = data["txDetInterval"].sort_values().values
+        _y = np.arange(len(_x)) / float(len(_x))
+        ax.plot(_x, _y, label="txDetInterval")
+        ax.set_title("ECDF of transmission interval time")
+        ax.set_xlabel("Time in seconds")
+        ax.set_ylabel("ECDF")
+        return fig, ax
+
+    def plot_ts_enb_served_rb(self, data: pd.DataFrame, time_bucket_length=1.0):
+        interval = pd.interval_range(
+            start=0.0, end=np.ceil(data.index.max()), freq=time_bucket_length
+        )
         data = data.groupby(pd.cut(data.index, interval)).mean()
         data.index = interval.left
         data.index.name = "time"
@@ -488,13 +608,17 @@ class _OppAnalysis(AnalysisBase):
         """
         logger.info("load packet loss data from *.vec")
 
+        # statistic was renamed. Check old version fist.
+        seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
+        seqNo_vec = sql.find_vector_name(module_name, seqNo_vec)
         vec_names = {
-            "rcvdPkSeqNo:vector": {
+            seqNo_vec: {
                 "name": "seqNo",
                 "dtype": np.int32,
             },
             "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
         }
+
         vec_data = sql.vec_data_pivot(
             module_name, vec_names, append_index=["srcHostId"]
         )
@@ -548,22 +672,28 @@ class _OppAnalysis(AnalysisBase):
                 dmap.plot_error_histogram(time_slice=_slice, savefig=pdf)
 
     @timing
-    def create_common_plots_all(
+    def plot_served_blocks_ul_all(
         self,
         data_root: str,
         builder: Dcd.DcdHdfBuilder,
         sql: Scave.CrownetSql,
+        saver: _Plot.FigureSaver = _Plot.FigureSaver.FIG,
     ):
         num_enb = int(sql.get_run_config("*.numEnb"))
         bins = int(sql.get_run_config("**.numBands"))
         for n in range(num_enb):
             data = self.get_avgServedBlocksUl(sql, enb_index=n)
-            fig, _ = self.plot_ts_enb_served_rb(data, bins, n)
-            fig.savefig(os.path.join(data_root, f"rb_utilization_ts_{n}.pdf"))
+            fig, _ = self.plot_ts_enb_served_rb(data, time_bucket_length=1.0)
+            saver(fig, os.path.join(data_root, f"rb_utilization_ts_{n}.pdf"))
             fig, _ = self.plot_hist_enb_served_rb(data, bins, n)
-            fig.savefig(os.path.join(data_root, f"rb_utilization_hist_{n}.pdf"))
+            saver(fig, os.path.join(data_root, f"rb_utilization_hist_{n}.pdf"))
             fig, _ = self.plot_ecdf_enb_served_rb(data, bins, n)
-            fig.savefig(os.path.join(data_root, f"rb_utilization_ecdf_{n}.pdf"))
+            saver(fig, os.path.join(data_root, f"rb_utilization_ecdf_{n}.pdf"))
+            fig, ax = plt.subplots()
+            _Plot.PlotUtil.df_to_table(
+                data.describe().applymap("{:1.4f}".format).reset_index(), ax
+            )
+            saver(fig, os.path.join(data_root, f"rb_stat_{n}.pdf"))
 
     @timing
     def append_count_diff_to_hdf(
