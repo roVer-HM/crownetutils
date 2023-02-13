@@ -441,7 +441,7 @@ class OppSql:
         run_id: int = 1,
         **kwargs,
     ) -> List[int]:
-        """VectorId list for moudle/vector names.
+        """VectorId list for module/vector names.
 
         Args:
             moduleName (SqlOp|str, optional): column selector for moduleName column. Defaults to None.
@@ -904,7 +904,7 @@ class CrownetSql(OppSql):
         pull_data: bool = False,
         **pull_data_kw,
     ) -> pd.DataFrame:
-        """Add human readable lables to vector data. The vector data can be provided either by
+        """Add human readable labels to vector data. The vector data can be provided either by
         module and vector name selectors or by a list of vector ids. If both are provided the
         vector_ids are ignored.
 
