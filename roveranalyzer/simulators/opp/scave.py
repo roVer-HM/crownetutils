@@ -943,6 +943,7 @@ class CrownetSql(OppSql):
         vec_info_columns: List[str] | None = ("vectorId",),
         name_columns: List[str] = ("host", "hostId", "vecIdx"),
         pull_data: bool = False,
+        drop: List[str] | None = None,
         **pull_data_kw,
     ) -> pd.DataFrame:
         """Add human readable labels to vector data. The vector data can be provided either by
@@ -1027,9 +1028,12 @@ class CrownetSql(OppSql):
             _cols.append("vecIdx")
 
         if pull_data:
-            return self.vec_data(ids=_df[_cols], **pull_data_kw)
+            df = self.vec_data(ids=_df[_cols], **pull_data_kw)
         else:
-            return _df[_cols]
+            df = _df[_cols]
+        if drop is not None:
+            df = df.drop(columns=drop, errors="ignore")
+        return df
 
     @timing
     def vec_data_pivot(
