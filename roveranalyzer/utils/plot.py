@@ -4,6 +4,7 @@ import itertools
 import os
 import random
 from contextlib import contextmanager
+from copy import deepcopy
 from functools import wraps
 from typing import Any, ContextManager, List, Protocol, Tuple, Union
 
@@ -20,6 +21,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from shapely.geometry import Polygon
 
 import roveranalyzer.utils.logging as _log
+import roveranalyzer.utils.styles as Styles
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
 logger = _log.logger
@@ -57,30 +59,8 @@ class FigureSaver(Protocol):
         ...
 
 
-def matplotlib_set_latex_param():
-    sns.set(font_scale=1.0, rc={"text.usetex": True})
-    sns.set_style("whitegrid")
-    matplotlib.rcParams["pdf.fonttype"] = 42
-    matplotlib.rcParams["ps.fonttype"] = 42
-    matplotlib.rcParams["pgf.texsystem"] = "pdflatex"
-    matplotlib.rcParams.update(
-        {
-            "font.family": "serif",
-            # "font.size": 18,
-            "axes.labelsize": 20,
-            "axes.titlesize": 22,
-            "legend.fontsize": 18,
-            "figure.titlesize": 24,
-            "pgf.preamble": "\n".join(
-                [  # plots will use this preamble
-                    r"\usepackage[utf8]{inputenc}",
-                    r"\usepackage[T1]{fontenc}",
-                    r"\usepackage[detect-all,round-mode=places,tight-spacing=true]{siunitx}",
-                ]
-            ),
-        }
-    )
-
+def matplotlib_set_latex_param() -> matplotlib.RcParams:
+    old = Styles.load_matplotlib_style(Styles.STYLE_TEX)
     p = "\n".join(
         [  # plots will use this preamble
             r"\usepackage[utf8]{inputenc}",
@@ -88,8 +68,8 @@ def matplotlib_set_latex_param():
             r"\usepackage[detect-all,round-mode=places,tight-spacing=true]{siunitx}",
         ]
     )
-    matplotlib.rc("text.latex", preamble=p)
-    matplotlib.rcParams["text.usetex"] = True
+    matplotlib.rcParams.update({"pgf.preamble": p, "tex.latex.preamble": p})
+    return old
 
 
 def plt_rc_same(rc: None | dict = None, size="xx-large"):
