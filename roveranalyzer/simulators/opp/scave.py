@@ -11,7 +11,7 @@ import sqlite3 as sq
 import subprocess
 import time
 from multiprocessing import Value
-from typing import List, Tuple, Union
+from typing import Any, List, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -669,6 +669,7 @@ class OppSql:
         time_resolution=1e12,
         index: List[str] | None = None,
         index_sort: bool = True,
+        drop: str | List[str] | None = None,
         **kwargs,
     ):
 
@@ -709,6 +710,10 @@ class OppSql:
         if df.shape[0] == 0:
             logger.info("Query returned empty DataFrame.")
             logger.debug(_sql)
+
+        if drop is not None:
+            drop = [drop] if isinstance(drop, str) else drop
+            df = df.drop(columns=drop, errors="ignore")
 
         return df
 

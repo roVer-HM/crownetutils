@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import itertools
 import os
-from functools import partial
-from os.path import join
-from typing import IO, Any, Dict, List, Protocol, TextIO, Tuple
-from xmlrpc.client import ProtocolError
+from typing import List, Tuple
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -14,14 +11,7 @@ import pandas as pd
 import seaborn as sns
 from pandas import IndexSlice as _i
 
-from roveranalyzer.utils import dataframe
-
 sns.set(font_scale=1.0, rc={"text.usetex": True})
-from matplotlib.backends.backend_pdf import PdfPages
-from omnetinireader.config_parser import ObjectValue
-from scipy.stats import kstest, mannwhitneyu
-
-import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.analysis.base import AnalysisBase
@@ -36,16 +26,14 @@ from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvid
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlEmptyResult, SqlOp
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
-    FrameConsumerList,
     append_index,
     format_frame,
     siunitx,
 )
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
-from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
-
-PlotUtil = _Plot.PlotUtil
+from roveranalyzer.utils.parallel import run_kwargs_map
+from roveranalyzer.utils.plot import PlotUtil, with_axis
 
 
 def make_run_series(
@@ -189,11 +177,11 @@ class _OppAnalysis(AnalysisBase):
             df_rcv /= _sum
         return df_rcv
 
-    @PlotUtil.with_axis
+    @with_axis
     def plot_packet_source_distribution(
         self,
         data: pd.DataFrame,
-        hatch_patterns: List[str] = PlotUtil.hatch_patterns,
+        hatch_patterns: List[str] = PlotUtil._hatch_patterns,
         ax: plt.Axes = None,
         **kwargs,
     ) -> plt.Axes:
@@ -247,7 +235,7 @@ class _OppAnalysis(AnalysisBase):
         tbl_idx.sort()
         return tbl, tbl_idx
 
-    @PlotUtil.with_axis
+    @with_axis
     def plot_neighborhood_table_size_over_time(
         self, tbl: pd.DataFrame, tbl_idx: np.ndarray, ax: plt.Axes = None
     ) -> plt.Axes:
@@ -275,22 +263,86 @@ class _OppAnalysis(AnalysisBase):
         return ax.get_figure(), ax
 
     @timing
-    def get_cumulative_received_packet_delay(
+    def get_received_host_ids(
         self,
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
-        delay_resolution: float = 1.0,
-        index: List[str] | None = ("time",),
-    ) -> pd.DataFrame:
-        df = sql.vec_data(
-            module_name=module_name,
-            vector_name="rcvdPkLifetime:vector",
-            value_name="delay",
-            index=index if index is None else list(index),
-            index_sort=True,
+    ):
+        # add eventNumber to allow concat with rx host id data
+        columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
+        df = sql.vector_ids_to_host(
+            module_name,
+            "rcvdPkHostId:vector",
+            name_columns=["hostId"],
+            pull_data=True,
+            value_name="tx_host_id",
+            columns=columns,
+            drop=["vectorId"],
         )
-        df["delay"] *= delay_resolution
+        df["tx_host_id"] = df["tx_host_id"].astype(int)
         return df
+
+    @timing
+    def get_received_packet_jitter(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = False,
+        drop_col: List[str] | None = ("vectorId",),
+    ):
+        if drop_self_message:
+            logger.info(
+                f"drop data points where hostId (i.e. receiving node) and tx_host_id are equal."
+            )
+            # drop_self_message implies that these must be true!
+            append_source_id = True
+            with_host_id = True
+        if append_source_id:
+            columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
+        else:
+            columns = ["vectorId", "simtimeRaw", "value"]
+
+        if with_host_id or append_source_id:
+            df = sql.vector_ids_to_host(
+                module_name,
+                "rcvdPktPerSrcJitter:vector",
+                pull_data=True,
+                value_name="jitter",
+                columns=columns,
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+        else:
+            df = sql.vec_data(
+                module_name=module_name,
+                vector_name="rcvdPktPerSrcJitter:vector",
+                value_name="jitter",
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+
+        if append_source_id:
+            df = self._merge_rx_host_id(df, sql, module_name, drop_self_message)
+        return df
+
+    def _merge_rx_host_id(
+        self, data: pd.DataFrame, sql, module_name, drop_self_msg: bool = False
+    ):
+        """Merge receiving host id with data from data vector."""
+        tx_host_ids = self.get_received_host_ids(sql, module_name)
+        data = data.set_index(["eventNumber", "time", "hostId"]).sort_index()
+        tx_host_ids = tx_host_ids.set_index(
+            ["eventNumber", "time", "hostId"]
+        ).sort_index()
+        if not data.index.is_unique or not data.index.is_unique:
+            logger.warn(f"index is not unique")
+        data = pd.concat(
+            [data, tx_host_ids], axis=1, ignore_index=False, verify_integrity=True
+        )
+        if drop_self_msg:
+            _mask = data.index.get_level_values("hostId") == data["tx_host_id"]
+            data = data[~_mask]
+        return data
 
     @timing
     def get_avgServedBlocksUl(
@@ -306,6 +358,48 @@ class _OppAnalysis(AnalysisBase):
             index_sort=True,
         )
         return df
+
+    @timing
+    def get_map_pkt_count_ts(
+        self,
+        sql: Scave.CrownetSql,
+    ):
+        df = sql.vector_ids_to_host(
+            module_name=sql.m_map(),
+            vector_name="packetSent:vector(packetBytes)",
+            name_columns=["hostId"],
+            pull_data=True,
+            value_name="sentBytes",
+            index=["time", "hostId"],
+        ).drop(columns=["vectorId"])
+        df = (
+            df.groupby(["time", "hostId"])
+            .agg(["count", "sum"])
+            .set_axis(["pkt_count", "byte_count"], axis=1)
+        )
+        return df
+
+    @timing
+    def plot_map_pkt_count_all(
+        self,
+        data_root: str,
+        sql: Scave.CrownetSql,
+        saver: _Plot.FigureSaver = _Plot.FigureSaver.FIG,
+    ):
+        data = self.get_map_pkt_count_ts(sql)
+        fig, ax = plt.subplots()
+        _Plot.PlotUtil.df_to_table(
+            data.describe().applymap("{:1.4f}".format).reset_index(), ax
+        )
+        ax.set_title(f"Descriptive statistics for map application")
+        saver(fig, os.path.join(data_root, f"tx_MapPkt_stat.pdf"))
+
+        fig, ax = PlotUtil.check_ax()
+        ax.scatter("time", "pkt_count", data=data.reset_index())
+        ax.set_title("Packet count over time")
+        ax.set_ylabel("Number of packets")
+        ax.set_xlabel("Simulation time in seconds")
+        saver(fig, os.path.join(data_root, f"txMapPktCount_ts.pdf"))
 
     @timing
     def get_txAppInterval(
@@ -339,136 +433,17 @@ class _OppAnalysis(AnalysisBase):
         df = pd.concat([df1, df2], axis=1, ignore_index=False)
         return df
 
-    def plot_hist_enb_served_rb(self, data: pd.DataFrame, bins=25, enb=0):
-        ax: plt.Axes
-        fig, ax = _Plot.check_ax()
-        data = data["value"]
-        d = 1
-        left_of_first_bin = 0 - float(d) / 2
-        right_of_last_bin = bins + float(d) / 2
-        ax.hist(
-            data, np.arange(left_of_first_bin, right_of_last_bin + d, d), align="mid"
-        )
-        ax.set_xlim(-1, bins + 1)
-        ax.set_xticks(np.arange(0, bins + 1, 1))
-        ax.set_title(f"Resource block utilization of eNB {enb}")
-        ax.set_xlabel("Resource Blocks (RB's)")
-        ax.set_ylabel("Count")
-        return fig, ax
-
-    def plot_ecdf_enb_served_rb(self, data, bins=25, enb=0):
-        _x = data["value"].sort_values().values
-        _y = np.arange(len(_x)) / float(len(_x))
-        fig, ax = _Plot.check_ax()
-        ax.plot(_x, _y)
-        ax.set_title("ECDF of resource block utilization of eNB {enb}")
-        ax.set_xlabel("Resource Blocks (RB's)")
-        ax.set_ylabel("ECDF")
-        ax.set_xlim(-1, bins + 1)
-        ax.set_xticks(np.arange(0, bins + 1, 1))
-        return fig, ax
-
-    @timing
-    def plot_txinterval_all(
-        self,
-        data_root: str,
-        sql: Scave.CrownetSql,
-        app: str = "Beacon",
-        saver: _Plot.FigureSaver = _Plot.FigureSaver.FIG,
-    ):
-        data = self.get_txAppInterval(sql, app_type=app)
-        data = data.droplevel(["hostId", "host"]).sort_index()
-        fig, ax = plt.subplots()
-        _Plot.PlotUtil.df_to_table(
-            data.describe().applymap("{:1.4f}".format).reset_index(), ax
-        )
-        ax.set_title(f"Descriptive statistics for application {app}")
-        saver(fig, os.path.join(data_root, f"tx_AppIntervall_stat.pdf"))
-
-        fig, _ = self.plot_ts_txinterval(data, app_name=app, time_bucket_length=1.0)
-        saver(fig, os.path.join(data_root, f"txAppInterval_ts.pdf"))
-
-        fig, _ = self.plot_hist_txinterval(data)
-        saver(fig, os.path.join(data_root, f"tx_AppInterval_hist_.pdf"))
-
-        fig, _ = self.plot_ecdf_txinterval(data)
-        saver(fig, os.path.join(data_root, f"tx_AppInterval_ecdf.pdf"))
-
-    def plot_ts_txinterval(
-        self, data: pd.DataFrame, app_name="", time_bucket_length=1.0
-    ):
-        interval = pd.interval_range(
-            start=0.0, end=np.ceil(data.index.max()), freq=time_bucket_length
-        )
-        data = data.groupby(pd.cut(data.index, interval)).mean()
-        data.index = interval.left
-        data.index.name = "time"
-        cols = data.columns
-        data = data.reset_index()
-        fig, ax = _Plot.check_ax()
-        for c in cols:
-            ax.plot("time", c, data=data, label=f"{c} {app_name}")
-        ax.legend(loc="upper right")
-        ax.set_title(
-            "Average transmission interval of all nodes over time. (time bin size 1s)"
-        )
-        ax.set_xlabel("Time in seconds")
-        ax.set_ylabel("Transmission time interval in seconds")
-        return fig, ax
-
-    def plot_hist_txinterval(self, data: pd.DataFrame):
-        # use same bins for both data sets
-        fig, ax = _Plot.check_ax()
-        _range = (data["txInterval"].min(), data["txInterval"].max())
-        _bin_count = np.ceil(data["txInterval"].count() ** 0.5)
-        _bins = np.histogram(data, bins=int(_bin_count))[1]
-        for c in data.columns:
-            ax.hist(data[c], bins=_bins, range=_range, density=True, alpha=0.5, label=c)
-        ax.legend()
-        ax.set_title("Histogram of transmission time interval in seconds ")
-        ax.set_ylabel("Density")
-        ax.set_xlabel("Transmission time interval in seconds")
-        return fig, ax
-
-    def plot_ecdf_txinterval(self, data: pd.DataFrame):
-        fig, ax = _Plot.check_ax()
-        _x = data["txInterval"].sort_values().values
-        _y = np.arange(len(_x)) / float(len(_x))
-        ax.plot(_x, _y, label="txInterval")
-        _x = data["txDetInterval"].sort_values().values
-        _y = np.arange(len(_x)) / float(len(_x))
-        ax.plot(_x, _y, label="txDetInterval")
-        ax.set_title("ECDF of transmission interval time")
-        ax.set_xlabel("Time in seconds")
-        ax.set_ylabel("ECDF")
-        return fig, ax
-
-    def plot_ts_enb_served_rb(self, data: pd.DataFrame, time_bucket_length=1.0):
-        interval = pd.interval_range(
-            start=0.0, end=np.ceil(data.index.max()), freq=time_bucket_length
-        )
-        data = data.groupby(pd.cut(data.index, interval)).mean()
-        data.index = interval.left
-        data.index.name = "time"
-        data = data.reset_index()
-        fig, ax = _Plot.check_ax()
-        ax.plot("time", "value", data=data)
-        ax.set_title("Average Resource Block (RB) usage over time. (time bin size 1s)")
-        ax.set_xlabel("time in [s]")
-        ax.set_ylabel("Resource blocks")
-        # ax.set_ylim(0, bins+1)
-        # ax.set_yticks(np.arange(0, bins+1, 1))
-        return fig, ax
-
     @timing
     def get_received_packet_delay(
         self,
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
         delay_resolution: float = 1.0,
-        describe: bool = True,
-        value_name: str = "rcvdPktLifetime",
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = False,
+        drop_columns: List[str] | None = ("vectorId",),
+    ) -> pd.DataFrame:
         """Packet delay data based on single applications in '<Network>.<Module>[*].app[*].app'
 
         Args:
@@ -482,25 +457,38 @@ class _OppAnalysis(AnalysisBase):
             (1) raw data (hostId, srcHostId, time)[delay]
             (2) empty  or (hostId, srcHostId)[count, mean, std, min, 25%, 50%, 75%, max] if describe=True
         """
-        vec_names = {
-            "rcvdPkLifetime:vector": {
-                "name": value_name,
-                "dtype": float,
-            },
-            "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
-        }
-        vec_data = sql.vec_data_pivot(
-            module_name,
-            vec_names,
-            append_index=["srcHostId"],
-        )
-        vec_data = vec_data.sort_index()
-        vec_data[value_name] *= delay_resolution
-
-        if describe:
-            return vec_data, vec_data.groupby(level=["hostId", "srcHostId"]).describe()
+        if drop_self_message:
+            logger.info(
+                f"drop data points where hostId (i.e. receiving node) and tx_host_id are equal."
+            )
+            # drop_self_message implies that these must be true!
+            append_source_id = True
+            with_host_id = True
+        if append_source_id:
+            columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
         else:
-            return vec_data, pd.DataFrame()
+            columns = ["vectorId", "simtimeRaw", "value"]
+
+        if with_host_id:
+            df = sql.vector_ids_to_host(
+                module_name,
+                "rcvdPkLifetime:vector",
+                pull_data=True,
+                value_name="delay",
+                columns=columns,
+                drop=drop_columns if drop_columns is None else list(drop_columns),
+            )
+        else:
+            df = sql.vec_data(
+                module_name=module_name,
+                vector_name="rcvdPkLifetime:vector",
+                value_name="delay",
+                drop=drop_columns if drop_columns is None else list(drop_columns),
+            )
+        df["delay"] *= delay_resolution
+        if append_source_id:
+            df = self._merge_rx_host_id(df, sql, module_name, drop_self_message)
+        return df
 
     @timing
     def get_measured_sinr_d2d(
@@ -654,48 +642,6 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     @timing
-    def create_common_plots_density(
-        self,
-        data_root: str,
-        builder: Dcd.DcdHdfBuilder,
-        sql: Scave.CrownetSql,
-        selection: str = "yml",
-    ):
-        dmap = builder.build_dcdMap(selection=selection)
-        with PdfPages(join(data_root, "common_output.pdf")) as pdf:
-            dmap.plot_map_count_diff(savefig=pdf)
-
-            tmin, tmax = builder.count_p.get_time_interval()
-            time = (tmax - tmin) / 4
-            intervals = [slice(time * i, time * i + time) for i in range(4)]
-            for _slice in intervals:
-                dmap.plot_error_histogram(time_slice=_slice, savefig=pdf)
-
-    @timing
-    def plot_served_blocks_ul_all(
-        self,
-        data_root: str,
-        builder: Dcd.DcdHdfBuilder,
-        sql: Scave.CrownetSql,
-        saver: _Plot.FigureSaver = _Plot.FigureSaver.FIG,
-    ):
-        num_enb = int(sql.get_run_config("*.numEnb"))
-        bins = int(sql.get_run_config("**.numBands"))
-        for n in range(num_enb):
-            data = self.get_avgServedBlocksUl(sql, enb_index=n)
-            fig, _ = self.plot_ts_enb_served_rb(data, time_bucket_length=1.0)
-            saver(fig, os.path.join(data_root, f"rb_utilization_ts_{n}.pdf"))
-            fig, _ = self.plot_hist_enb_served_rb(data, bins, n)
-            saver(fig, os.path.join(data_root, f"rb_utilization_hist_{n}.pdf"))
-            fig, _ = self.plot_ecdf_enb_served_rb(data, bins, n)
-            saver(fig, os.path.join(data_root, f"rb_utilization_ecdf_{n}.pdf"))
-            fig, ax = plt.subplots()
-            _Plot.PlotUtil.df_to_table(
-                data.describe().applymap("{:1.4f}".format).reset_index(), ax
-            )
-            saver(fig, os.path.join(data_root, f"rb_stat_{n}.pdf"))
-
-    @timing
     def append_count_diff_to_hdf(
         self,
         sim: Simulation,
@@ -773,139 +719,6 @@ class _OppAnalysis(AnalysisBase):
 
         return count_diff, err_box, err_hist
         # return count_diff, err_hist
-
-    @timing
-    def create_plot_err_box_over_time(self, sim: Simulation, title: str, ax: plt.Axes):
-
-        s = _Plot.Style()
-        s.font_dict = {
-            "title": {"fontsize": 14},
-            "xlabel": {"fontsize": 10},
-            "ylabel": {"fontsize": 10},
-            "legend": {"size": 14},
-            "tick_size": 10,
-        }
-        s.create_legend = False
-
-        dmap = sim.get_dcdMap()
-        dmap.style = s
-        _, ax = dmap.plot_err_box_over_time(ax=ax, xtick_sep=10)
-        ax.set_title(title)
-        return ax
-
-    def err_hist_plot(self, s: _Plot.Style, data: List[DataSource]):
-        def title(sim: Simulation):
-            cfg = sim.run_context.oppini
-            map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]
-            run_name = sim.run_context.args.get_value("--run-name")
-            if all(i in map for i in ["alpha", "stepDist", "zeroStep"]):
-                return f"{run_name[0:-7]}\nalpha:{map['alpha']} distance threshold: {map['stepDist']} use zero: {map['zeroStep']}"
-            else:
-                return f"{run_name[0:-7]}\n Youngest measurement first"
-
-        fig, ax = plt.subplots(ncols=3, nrows=3, figsize=(16, 9))
-
-        axes = [a for aa in ax for a in aa]
-        for a in axes[len(data) :]:
-            a.remove()
-
-        for idx, run in enumerate(data):
-            sim: Simulation = run.source
-            dmap = sim.get_dcdMap()
-            dmap.style = s
-            # provide data from run cache
-            _, a = dmap.plot_error_histogram(ax=axes[idx], data_source=run)
-            a.set_title(title(sim))
-
-        PlotUtil.equalize_axis(fig.get_axes(), "y")
-        PlotUtil.equalize_axis(fig.get_axes(), "x")
-        fig.suptitle("Count Error Histogram")
-        fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0))
-
-        return fig
-
-    def box_plot(self, data: pd.DataFrame, bin_width, bin_key):
-
-        if bin_key in data.columns:
-            data = data.set_index(bin_key, verify_integrity=False)
-
-        bins = int(np.floor(data.index.max() / bin_width))
-        _cut = pd.cut(data.index, bins)
-        return data.groupby(_cut), _cut
-
-    def err_box_plot(self, s: _Plot.Style, data: List[DataSource]):
-        def title(sim: Simulation):
-            cfg = sim.run_context.oppini
-            map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]
-            run_name = sim.run_context.args.get_value("--run-name")
-            if all(i in map for i in ["alpha", "stepDist", "zeroStep"]):
-                return f"{run_name[0:-7]}\nalpha:{map['alpha']} distance threshold: {map['stepDist']} use zero: {map['zeroStep']}"
-            else:
-                return f"{run_name[0:-7]}\n Youngest measurement first"
-
-        fig, ax = plt.subplots(ncols=3, nrows=3, figsize=(16, 9))
-
-        axes = [a for aa in ax for a in aa]
-        for a in axes[len(data) :]:
-            a.remove()
-
-        for idx, run in enumerate(data):
-            sim: Simulation = run.source
-            dmap = sim.get_dcdMap()
-            dmap.style = s
-            # provide data from run cache
-            _, a = dmap.plot_err_box_over_time(
-                ax=axes[idx], xtick_sep=10, data_source=run
-            )
-            a.set_title(title(sim))
-
-        PlotUtil.equalize_axis(fig.get_axes(), "y")
-        PlotUtil.equalize_axis(fig.get_axes(), "x")
-        fig.suptitle("Count Error over time")
-        fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0))
-
-        return fig
-
-    def diff_plot(self, s: _Plot.Style, data: List[DataSource]):
-        def title(sim: Simulation):
-            cfg = sim.run_context.oppini
-            map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]
-            run_name = sim.run_context.args.get_value("--run-name")
-            if all(i in map for i in ["alpha", "stepDist", "zeroStep"]):
-                return f"{run_name[0:-7]}\nalpha:{map['alpha']} distance threshold: {map['stepDist']} use zero: {map['zeroStep']}"
-            else:
-                return f"{run_name[0:-7]}\n Youngest measurement first"
-
-        fig, ax = plt.subplots(ncols=3, nrows=3, figsize=(16, 9))
-
-        axes = [a for aa in ax for a in aa]
-        for a in axes[len(data) :]:
-            a.remove()
-
-        for idx, run in enumerate(data):
-            sim: Simulation = run.source
-            dmap = sim.get_dcdMap()
-            dmap.style = s
-            # provide data from run cache
-            _, a = dmap.plot_map_count_diff(ax=axes[idx], data_source=run)
-            a.set_title(title(sim))
-
-        # fix legends
-        x = axes[0].legend()
-        axes[0].get_legend().remove()
-        PlotUtil.equalize_axis(fig.get_axes(), "y")
-        PlotUtil.equalize_axis(fig.get_axes(), "x")
-        fig.suptitle("Comparing Map count with ground truth over time")
-        fig.tight_layout(rect=(0.0, 0.05, 1.0, 1.0))
-        fig.legend(
-            x.legendHandles,
-            [i._text for i in x.texts],
-            ncol=3,
-            loc="lower center",
-            bbox_to_anchor=(0.5, 0.0),
-        )
-
-        return fig
 
     def merge_position(
         self,
@@ -1242,165 +1055,6 @@ class _OppAnalysis(AnalysisBase):
             data = data.sort_index()
             data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
         return data
-
-    def calculate_equality_tests(
-        self,
-        data: pd.DataFrame,
-        combination: list[Tuple[Any, Any]] | None = None,
-        lbl_dict: dict | None = None,
-        ax: plt.Axes | None = None,
-        path: str | None = None,
-    ):
-        lbl_dict = {} if lbl_dict is None else lbl_dict
-        if combination is None:
-            combination = list(itertools.combinations(data.columns, 2))
-        res = []
-        for left, right in combination:
-            _s = {}
-            _mw = mannwhitneyu(data[left], data[right], method="asymptotic")
-            _ks = kstest(data[left], data[right])
-            _s["pair"] = f"{lbl_dict.get(left, left)} - {lbl_dict.get(right, right)}"
-            _s["mw_stat"] = _mw.statistic
-            _s["mw_p"] = _mw.pvalue
-            _s["mw_H"] = "$H_0$ (same)" if _s["mw_p"] > 0.05 else "$H_1$ (different)"
-            _s["ks_stat"] = _ks.statistic
-            _s["ks_p"] = _ks.pvalue
-            _s["ks_H"] = "$H_0$ (same)" if _s["ks_p"] > 0.05 else "$H_1$ (different)"
-            res.append(_s)
-        df = pd.DataFrame.from_records(res, index="pair")
-        df.update(df[["mw_stat", "mw_p", "ks_stat", "ks_p"]].applymap("{:.6e}".format))
-        df = df.reset_index()
-
-        if path is not None:
-            df.to_csv(path)
-
-        if ax is None:
-            return df
-        else:
-            ax.set_title("Test for similarity of distribution")
-            ax.axis("off")
-            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
-            tbl.scale(1, 2)
-            ax.get_figure().tight_layout()
-            return df, ax
-
-    def plot_descriptive_comparison(
-        self,
-        data: pd.DataFrame,
-        lbl_dict: dict,
-        run_map: RunMap,
-        out_name: str,
-        stat_col_combination: List[Tuple[Any, Any]] | None = None,
-        pdf_file=None,
-        palette=None,
-        value_axes_label: str = "value",
-    ):
-        """Save mulitple descriptive plots and statisitcs based on given data.
-        DataFrame must be in the long format with a single index.
-        """
-
-        if pdf_file is None:
-            with run_map.pdf_page(out_name) as pdf:
-                self.plot_descriptive_comparison(
-                    data,
-                    lbl_dict,
-                    run_map,
-                    out_name,
-                    stat_col_combination,
-                    pdf,
-                    palette,
-                )
-        else:
-            if data.shape[1] <= 3:
-                f, (stat_ax, descr_ax) = plt.subplots(2, 1, figsize=(16, 9))
-                f = [f]
-            else:
-                f_1, stat_ax = _Plot.check_ax()
-                f_2, descr_ax = _Plot.check_ax()
-                f = [f_1, f_2]
-
-            self.calculate_equality_tests(
-                data,
-                combination=stat_col_combination,
-                lbl_dict=lbl_dict,
-                ax=stat_ax,
-                path=run_map.path(out_name.replace(".pdf", "_stats.csv")),
-            )
-
-            descr_ax.set_title("Summary Statistics")
-            df = data.describe().applymap("{:.6f}".format).reset_index()
-            df.to_csv(run_map.path(out_name.replace(".pdf", "_summary.csv")))
-            descr_ax.axis("off")
-            tbl = descr_ax.table(cellText=df.values, colLabels=df.columns, loc="center")
-            tbl.scale(1, 2)
-
-            for _f in f:
-                _f.tight_layout()
-                pdf_file.savefig(_f)
-                plt.close(_f)
-
-            # Line plot
-            f, ax = _Plot.check_ax()
-            sns.lineplot(data=data, ax=ax, palette=palette)
-            ax.set_title(f"Time Series")
-            ax.set_xlabel("Time in seconds")
-            ax.set_ylabel(value_axes_label)
-            _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf_file.savefig(f)
-            plt.close(f)
-
-            # ECDF plot
-            f, ax = _Plot.check_ax()
-            sns.ecdfplot(data, ax=ax, palette=palette)
-            ax.set_title(f"ECDF pedestrian count")
-            ax.set_xlabel(value_axes_label)
-            ax.get_legend().set_title(None)
-            sns.move_legend(ax, "upper left")
-            _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf_file.savefig(f)
-            plt.close(f)
-
-            # Hist plot
-            f, ax = _Plot.check_ax()
-            sns.histplot(
-                data,
-                cumulative=False,
-                common_norm=False,
-                stat="percent",
-                element="step",
-                ax=ax,
-                palette=palette,
-            )
-            ax.set_title(f"Histogram of pedestrian count")
-            ax.set_xlabel(value_axes_label)
-            ax.get_legend().set_title(None)
-            sns.move_legend(ax, "upper left")
-            _Plot.rename_legend(ax, rename=lbl_dict)
-            pdf_file.savefig(f)
-            plt.close(f)
-
-            if data.shape[1] <= 3:
-                f, (box, violin) = plt.subplots(1, 2, figsize=(16, 9))
-                f = [f]
-            else:
-                f_box, box = _Plot.check_ax()
-                f_violin, violin = _Plot.check_ax()
-                f = [f_box, f_violin]
-
-            # Box plot
-            sns.boxplot(data=data, ax=box, palette=palette)
-            box.set_title(f"Boxplot of pedestrian count")
-            box.set_xlabel("Data")
-            box.set_ylabel(value_axes_label)
-
-            # Violin plot
-            sns.violinplot(data=data, ax=violin, palette=palette)
-            violin.set_title(f"Violin of pedestrian count")
-            violin.set_xlabel("Data")
-            violin.set_ylabel(value_axes_label)
-            for _f in f:
-                pdf_file.savefig(_f)
-                plt.close(_f)
 
 
 class CellOccupancyInfo:
@@ -1881,7 +1535,7 @@ class _CellOccupancy:
                     agrid.set_title("Cell occupancy in percentage")
                     agrid.set_ylabel("y in meter")
                     agrid.set_xlabel("x in meter")
-                    cb = _Plot.add_colorbar(im, aspect=10, pad_fraction=0.5)
+                    cb = PlotUtil.add_colorbar(im, aspect=10, pad_fraction=0.5)
 
                     box_df = (
                         info.occup_interval_by_cell.loc[_i[:, :, :, seed]]

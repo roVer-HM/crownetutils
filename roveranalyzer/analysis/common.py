@@ -200,13 +200,29 @@ class RunMap(dict):
         """Check if path relative to RunMap output_dir exists."""
         return os.path.exists(self.path(*args))
 
-    def any(self, func: SimGroupFilter) -> SimulationGroup:
+    def any(self, filter_f: SimGroupFilter) -> SimulationGroup:
+        """Return first :class:`SimulationGroup` that adheres to filter function.
+
+        Args:
+            filter_f (SimGroupFilter): _description_
+
+        Returns:
+            SimulationGroup:
+        """
         for g in self.values():
-            if func(g):
+            if filter_f(g):
                 return g
 
-    def all(self, func: SimGroupFilter) -> List[SimulationGroup]:
-        return [g for g in self.values() if func(g)]
+    def all(self, filter_f: SimGroupFilter) -> List[SimulationGroup]:
+        """Return all :class:`SimulationGroup` objects that adhere to filter_f.
+
+        Args:
+            func (SimGroupFilter): Some predicate function taking a SimulationGroup object
+
+        Returns:
+            List[SimulationGroup]:
+        """
+        return [g for g in self.values() if filter_f(g)]
 
     def get_mobility_seed_set(self):
         if self._mobility_seeds is None:
@@ -1114,7 +1130,7 @@ class SuqcStudy:
         run_items = np.array(self.get_run_items(filter=id_filter))
         if len(run_items) % sim_per_group != 0:
             raise ValueError(
-                "Number of runs is not divisible by sim_per_group. check id_filter function or sim_per_group count."
+                f"Number of runs is not divisible by sim_per_group {len(run_items)}/{sim_per_group}. check id_filter function or sim_per_group count."
             )
         groups = run_items.reshape((-1, sim_per_group, 2))
 

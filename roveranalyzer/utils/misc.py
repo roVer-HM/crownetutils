@@ -1,7 +1,19 @@
+import contextlib as c
+import locale
 import time
 from typing import List
 
 import numpy as np
+
+
+@c.contextmanager
+def change_locale(category=locale.LC_ALL, loc="de_DE.utf8"):
+    try:
+        old = locale.getlocale()
+        locale.setlocale(category, loc)
+        yield
+    finally:
+        locale.setlocale(category, old)
 
 
 def ccw(a, b, c):

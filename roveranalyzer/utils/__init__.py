@@ -4,5 +4,5 @@ from roveranalyzer.utils.general import Project
 from roveranalyzer.utils.logging import levels, logger, set_format, set_level
 from roveranalyzer.utils.misc import Timer, intersect
 from roveranalyzer.utils.path import JsonPath, PathHelper, Suffix, from_pickle
-from roveranalyzer.utils.plot import PlotHelper, PlotUtil, check_ax
+from roveranalyzer.utils.plot import PlotHelper, PlotUtil
 from roveranalyzer.utils.yesno import query_yes_no

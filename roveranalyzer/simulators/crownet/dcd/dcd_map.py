@@ -16,7 +16,6 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
-import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
@@ -27,9 +26,14 @@ from roveranalyzer.utils.dataframe import (
     partial_index_match,
 )
 from roveranalyzer.utils.misc import intersect
-from roveranalyzer.utils.plot import Style, check_ax, update_dict
-
-PlotUtil = _Plot.PlotUtil
+from roveranalyzer.utils.plot import (
+    PlotUtil,
+    Style,
+    plot_decorator,
+    savefigure,
+    update_dict,
+    with_axis,
+)
 
 
 class MapType(enum.Enum):
@@ -341,8 +345,8 @@ class DcdMap2D(DcdMap):
         print(desc.loc[["update_age"], ["mean", "std", "min", "max"]])
         print("=" * 79)
 
-    @PlotUtil.savefigure
-    @PlotUtil.plot_decorator
+    @savefigure
+    @plot_decorator
     def plot_summary(self, simtime, node_id, title="", **kwargs):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
@@ -354,9 +358,9 @@ class DcdMap2D(DcdMap):
         ax[3].clear()
         return f, ax
 
-    @PlotUtil.savefigure
-    @PlotUtil.with_axis
-    @PlotUtil.plot_decorator
+    @savefigure
+    @with_axis
+    @plot_decorator
     def plot_location_map(self, time_step, *, ax: plt.Axes = None, add_legend=True):
         places = self.own_cell()
         _i = pd.IndexSlice
@@ -378,9 +382,9 @@ class DcdMap2D(DcdMap):
             ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         return ax.get_figure(), ax
 
-    @PlotUtil.savefigure
-    @PlotUtil.with_axis
-    @PlotUtil.plot_decorator
+    @savefigure
+    @with_axis
+    @plot_decorator
     def plot_location_map_annotated(self, time_step, *, ax: plt.Axes = None):
         places = self.own_cell()
         _i = pd.IndexSlice
@@ -496,9 +500,9 @@ class DcdMap2D(DcdMap):
         data = self.update_cell_error(time_slice, value, agg_func, drop_index=True)
         return data, time_slice
 
-    @PlotUtil.savefigure
-    @PlotUtil.with_axis
-    @PlotUtil.plot_decorator
+    @savefigure
+    @with_axis
+    @plot_decorator
     def plot_error_histogram(
         self,
         time_slice: slice = slice(None),
@@ -525,9 +529,9 @@ class DcdMap2D(DcdMap):
         ax = sns.histplot(data=data, stat=stat, fill=fill, ax=ax, **hist_kwargs)
         return ax.get_figure(), ax
 
-    @PlotUtil.savefigure
-    @PlotUtil.with_axis
-    @PlotUtil.plot_decorator
+    @savefigure
+    @with_axis
+    @plot_decorator
     def plot_error_quantil_histogram(
         self,
         value="err",
@@ -586,8 +590,8 @@ class DcdMap2D(DcdMap):
         else:
             raise ValueError(f"Expected ax or array of 5 axes but got {type(ax)}")
 
-    @PlotUtil.savefigure
-    @PlotUtil.plot_decorator
+    @savefigure
+    @plot_decorator
     def plot_error_over_distance(
         self,
         time_step,
@@ -601,7 +605,7 @@ class DcdMap2D(DcdMap):
         **kwargs,
     ):
 
-        f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
+        f, ax = PlotUtil.check_ax(ax, **fig_dict if fig_dict is not None else {})
         df = self.update_error_over_distance(
             time_step, node_id, value, line=None, **kwargs
         )
@@ -625,8 +629,8 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
-    @PlotUtil.savefigure
-    @PlotUtil.plot_decorator
+    @savefigure
+    @plot_decorator
     def plot_delay_over_distance(
         self,
         time_step,
@@ -650,7 +654,7 @@ class DcdMap2D(DcdMap):
           one of: ["delay", "measurement_age", "update_age"]
         """
 
-        f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
+        f, ax = PlotUtil.check_ax(ax, **fig_dict if fig_dict is not None else {})
         df = self.update_delay_over_distance(
             time_step, node_id, value, remove_null=remove_null, line=None, **kwargs
         )
@@ -674,8 +678,8 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
-    @PlotUtil.savefigure
-    @PlotUtil.plot_decorator
+    @savefigure
+    @plot_decorator
     def plot_area(
         self,
         time_step: float,
@@ -695,7 +699,7 @@ class DcdMap2D(DcdMap):
         Default data view: per node / per time / all cells
         """
         df = self.update_area(time_step, node_id, value)
-        f, ax = check_ax(ax, **fig_dict if fig_dict is not None else {})
+        f, ax = PlotUtil.check_ax(ax, **fig_dict if fig_dict is not None else {})
 
         cell = self.get_location(time_step, node_id, cell_id=False)
         if "title" in kwargs:
@@ -727,9 +731,9 @@ class DcdMap2D(DcdMap):
 
         return f, ax
 
-    @PlotUtil.savefigure
-    @PlotUtil.with_axis
-    @PlotUtil.plot_decorator
+    @savefigure
+    @with_axis
+    @plot_decorator
     def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         ax.set_title("Total node count over time", **self.font_dict["title"])
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
@@ -1119,9 +1123,9 @@ class DcdMap2D(DcdMap):
 
         return nodes
 
-    @PlotUtil.savefigure
-    @PlotUtil.with_axis
-    @PlotUtil.plot_decorator
+    @savefigure
+    @with_axis
+    @plot_decorator
     def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         if "data_source" in kwargs:
             nodes = kwargs["data_source"]()
@@ -1166,8 +1170,8 @@ class DcdMap2D(DcdMap):
         _cut = pd.cut(data.index, bins)
         return data, _cut
 
-    @PlotUtil.savefigure
-    @PlotUtil.plot_decorator
+    @savefigure
+    @plot_decorator
     def plot_err_box_over_time(
         self, bin_width=10.0, xtick_sep=5, *, ax=None, **kwargs
     ) -> Tuple[Figure, Axes]:
@@ -1177,7 +1181,7 @@ class DcdMap2D(DcdMap):
         else:
             data, _cut = self.err_box_over_time(bin_width)
 
-        f, ax = check_ax(ax, **kwargs)
+        f, ax = PlotUtil.check_ax(ax, **kwargs)
         font_dict = self.style.font_dict
         ax.set_title("Node Count over Time", **font_dict["title"])
         ax.set_xlabel("Time [s]", **font_dict["xlabel"])

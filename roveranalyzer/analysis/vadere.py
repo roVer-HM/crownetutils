@@ -5,8 +5,8 @@ from typing import List
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from roveranalyzer.analysis.omnetpp import PlotUtil
 from roveranalyzer.utils.dataframe import FrameConsumer
+from roveranalyzer.utils.plot import savefigure, with_axis
 
 
 class _VadereAnalysis:
@@ -34,8 +34,8 @@ class _VadereAnalysis:
 
         return frame_consumer(df)
 
-    @PlotUtil.with_axis
-    @PlotUtil.savefigure
+    @with_axis
+    @savefigure
     def plot_number_agents_over_time(
         self, data: pd.DataFrame, ax: plt.Axes = None, **kwargs
     ):

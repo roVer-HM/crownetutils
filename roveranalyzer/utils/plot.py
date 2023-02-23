@@ -27,10 +27,20 @@ logger = _log.logger
 
 class FigureSaverSimple:
     def __call__(self, figure, *args: Any):
+        os.makedirs(os.path.dirname(args[0]), exist_ok=True)
         figure.savefig(args[0])
 
 
 class FigureSaverPdfPages:
+    @classmethod
+    @contextmanager
+    def withSaver(cls, path, **kwargs) -> ContextManager[FigureSaverPdfPages]:
+        try:
+            saver: FigureSaverPdfPages = cls(PdfPages(path, **kwargs))
+            yield saver
+        finally:
+            saver.pdf.close()
+
     def __init__(self, pdf):
         self.pdf = pdf
 
@@ -116,63 +126,9 @@ def paper_rc(tick_labelsize="xx-large", rc=None, **kw):
     return rc
 
 
-def mult_locator(axis, major, minor=None):
-    axis.set_major_locator(MultipleLocator(major))
-    axis.set_minor_locator(MultipleLocator(minor))
-    _which = "major" if minor is None else "both"
-    _axis = axis.axis_name
-    axis.axes.grid(True, _which, _axis)
-
-
-def add_colorbar(im, aspect=20, pad_fraction=0.5, **kwargs):
-    """Add a vertical color bar to an image plot."""
-    divider = axes_grid1.make_axes_locatable(im.axes)
-    width = axes_grid1.axes_size.AxesY(im.axes, aspect=1.0 / aspect)
-    pad = axes_grid1.axes_size.Fraction(pad_fraction, width)
-    current_ax = plt.gca()
-    cax = divider.append_axes("right", size=width, pad=pad)
-    plt.sca(current_ax)
-    return im.axes.figure.colorbar(im, cax=cax, **kwargs)
-
-
-def remove_seaborn_legend_title(ax: plt.Axes):
-    ax.get_legend().set_title(None)
-    return ax
-
-
 def rename_legend(ax: plt.Axes, rename: dict | None = None, **kwargs) -> plt.Axes:
-    rename = {} if rename is None else rename
-    rename.update(kwargs)
-    for t in ax.get_legend().texts:
-        if t.get_text() in rename:
-            t.set_text(rename[t.get_text()])
-    return ax
-
-
-def fill_between(
-    ax: plt.Axes, data: pd.DataFrame, x=None, val=None, fill_val=None, alpha=0.2, **kwds
-) -> plt.Axes:
-    """Create error bar plot with filled area of same color with reduced alpha"""
-    if x is None:
-        x = data.index.get_level_values(0)
-    elif isinstance(x, str):
-        x = data[x]
-
-    if val is None:
-        val = data.iloc[:, 0]
-    elif isinstance(val, str):
-        val = data[val]
-
-    if fill_val is None:
-        fill_val = data.iloc[:, 1]
-    elif isinstance(fill_val, str):
-        fill_val = data[fill_val]
-
-    line = ax.plot(x, val, **kwds)[-1]
-    ax.fill_between(
-        x, val - fill_val, val + fill_val, alpha=alpha, color=line.get_color()
-    )
-    return ax
+    """[deprecated] added to PlotUtil class"""
+    PlotUtil.rename_legend(ax, rename, **kwargs)
 
 
 def tight_ax_grid(nrows, ncols, **kwds):
@@ -237,20 +193,21 @@ class StyleMap:
 
 
 class _PlotUtil:
-    hatch_patterns = ("||", "--", "++", "x", "\\", "*", "|", "-", "+")
-    plot_markers = ["o", "x", "*", ".", "v", "1", "2", "3", "4"]
-    plot_colors = ["b", "g", "r", "c", "m", "k"]
-    line_types = ["-", ":", "-.", "--"]
-    plot_color_markers = [
-        f"{c}{m}" for c, m in itertools.product(plot_colors, plot_markers)
+    _hatch_patterns = ("||", "--", "++", "x", "\\", "*", "|", "-", "+")
+    _plot_markers = ["o", "x", "*", ".", "v", "1", "2", "3", "4"]
+    _plot_colors = ["b", "g", "r", "c", "m", "k"]
+    _line_types = ["-", ":", "-.", "--"]
+    _plot_color_markers = [
+        f"{c}{m}" for c, m in itertools.product(_plot_colors, _plot_markers)
     ]
-    plot_color_lines = [
-        f"{c}{l}" for c, l in itertools.product(plot_colors, line_types)
+    _plot_color_lines = [
+        f"{c}{l}" for c, l in itertools.product(_plot_colors, _line_types)
     ]
 
     def __init__(self) -> None:
-        random.Random(13).shuffle(self.plot_color_markers)
-        random.Random(13).shuffle(self.plot_color_lines)
+        random.Random(13).shuffle(self._plot_color_markers)
+        random.Random(13).shuffle(self._plot_color_lines)
+        self.ax_provider = self._check_ax
 
     def contour_two_slope_colors(
         self, norm: TwoSlopeNorm, n_colors, c_map="coolwarm", mid_white: bool = False
@@ -265,18 +222,18 @@ class _PlotUtil:
         return levels, colors
 
     def color_marker_lines(self, line_type="--"):
-        return [f"{m}{line_type}" for m in self.plot_color_markers]
+        return [f"{m}{line_type}" for m in self._plot_color_markers]
 
     def color_lines(self, line_type: Union[str, List[str], str] = None, cycle=True):
         if line_type is None:
-            lines = self.plot_color_lines
+            lines = self._plot_color_lines
         elif type(line_type) == list:
             lines = [
-                f"{c}{l}" for c, l in itertools.product(self.plot_colors, line_type)
+                f"{c}{l}" for c, l in itertools.product(self._plot_colors, line_type)
             ]
             random.Random(13).shuffle(lines)
         elif type(line_type) == str:
-            lines = [f"{m}{line_type}" for m in self.plot_color_markers]
+            lines = [f"{m}{line_type}" for m in self._plot_color_markers]
         else:
             raise ValueError("expected None, list of strings or string")
         if cycle:
@@ -296,7 +253,12 @@ class _PlotUtil:
             for ax in axes:
                 ax.set_xlim([min_, max_])
 
-    def df_to_table(self, df: pd.DataFrame, ax: plt.Axes):
+    def df_to_table(
+        self, df: pd.DataFrame, ax: plt.Axes | None = None, title: str | None = None
+    ):
+        fig, ax = self.check_ax(ax)
+        fig.patch.set_visible(False)
+        ax.axis("off")
         t = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
         t.auto_set_font_size(False)
         t.set_fontsize(11)
@@ -304,56 +266,44 @@ class _PlotUtil:
         [c.set_height(0.06) for c in t.get_celld().values()]
         ax.get_yaxis().set_visible(False)
         ax.get_xaxis().set_visible(False)
+        if title is not None:
+            ax.set_title(title)
+        return fig, ax
 
     def fig_to_pdf(self, path, figures: List[plt.figure]):
         with PdfPages(path) as pdf:
             for f in figures:
                 pdf.savefig(f)
 
+    def check_ax(self, ax=None, **kwargs):
+        """
+        check if axis exist if not create new figure with one axis
+        """
+        return self.ax_provider(ax, **kwargs)
+
+    def _check_ax(self, ax=None, **kwargs):
+        args = kwargs.copy()
+        args.setdefault("figsize", (16, 9))
+        if ax is None:
+            f, ax = plt.subplots(1, 1, **args)
+        else:
+            f = ax.get_figure()
+
+        return f, ax
+
     @property
     def color_marker_lines_cycle(self):
         return itertools.cycle(self.color_marker_lines())
 
-    def with_axis(self, method):
-        @wraps(method)
-        def with_axis_impl(self, *method_args, **method_kwargs):
-            if "ax" not in method_kwargs:
-                _, ax = check_ax(None)
-                method_kwargs.setdefault("ax", ax)
-            return method(self, *method_args, **method_kwargs)
-
-        return with_axis_impl
-
-    def savefigure(self, method):
-        @wraps(method)
-        def savefigure_impl(self, *method_args, **method_kwargs):
-            savefig = None
-            if "savefig" in method_kwargs:
-                savefig = method_kwargs["savefig"]
-                del method_kwargs["savefig"]
-            fig, ax = method(self, *method_args, **method_kwargs)
-            if savefig is not None:
-                if isinstance(savefig, PdfPages):
-                    savefig.savefig(fig)
-                else:
-                    os.makedirs(
-                        os.path.dirname(os.path.abspath(savefig)), exist_ok=True
-                    )
-                    logger.info(f"save figure: {savefig}")
-                    fig.savefig(savefig)
-            return fig, ax
-
-        return savefigure_impl
-
-    def plot_decorator(self, method):
-        @wraps(method)
-        def _plot_decorator(self, *method_args, **method_kwargs):
-            if self.plot_wrapper is not None:
-                return self.plot_wrapper(method, self, *method_args, **method_kwargs)
-            else:
-                return method(self, *method_args, **method_kwargs)
-
-        return _plot_decorator
+    def rename_legend(
+        self, ax: plt.Axes, rename: dict | None = None, **kwargs
+    ) -> plt.Axes:
+        rename = {} if rename is None else rename
+        rename.update(kwargs)
+        for t in ax.get_legend().texts:
+            if t.get_text() in rename:
+                t.set_text(rename[t.get_text()])
+        return ax
 
     def get_vadere_legal_cells(
         self,
@@ -435,8 +385,128 @@ class _PlotUtil:
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(ret)
 
+    def mult_locator(self, axis, major, minor=None):
+        axis.set_major_locator(MultipleLocator(major))
+        axis.set_minor_locator(MultipleLocator(minor))
+        _which = "major" if minor is None else "both"
+        _axis = axis.axis_name
+        axis.axes.grid(True, _which, _axis)
+
+    def add_colorbar(self, im, aspect=20, pad_fraction=0.5, **kwargs):
+        """Add a vertical color bar to an image plot."""
+        divider = axes_grid1.make_axes_locatable(im.axes)
+        width = axes_grid1.axes_size.AxesY(im.axes, aspect=1.0 / aspect)
+        pad = axes_grid1.axes_size.Fraction(pad_fraction, width)
+        current_ax = plt.gca()
+        cax = divider.append_axes("right", size=width, pad=pad)
+        plt.sca(current_ax)
+        return im.axes.figure.colorbar(im, cax=cax, **kwargs)
+
+    def fill_between(
+        self,
+        data: pd.DataFrame,
+        x=None,
+        val=None,
+        fill_val=None,
+        alpha=0.2,
+        *,
+        plot_lbl: str | None = None,
+        plot_args: dict | None = None,
+        fill_lbl: str | None = None,
+        fill_args: dict | None = None,
+        ax: plt.Axes | None = None,
+        **kwds,
+    ) -> plt.Axes:
+        """Create error bar plot with filled area of same color with reduced alpha"""
+        if x is None:
+            # assume first level as x-axes
+            x = data.index.get_level_values(0)
+        elif isinstance(x, str):
+            x = data[x]
+
+        if val is None:
+            # assume first column if not set
+            val = data.iloc[:, 0]
+        elif isinstance(val, str):
+            val = data[val]
+
+        if fill_val is None:
+            # assume symmetric additive bounds based on second column
+            fill_val = data.iloc[:, 1]
+            l_bound = val - fill_val
+            u_bound = val + fill_val
+        elif isinstance(fill_val, str):
+            # assume symmetric additive bounds based on column
+            fill_val = data[fill_val]
+            l_bound = val - fill_val
+            u_bound = val + fill_val
+        elif isinstance(fill_val, list(str)):
+            # use two sided bounds with absolute values
+            l_bound = data.iloc[:, fill_val[0]]
+            u_bound = data.iloc[:, fill_val[1]]
+
+        fig, ax = self.check_ax(ax)
+        line = ax.plot(x, val, **({} if plot_args is None else plot_args))[-1]
+        if plot_lbl is not None:
+            line.set_label(plot_lbl)
+        ret_fill = ax.fill_between(
+            x,
+            l_bound,
+            u_bound,
+            alpha=alpha,
+            color=line.get_color(),
+            interpolate=True,
+            **({} if fill_args is None else fill_args),
+        )
+        return ax, line, ret_fill
+
 
 PlotUtil = _PlotUtil()
+
+
+def with_axis(method):
+    @wraps(method)
+    def with_axis_impl(self, *method_args, **method_kwargs):
+        if "ax" not in method_kwargs:
+            _, ax = PlotUtil.check_ax(None)
+            method_kwargs.setdefault("ax", ax)
+        return method(self, *method_args, **method_kwargs)
+
+    return with_axis_impl
+
+
+def savefigure(method):
+    @wraps(method)
+    def savefigure_impl(self, *method_args, **method_kwargs):
+        savefig = None
+        if "savefig" in method_kwargs:
+            savefig = method_kwargs["savefig"]
+            del method_kwargs["savefig"]
+        fig, ax = method(self, *method_args, **method_kwargs)
+        if savefig is not None:
+            if isinstance(savefig, PdfPages):
+                savefig.savefig(fig)
+            elif isinstance(savefig, str):
+                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+                logger.info(f"save figure: {savefig}")
+                fig.savefig(savefig)
+            else:
+                # assume some callable
+                savefig(fig)
+        return fig, ax
+
+    return savefigure_impl
+
+
+def plot_decorator(method):
+    @wraps(method)
+    def _plot_decorator(self, *method_args, **method_kwargs):
+        if self.plot_wrapper is not None:
+            return self.plot_wrapper(method, self, *method_args, **method_kwargs)
+        else:
+            return method(self, *method_args, **method_kwargs)
+
+    return _plot_decorator
 
 
 def tex_1col_fig(ratio=16 / 9, *arg, **kwargs):
@@ -447,23 +517,9 @@ def tex_2col_fig(ratio=16 / 9, *arg, **kwargs):
     return plt.subplots(*arg, **kwargs, figsize=(18, 18 / ratio))
 
 
-def check_ax(ax=None, **kwargs):
-    """
-    check if axis exist if not create new figure with one axis
-    """
-    args = kwargs.copy()
-    args.setdefault("figsize", (16, 9))
-    if ax is None:
-        f, ax = plt.subplots(1, 1, **args)
-    else:
-        f = ax.get_figure()
-
-    return f, ax
-
-
 @contextmanager
 def empty_fig(title) -> ContextManager[plt.figure]:
-    fig, ax = check_ax()
+    fig, ax = PlotUtil.check_ax()
     ax.axis("off")
     fig.text(0.5, 0.5, title, ha="center", va="center")
     yield fig
