@@ -850,7 +850,7 @@ class DcdMap2D(DcdMap):
         # ground truth of nodes at each time where at least one agent was present at some earlier time
         if isinstance(xy_slice, pd.MultiIndex):
             glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            glb = FrameUtl.partial_index_match(glb, xy_slice)
+            glb = partial_index_match(glb, xy_slice)
         else:
             glb = self.count_p[
                 _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
@@ -866,7 +866,7 @@ class DcdMap2D(DcdMap):
                 _i[:, :, :, 1:], _i["count", "err", "sqerr"]
             ]  # all but ground truth
             nodes = self.remove_missing_values(nodes, _i[:, :, :, 1:])
-            nodes = FrameUtl.partial_index_match(nodes, xy_slice)
+            nodes = partial_index_match(nodes, xy_slice)
         else:
             nodes: pd.DataFrame = self.count_p[
                 _i[:, xy_slice[0], xy_slice[1], 1:], _i["count", "err", "sqerr"]
