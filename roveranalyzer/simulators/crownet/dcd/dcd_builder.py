@@ -161,6 +161,12 @@ class DcdHdfBuilder(FrameConsumer):
         self.position_df = None
         self._all_times = None
 
+    def get_selected_alg(self):
+        sel = self.build().map_p.get_attribute("used_selection")
+        if len(sel) > 1:
+            print(f"multiple selections found: {sel}")
+        return list(sel)[0]
+
     def epsg(self, epsg):
         self._epsg = epsg
         return self
