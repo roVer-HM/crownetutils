@@ -2,3 +2,5 @@ include README.md
 include requirements.txt
 include tutorial/README.md
 recursive-include roveranalyzer/tempaltes/ *.j2
+recursive-include roveranalyzer *.mplstyle
+
