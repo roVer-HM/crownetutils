@@ -61,6 +61,16 @@ class BaseHdfProvider:
                 data_columns=index_data_columns,
             )
 
+    def put_frame_fixed(self, group, frame, index_data_columns=True):
+        with self.ctx() as store:
+            store.put(
+                key=group,
+                value=frame,
+                index=True,
+                format="fixed",
+                data_columns=index_data_columns,
+            )
+
     def override_frame(
         self, group: str, frame: pd.DataFrame, index=True, index_data_columns=True
     ):
