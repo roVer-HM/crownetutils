@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import os
+from ast import List
+from typing import Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,9 +11,15 @@ import pandas as pd
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as p
 from roveranalyzer.analysis.common import Simulation
+from roveranalyzer.analysis.flaskapp.application.layout import IdProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.logging import logger, timing
-from roveranalyzer.utils.plot import FigureSaver, _PlotUtil
+from roveranalyzer.utils.plot import (
+    FigureSaver,
+    FigureSaverSimple,
+    _PlotUtil,
+    with_axis,
+)
 
 
 class _PlotAppTxInterval(_PlotUtil):
@@ -19,24 +29,34 @@ class _PlotAppTxInterval(_PlotUtil):
         data_root: str,
         sql: Scave.CrownetSql,
         app: str = "Beacon",
-        saver: FigureSaver = FigureSaver.FIG,
+        saver: FigureSaver | None = None,
     ):
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
         data = OppAnalysis.get_txAppInterval(sql, app_type=app)
         data = data.droplevel(["hostId", "host"]).sort_index()
-        fig, _ = self.df_to_table(
+        if data.empty:
+            logger.info(
+                "No tx interval vectors found. Did you choose the correct scheduler in the Simulation?"
+            )
+            return
+        fig, ax = self.df_to_table(
             data.describe().applymap("{:1.4f}".format).reset_index(),
-            title=f"Descriptive statistics for application {app}",
+            title=f"Descriptive statistics for application",
         )
-        saver(fig, os.path.join(data_root, f"tx_AppIntervall_stat.pdf"))
+        self.append_title(ax, prefix=f"{app}: ")
+        saver(fig, f"{app}_tx_AppIntervall_stat.pdf")
 
-        fig, _ = self.plot_ts_txinterval(data, app_name=app, time_bucket_length=1.0)
-        saver(fig, os.path.join(data_root, f"txAppInterval_ts.pdf"))
+        fig, ax = self.plot_ts_txinterval(data, app_name=app, time_bucket_length=1.0)
+        self.append_title(ax, prefix=f"{app}: ")
+        saver(fig, f"{app}_txAppInterval_ts.pdf")
 
-        fig, _ = self.plot_hist_txinterval(data)
-        saver(fig, os.path.join(data_root, f"tx_AppInterval_hist_.pdf"))
+        fig, ax = self.plot_hist_txinterval(data)
+        self.append_title(ax, prefix=f"{app}: ")
+        saver(fig, f"{app}_tx_AppInterval_hist_.pdf")
 
-        fig, _ = self.plot_ecdf_txinterval(data)
-        saver(fig, os.path.join(data_root, f"tx_AppInterval_ecdf.pdf"))
+        fig, ax = self.plot_ecdf_txinterval(data)
+        self.append_title(ax, prefix=f"{app}: ")
+        saver(fig, f"{app}_tx_AppInterval_ecdf.pdf")
 
     def plot_ts_txinterval(
         self, data: pd.DataFrame, app_name="", time_bucket_length=1.0
@@ -85,6 +105,7 @@ class _PlotAppTxInterval(_PlotUtil):
         ax.set_title("ECDF of transmission interval time")
         ax.set_xlabel("Time in seconds")
         ax.set_ylabel("ECDF")
+        ax.legend()
         return fig, ax
 
 
@@ -104,8 +125,107 @@ class _PlotAppMisc(_PlotUtil):
         data["time"] = time_int.left
         return data
 
+    @with_axis
+    def plot_packet_size_ts(
+        self, data: pd.DataFrame, *, ax: plt.Axes | None = None, **plot_args
+    ):
+        _i = pd.IndexSlice
+        d = data.loc[_i[:, "Beacon"], "value"]
+        ax.scatter(
+            d.index.get_level_values(0), d, marker="x", label="Beacon", **plot_args
+        )
+
+        d = data.loc[_i[:, "Map"], "value"]
+        ax.scatter(d.index.get_level_values(0), d, marker="+", label="Map", **plot_args)
+
+        ax.set_ylabel("Packet size in bytes")
+        ax.set_xlabel("Time in seconds")
+        ax.set_title(
+            "Packet size over time for all agents and all applications (Beacon and Map)"
+        )
+        ax.legend()
+        return ax.get_figure(), ax
+
+    @with_axis
+    def plot_tx_throughput(
+        self, data: pd.DataFrame, sql: Scave.CrownetSql, *, ax: plt.Axes | None = None
+    ):
+        marker = [".", "x"]
+        for i, c in enumerate(data.columns):
+            ax.scatter(data.index, data[c], marker=marker[i], label=c)
+
+        map_max_bw = sql.get_run_parameter(
+            sql.m_map(app_mod="scheduler"), name="maxApplicationBandwidth"
+        )
+        if not map_max_bw.empty:
+            val = map_max_bw["paramValue"].unique()[0]
+            if val.endswith("bps"):
+                val = int(val[:-3]) / 8000
+                ax.hlines(
+                    val,
+                    data.index.min(),
+                    data.index.max(),
+                    color="red",
+                    label="Map max bandwidth",
+                )
+
+        beacon_max_bw = sql.get_run_parameter(
+            sql.m_beacon(app_mod="scheduler"), name="maxApplicationBandwidth"
+        )
+        if not beacon_max_bw.empty:
+            val = beacon_max_bw["paramValue"].unique()[0]
+            if val.endswith("bps"):
+                val = int(val[:-3]) / 8000
+                ax.hlines(
+                    val,
+                    data.index.min(),
+                    data.index.max(),
+                    color="red",
+                    linestyles="-.",
+                    label="Beacon max bandwidth",
+                )
+
+        ax.legend()
+        ax.set_title("Data rate based on sent packets in all from all nodes")
+        ax.set_ylabel("Data rate in kBps")
+        ax.set_xlabel("Time in seconds")
+        return ax.get_figure(), ax
+
+    def cmp_system_level_tx_rate_based_on_application_layer_data(
+        self, sims: List[Simulation], *, saver: FigureSaver | None = None
+    ):
+        _, ax_pkt_size = self.check_ax()
+        _, ax_app_t = self.check_ax()
+        lbl_set = set()
+        legend_dict = dict()
+        for sim in sims:
+            data = OppAnalysis.get_sent_packet_bytes_by_app(sim.sql)
+            self.plot_packet_size_ts(data, ax=ax_pkt_size, alpha=0.7)
+            _h = []
+            _l = []
+            for h, l in list(zip(*ax_pkt_size.get_legend_handles_labels())):
+                if h not in legend_dict:
+                    legend_dict[h] = f"{sim.label}: {l}"
+
+            data = OppAnalysis.get_sent_packet_throughput_by_app(sim.sql, cache=data)
+            self.plot_tx_throughput(data, sim.sql, ax=ax_app_t)
+            for h, l in list(zip(*ax_app_t.get_legend_handles_labels())):
+                if h not in legend_dict:
+                    legend_dict[h] = f"{sim.label}: {l}"
+
+        for a in [ax_pkt_size, ax_app_t]:
+            _h = []
+            _l = []
+            for h, l in list(zip(*a.get_legend_handles_labels())):
+                _h.append(h)
+                _l.append(legend_dict[h])
+            a.legend(_h, _l)
+
+        saver(ax_pkt_size.get_figure(), "Packet_size_ts.pdf")
+        saver(ax_app_t.get_figure(), "System_tx_data_rate.pdf")
+
     def plot_system_level_tx_rate_based_on_application_layer_data(
-        self, sim: Simulation, *, saver: FigureSaver = FigureSaver.FIG
+        self, sim: Simulation, *, saver: FigureSaver | None = None
     ):
         """
         How many packets, at which size, and at what rate are produced by each application
@@ -115,96 +235,29 @@ class _PlotAppMisc(_PlotUtil):
         (2) Show the throughput over time for each application and in total.
         (3) What are the number of neighbors/members used in the tx interval algorithm?
         """
-        sql = sim.sql
-        tx_pkt_beacon = sql.vec_data(
-            sql.m_beacon(), "packetSent:vector(packetBytes)"
-        ).drop(columns=["vectorId"])
-        tx_pkt_beacon["app"] = "Beacon"
-        tx_pkt_map = sql.vec_data(sql.m_map(), "packetSent:vector(packetBytes)").drop(
-            columns=["vectorId"]
-        )
-        tx_pkt_map["app"] = "Map"
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
+        tx_pkt = OppAnalysis.get_sent_packet_bytes_by_app(sim.sql)
         # (1) packet size t
-        fig, ax = self.check_ax()
-        ax.scatter(
-            "time", "value", data=tx_pkt_beacon, marker="x", color="red", label="Beacon"
-        )
-        ax.scatter(
-            "time", "value", data=tx_pkt_map, marker="+", color="blue", label="Map"
-        )
-        ax.set_ylabel("Packet size in bytes")
-        ax.set_xlabel("Time in seconds")
-        ax.set_title(
-            "Packet size over time for all agents and all applications (Beacon and Map)"
-        )
-        ax.legend()
-        saver(fig, sim.path("packet_size_ts.pdf"))
-        # (2) throughput
-        tx_pkt = pd.concat(
-            [tx_pkt_beacon, tx_pkt_map], axis=0, ignore_index=True
-        ).set_index(["time"])
-        t_delta = 1.0
-        bins = pd.interval_range(
-            start=0.0, end=tx_pkt.index.max(), freq=t_delta, closed="left"
-        )
-        tx_rate_sum = (
-            tx_pkt.loc[:, ["value"]].groupby(pd.cut(tx_pkt.index, bins=bins)).sum()
-            / t_delta
-            / 1000
-        )
-        tx_rate_app = (
-            (
-                tx_pkt.groupby([pd.cut(tx_pkt.index, bins=bins), "app"]).sum()
-                / t_delta
-                / 1000
-            )
-            .unstack("app")
-            .droplevel(0, axis=1)
-        )
-        tx_rate = pd.concat(
-            [tx_rate_sum, tx_rate_app], axis=1, ignore_index=False
-        ).rename(columns={"value": "Total"})
-        tx_rate.index = bins.left
-        tx_rate.index.name = "time"
-        fig2, ax2 = self.check_ax()
-        marker = [".", "x", "+"]
-        for i, c in enumerate(tx_rate.columns):
-            ax2.scatter(tx_rate.index, tx_rate[c], marker=marker[i], label=c)
+        fig, _ = self.plot_packet_size_ts(data=tx_pkt)
+        saver(fig, "Packet_size_ts.pdf")
 
-        ax2.legend()
-        ax2.set_title("Data rate based on sent packets in all from all nodes")
-        ax2.set_ylabel("Data rate in kBps")
-        ax2.set_xlabel("Time in seconds")
-        saver(fig2, sim.path("System_tx_data_rate.pdf"))
+        # (2) throughput
+        tx_rate = OppAnalysis.get_sent_packet_throughput_by_app(sim.sql, cache=tx_pkt)
+        fig, _ = self.plot_tx_throughput(tx_rate, sim.sql)
+        saver(fig, "System_tx_data_rate.pdf")
 
     def plot_number_of_agents(
-        self, sim: Simulation, *, saver: FigureSaver = FigureSaver.FIG
+        self, sim: Simulation, *, saver: FigureSaver | None = None
     ):
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
         sql = sim.sql
         dmap = sim.builder.build_dcdMap()
         fig, ax = self.check_ax()
-        # (1) Cumulative number of nodes in the simulation over time
-        id_set = set()
-        id_count = []
-        df_id = dmap.position_df.reset_index("node_id")
-        times = df_id.sort_index().index.unique()
 
-        for t in times:
-            try:
-                id_set = id_set.union(df_id.loc[t, "node_id"])
-            except TypeError as e:
-                id_set = id_set.union([df_id.loc[t, "node_id"]])
-
-            id_count.append(len(id_set))
-        ax.scatter(times, id_count, s=5, marker="+", color="k", label="Cum. node count")
-
-        tx_member_count = sql.vec_data(
-            sql.m_map(), "rcvdSrcCount:vector", drop="vectorId"
-        )
         nt_count = sql.vec_data(sql.m_table(), "tableSize:vector", drop="vectorId")
         node_count = (
             dmap.glb_map.groupby("simtime")
-            .count()
+            .sum()
             .reset_index()
             .set_axis(["time", "value"], axis=1)
         )
@@ -215,16 +268,6 @@ class _PlotAppMisc(_PlotUtil):
             .set_axis(["time", "value"], axis=1)
         )
 
-        ax.scatter(
-            "time",
-            "value",
-            data=tx_member_count,
-            label="Tx interval alg. member count",
-            s=2,
-            marker="x",
-            color="b",
-            alpha=0.6,
-        )
         ax.scatter(
             "time",
             "value",
@@ -260,48 +303,22 @@ class _PlotAppMisc(_PlotUtil):
         ax.set_ylabel("Number of members")
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Number of members used in the tx interval algorithm over time")
-        saver(fig, sim.path("Node_count_ts.png"))
+        saver(fig, "Node_count_ts.png")
 
         fig, ax = self.check_ax()
-        tx_member_count_d = self.ts_mean(tx_member_count.set_index("time")).dropna()
         nt_count_d = self.ts_mean(nt_count.set_index("time")).dropna()
 
-        ax.plot(
-            "time",
-            "mean",
-            data=tx_member_count_d,
-            label="mean tx interval alg. member count",
-            marker="x",
-            color="b",
-        )
-        ax.fill_between(
-            "time",
-            "25%",
-            "75%",
-            data=tx_member_count_d,
-            color="b",
-            alpha=0.35,
-            interpolate=True,
-            label="Q1;Q3 tx interval alg. member count",
-        )
-
-        ax.plot(
-            "time",
-            "mean",
-            data=nt_count_d,
-            label="Neighborhood table node count",
-            marker="x",
-            color="r",
-        )
-        ax.fill_between(
-            "time",
-            "25%",
-            "75%",
-            data=nt_count_d,
-            color="r",
-            alpha=0.35,
-            interpolate=True,
-            label="Q1;Q3 neighborhood table node count",
+        self.fill_between(
+            nt_count_d,
+            x="time",
+            val="mean",
+            fill_val=["25%", "75%"],
+            fill_alpha=0.35,
+            line_args=dict(
+                label="Neighborhood table node count", marker="x", color="r"
+            ),
+            fill_args=dict(label="Q1;Q3 neighborhood table node count"),
+            ax=ax,
         )
 
         ax.scatter(
@@ -333,28 +350,49 @@ class _PlotAppMisc(_PlotUtil):
         ax.set_ylabel("Number of members")
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Number of members used in the tx interval algorithm over time")
-        saver(fig, sim.path("Mean_node_count_ts.png"))
+        saver(fig, "Mode_count_ts_mean.png")
+
+    def get_jitter_delay_cached(
+        self, sim: Simulation, hdf_path: str | None = None
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if hdf_path is not None and os.path.exists(hdf_path):
+            delay = pd.read_hdf(hdf_path, key="delay")
+            jitter = pd.read_hdf(hdf_path, key="jitter")
+        else:
+            delay = OppAnalysis.get_received_packet_delay(
+                sql=sim.sql,
+                drop_self_message=True,
+                module_name=sim.sql.m_map(),
+            )
+            jitter = OppAnalysis.get_received_packet_jitter(
+                sql=sim.sql, drop_self_message=True, module_name=sim.sql.m_map()
+            )
+
+            if hdf_path is not None:
+                delay.to_hdf(hdf_path, mode="a", key="delay", format="table")
+                jitter.to_hdf(hdf_path, mode="a", key="jitter", format="table")
+
+        return delay, jitter
 
     def plot_application_jitter(
-        self, sim: Simulation, *, saver: FigureSaver = FigureSaver.FIG
+        self, sim: Simulation, *, saver: FigureSaver | None = None
     ):
+        saver = FigureSaver.FIG(saver)
+
         def f(df, host_id, rx_id):
             _m = (df["hostId"] == host_id) & (df["tx_host_id"] == rx_id)
             return df[_m]
 
-        map_delay = OppAnalysis.get_received_packet_delay(
-            sql=sim.sql,
-            drop_self_message=True,
-            module_name=sim.sql.m_map(),
-        ).reset_index()
-        map_jitter = OppAnalysis.get_received_packet_jitter(
-            sql=sim.sql, drop_self_message=True, module_name=sim.sql.m_map()
-        ).reset_index()
+        map_delay, map_jitter = self.get_jitter_delay_cached(
+            sim, sim.path("delay_jitter.h5")
+        )
+        map_delay = map_delay.reset_index()
+        map_jitter = map_jitter.reset_index()
         fig, ax = self.check_ax()
         ax.scatter(
             "time",
             "delay",
-            data=f(map_delay, 264, 1008),
+            data=map_delay,
             marker="x",
             alpha=0.5,
             label="delay",
@@ -362,12 +400,45 @@ class _PlotAppMisc(_PlotUtil):
         ax.scatter(
             "time",
             "jitter",
-            data=f(map_jitter, 264, 1008),
+            data=map_jitter,
             marker="+",
             alpha=0.5,
             label="jitter",
         )
         ax.legend()
+        ax.set_ylabel("Delay/Jitter in seconds")
+        ax.set_xlabel("Simulation time in seconds")
+        ax.set_title("Map: Delay and Jitter over time")
+        saver(fig, "Map_delay_and_jitter.png")
+
+        host_id_map = sim.sql.host_ids()
+        fig, ax = self.check_ax()
+        ax.scatter(
+            "time",
+            "delay",
+            data=f(map_delay, 20876, 17075),
+            marker="x",
+            alpha=0.5,
+            label="delay",
+        )
+        ax.scatter(
+            "time",
+            "jitter",
+            data=f(map_jitter, 20876, 17075),
+            marker="+",
+            alpha=0.5,
+            label="jitter",
+        )
+        try:
+            ax.set_title(
+                f"Delay and Jitter seen by {host_id_map[20876]} received from {host_id_map[17075]}"
+            )
+        except:
+            pass
+        ax.legend()
+        saver(fig, "Map_delay_and_jitter_one_node.png")
+        ax.set_xlim(190.0, 220.0)
+        saver(fig, "Map_delay_and_jitter_one_node_zoomed.png")
         print("hi")
 
 

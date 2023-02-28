@@ -20,6 +20,7 @@ from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import (
     FigureSaver,
+    FigureSaverPdfPages,
     Style,
     _PlotUtil,
     savefigure,
@@ -38,17 +39,51 @@ class _PlotDpmMap(_PlotUtil):
         data_root: str,
         builder: Dcd.DcdHdfBuilder,
         sql: Scave.CrownetSql,
-        selection: str = "yml",
+        selection: str | None = None,
     ):
+        out_dir = os.path.join(data_root, "common_output.pdf")
+        selection = builder.get_selected_alg() if selection is None else selection
         dmap = builder.build_dcdMap(selection=selection)
-        with PdfPages(os.path.join(data_root, "common_output.pdf")) as pdf:
+        with PdfPages(out_dir) as pdf:
             dmap.plot_map_count_diff(savefig=pdf)
+            msce = dmap.cell_count_measure(columns=["cell_mse"]).reset_index()
+            # msce time series
+            self.plot_msce_ts(msce, savefig=pdf)
+            # msce ecdf
+            self.plot_msce_ecdf(msce["cell_mse"], savefig=pdf)
 
-            tmin, tmax = builder.count_p.get_time_interval()
-            time = (tmax - tmin) / 4
-            intervals = [slice(time * i, time * i + time) for i in range(4)]
-            for _slice in intervals:
-                dmap.plot_error_histogram(time_slice=_slice, savefig=pdf)
+    @with_axis
+    @savefigure
+    def plot_msce_ts(
+        self,
+        data: pd.DataFrame,
+        x="simtime",
+        y="cell_mse",
+        *,
+        ax: plt.Axes | None = None,
+    ):
+        ax.scatter(
+            x,
+            y,
+            data=data,
+            s=int(self.par("lines.markersize", 6) / 2),
+            alpha=0.5,
+            label="Mean squared cell error",
+        )
+        ax.set_title("Mean squared cell error (MSCE) over time")
+        ax.set_ylabel("Mean squared cell error (MSCE)")
+        ax.set_xlabel("Simulation time in seconds")
+        ax.legend()
+        return ax.get_figure(), ax
+
+    @with_axis
+    @savefigure
+    def plot_msce_ecdf(self, data, *, ax: plt.Axes | None = None):
+        ax = self.ecdf(data, label="MSCE")
+        ax.set_title("ECDF: Mean squared cell error (MSCE)")
+        ax.set_xlabel("MSCE")
+        ax.legend()
+        return ax.get_figure(), ax
 
     @timing
     @with_axis
@@ -371,6 +406,39 @@ class _PlotDpmMap(_PlotUtil):
             tbl.scale(1, 2)
             ax.get_figure().tight_layout()
             return df, ax
+
+    @savefigure
+    @with_axis
+    def cmp_plot__map_count_diff(
+        self, sims: List[Simulation], ax: plt.Axes | None = None
+    ):
+
+        for sim in sims:
+            nodes = sim.get_dcdMap().map_count_measure()
+            df = (
+                nodes.loc[:, ["map_mean_count", "map_count_p25", "map_count_p75"]]
+                .dropna()
+                .reset_index()
+            )
+            self.fill_between(
+                data=df,
+                x="simtime",
+                val="map_mean_count",
+                fill_val=["map_count_p25", "map_count_p75"],
+                plot_lbl=f"{sim.label}: mean count",
+                fill_args=dict(label=f"{sim.label}: Q1;Q3"),
+                ax=ax,
+            )
+            _g = nodes.loc[:, ["map_glb_count"]].dropna().reset_index()
+            ax.plot(
+                "simtime", "map_glb_count", data=_g, label=f"{sim.label}: actual count"
+            )
+
+        ax.set_title("Node count over time")
+        ax.set_ylabel("Pedestrian count")
+        ax.set_xlabel("Simulation time in seconds")
+        ax.legend()
+        return ax.get_figure(), ax
 
 
 PlotDpmMap = _PlotDpmMap()

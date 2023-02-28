@@ -27,10 +27,74 @@ from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelp
 logger = _log.logger
 
 
-class FigureSaverSimple:
-    def __call__(self, figure, *args: Any):
-        os.makedirs(os.path.dirname(args[0]), exist_ok=True)
-        figure.savefig(args[0])
+class FigureSaver:
+    """Interface to save figures in some way"""
+
+    @staticmethod
+    def FIG(obj: FigureSaver | None, default=None) -> FigureSaver:
+        """Provide default implementation if not set """
+        if obj is None:
+            if default is None:
+                return FigureSaverSimple()
+            else:
+                return default
+        else:
+            return obj
+
+    def __init__(self) -> None:
+        ...
+
+    def __call__(self, figure, *args: Any, **kwargs):
+        raise NotImplementedError()
+
+    def __enter__(self, *arg, **kwargs):
+        raise NotImplementedError()
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        raise NotImplementedError()
+
+
+class FigureSaverSimple(FigureSaver):
+    def __init__(
+        self, override_base_path: str | None = None, figure_type: str | None = None
+    ):
+        self.override_base_path = override_base_path
+        self.next_name = None
+        self.figure_type = figure_type
+
+    def with_name(self, name):
+        self.next_name = name
+        return self
+
+    def __call__(self, figure, *args: Any, **kwargs):
+        if len(args) < 1 and self.next_name is None:
+            raise TypeError("Expected argument for path")
+        if self.next_name is None:
+            path = args[0]
+        else:
+            path = self.next_name
+            self.next_name = None
+        if self.override_base_path is not None:
+            if os.path.isabs(path):
+                logger.warn(
+                    "FigureSaver provides base path but absolute figure path provided. Use override path"
+                )
+            path = os.path.join(self.override_base_path, os.path.basename(path))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if self.figure_type is not None:
+            base, ext = os.path.splitext(path)
+            if self.figure_type != ext:
+                logger.info(f"override figure type from {ext} to {self.figure_type}")
+            path = f"{base}{self.figure_type}"
+        figure.tight_layout()
+        figure.savefig(path)
+
+    def __enter__(self, *arg, **kwargs):
+        return self
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        # nothing todo. No context to close because caller provides figure for saving
+        pass
 
 
 class FigureSaverPdfPages:
@@ -38,25 +102,30 @@ class FigureSaverPdfPages:
     @contextmanager
     def withSaver(cls, path, **kwargs) -> ContextManager[FigureSaverPdfPages]:
         try:
-            saver: FigureSaverPdfPages = cls(PdfPages(path, **kwargs))
+            saver: FigureSaverPdfPages = cls(path, **kwargs)
             yield saver
         finally:
             saver.pdf.close()
 
-    def __init__(self, pdf):
-        self.pdf = pdf
+    def __init__(self, pdf: PdfPages | str, **kwargs):
+        if isinstance(pdf, PdfPages):
+            self.pdf = pdf
+        else:
+            self.pdf = PdfPages(pdf, **kwargs)
+        self.__entered = False
 
-    def __call__(self, figure, *args: Any):
+    def __call__(self, figure, *args: Any, **kwargs):
         self.pdf.savefig(figure)
 
+    def __enter__(self, *arg, **kwargs):
+        if self.__entered:
+            raise RuntimeError("object already opened.")
+        self.__entered = True
+        return self
 
-class FigureSaver(Protocol):
-    """Interface to save figures in some way"""
-
-    FIG = FigureSaverSimple()
-
-    def __call__(self, figure, *args: Any):
-        ...
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        self.pdf.close()
+        self.__entered = False
 
 
 def matplotlib_set_latex_param() -> matplotlib.RcParams:
@@ -416,11 +485,10 @@ class _PlotUtil:
         x=None,
         val=None,
         fill_val=None,
-        alpha=0.2,
+        fill_alpha=0.2,
         *,
         plot_lbl: str | None = None,
-        plot_args: dict | None = None,
-        fill_lbl: str | None = None,
+        line_args: dict | None = None,
         fill_args: dict | None = None,
         ax: plt.Axes | None = None,
         **kwds,
@@ -448,20 +516,20 @@ class _PlotUtil:
             fill_val = data[fill_val]
             l_bound = val - fill_val
             u_bound = val + fill_val
-        elif isinstance(fill_val, list(str)):
+        elif isinstance(fill_val, list):
             # use two sided bounds with absolute values
-            l_bound = data.iloc[:, fill_val[0]]
-            u_bound = data.iloc[:, fill_val[1]]
+            l_bound = data.loc[:, fill_val[0]]
+            u_bound = data.loc[:, fill_val[1]]
 
         fig, ax = self.check_ax(ax)
-        line = ax.plot(x, val, **({} if plot_args is None else plot_args))[-1]
+        line = ax.plot(x, val, **({} if line_args is None else line_args))[-1]
         if plot_lbl is not None:
             line.set_label(plot_lbl)
         ret_fill = ax.fill_between(
             x,
             l_bound,
             u_bound,
-            alpha=alpha,
+            alpha=fill_alpha,
             color=line.get_color(),
             interpolate=True,
             **({} if fill_args is None else fill_args),

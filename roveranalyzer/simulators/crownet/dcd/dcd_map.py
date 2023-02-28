@@ -936,38 +936,40 @@ class DcdMap2D(DcdMap):
     ) -> pd.DataFrame:
         """create cell based error measures over time to indicate **positional correctness**
 
-        remove_missing_values: If false we use the values introduced by the imputation function during
-        creation of the count map. Missing values are marked in the column 'missing_value'.
+        remove_missing_values: If false we use the values introduced by the
+        imputation function during creation of the count map. Missing values are
+        marked in the column 'missing_value'.
 
-        count_p contains count, err, sqerr values at the (time, id, x, y) level.
-        In other words the table contains the count err, squerr values for
-        each node (id) for a given cell (x, y) for a given time (time).
-        The table count_p only communicated cells as well as over and underestimation
+        count_p contains count, err, and sqerr values at the (time, id, x, y)
+        level.  In other words the table contains these values for each node
+        (id) for a given cell (x, y) for a given time (time).  The table count_p
+        only contains communicated cells as well as over and underestimation
         errors.
 
-        Assume cell x_i was occupied until t=10 . Then this cell is reported for each
-        time step and each node. Either with err = 0 if the node sees the occupant or
-        err = -1 for nodes where the occupant is not seen and err >= 1 in the case some
-        nodes see more than one node. Note that negative values (underestimation) is bound
-        by the real number of occupants in the cell. On the other hand overestimation is
-        not bound!
+        Assume cell x_i was occupied until t=10 . Then this cell is reported for
+        each time step and node. Either with err = 0 if the node sees the
+        occupant or err = -1 for nodes where the occupant is not seen and err >=
+        1 in the case some nodes see more than one node. Note that negative
+        values (underestimation) is bound by the real number of occupants in the
+        cell. On the other hand overestimation is not bound!
 
-        Assume now t > 100 and x_i is not occupied anymore and any TTL is reached, thus
-        no node should have any values for the cell x_i.
-        Assume now that from a total of N=10 nodes one node is faulty and has a
-        count for cell x_i. This count will be part of the count_p table and
-        marked with an error count of 1. The correct value of count=0 for all
-        other nodes is not stored in count_p but are implied. Thus to calculate the
-        mean error of cell x_i is:
+        Assume now t > 100 and x_i is not occupied anymore and any TTL is
+        reached, thus no node should have any values for the cell x_i.  Assume
+        now that from a total of N=10 nodes one node is faulty and has a count of 1
+        for cell x_i. This count will be part of the count_p table and marked
+        with an error count of 1. The correct value of count=0 for all other
+        nodes is not stored in count_p but are implied. Thus to calculate the
+        mean absolute error of cell x_i is:
 
                 mean_abs_err = (|1| + 9*|0|)/(N=10) = 0.1
 
-        For this reason a simple count_p.groupby([...]).mean() will not work because
-        the used number of observations will be wrong because the implied zero-error
-        values are not saved in count_p. This function will therefore calculate the mean
-        errors manually by utilizing the total number of nodes N for each time `t`. The
-        numerator will be the same because only zero-counts / zero-erros are implied. Any
-        non-zero count or error will be saved explicitly in count_p.
+        For this reason a simple count_p.groupby([...]).mean() will not work
+        because the used number of observations will be wrong because the
+        implied zero-error values are not saved in count_p. This function will
+        therefore calculate the mean errors manually by utilizing the total
+        number of nodes N for each time `t`. The numerator will be the same
+        because only zero-counts / zero-erros are implied. Any non-zero count or
+        error will be saved explicitly in count_p.
 
             N:= set of cells (x, y) with index i
             M:= set of agents/measuring agents (ID) with index j
@@ -1154,7 +1156,7 @@ class DcdMap2D(DcdMap):
         glb = nodes.loc[:, ["map_glb_count"]].dropna().reset_index()
         ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
         if self.style.create_legend:
-            ax.get_figure().legend()
+            ax.legend()
         return ax.get_figure(), ax
 
     def err_box_over_time(self, bin_width=10.0):
