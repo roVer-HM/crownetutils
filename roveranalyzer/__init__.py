@@ -1,6 +1,8 @@
+from importlib.resources import read_text
+
+__version__ = read_text("roveranalyzer", "version.txt")
 import matplotlib
 
-from roveranalyzer.simulators.opp.accessor import OppAccessor
 from roveranalyzer.utils.colors import _register_cmap
 
 matplotlib.rcParams["pdf.fonttype"] = 42

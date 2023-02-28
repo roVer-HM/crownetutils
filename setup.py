@@ -6,6 +6,11 @@ def readme():
         return f.read()
 
 
+def version():
+    with open("roveranalyzer/version.txt") as f:
+        return f.readline().strip()
+
+
 def requirements():
     with open("requirements.txt") as f:
         ret = [l.strip() for l in f.readlines()]
@@ -14,7 +19,7 @@ def requirements():
 
 setup(
     name="roveranalyzer",
-    version="1.6.0",
+    version=version(),
     description="roVer results analysis tool",
     long_description=readme(),
     author="Stefan Schuhbäck",

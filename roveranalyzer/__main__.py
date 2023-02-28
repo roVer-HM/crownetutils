@@ -1,6 +1,7 @@
 import argparse
 import sys
 
+from roveranalyzer import __version__
 from roveranalyzer.analysis.flaskapp.wsgi import run_app_ns
 from roveranalyzer.entrypoints import suqc_run_append_parser
 
@@ -8,12 +9,14 @@ from roveranalyzer.entrypoints import suqc_run_append_parser
 def parse_arguments():
     # parse arguments
     main: argparse.ArgumentParser = argparse.ArgumentParser(
-        prog="Roveranalyzer", description=""
+        prog="Roveranalyzer", description=f"Version: {__version__}"
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     # arguments used by all sub-commands
     # todo if needed
-
+    main.add_argument(
+        "-v", "--version", action="version", version="%(prog)s " + __version__
+    )
     # subparsers
     sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
 
