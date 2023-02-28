@@ -290,6 +290,13 @@ class SqlOp:
     def append_suffix(self, suffix: str):
         self._group = [f"{i}{suffix}" for i in self._group]
 
+    def info_str(self) -> str:
+        _items = ", ".join(self._group)
+        return f"{self._operator}[{_items}]"
+
+    def __repr__(self) -> str:
+        return self.info_str()
+
     def __str__(self) -> str:
         return self.apply("TABLE", "COLUMN")
 
@@ -596,6 +603,17 @@ class OppSql:
         if not df.empty:
             return df.iloc[0]["attrValue"]
         return None
+
+    def get_run_parameter(
+        self, module_name: SqlOp, name, full_match: bool = True, run_id=1
+    ):
+        m = self._to_sql(module_name, table="p", column="moduleName")
+        if full_match:
+            _sql = f'select * from parameter as p where {m} and p.paramName =="{name}" and p.runId=={run_id}'
+        else:
+            _sql = f'select * from parameter as p where {m} and p.paramName like "%{name}%" and p.runId=={run_id}'
+        df = self.query_sca(_sql)
+        return df
 
     def get_run_config(self, name: str, full_match: bool = True, run_id=1):
         if full_match:
