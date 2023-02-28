@@ -478,6 +478,9 @@ def with_axis(method):
         if "ax" not in method_kwargs:
             _, ax = PlotUtil.check_ax(None)
             method_kwargs.setdefault("ax", ax)
+        elif "ax" in method_kwargs and method_kwargs["ax"] is None:
+            _, ax = PlotUtil.check_ax()
+            method_kwargs["ax"] = ax
         return method(self, *method_args, **method_kwargs)
 
     return with_axis_impl
