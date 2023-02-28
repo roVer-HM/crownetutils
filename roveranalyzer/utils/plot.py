@@ -201,6 +201,34 @@ class _PlotUtil:
             # colors[(levels==.0).argmax()-1] = [1., 1., 1., 1.]
         return levels, colors
 
+    def append_title(self, ax: plt.Axes, *, prefix="", suffix=""):
+        """Append string at front or back of the axes title
+
+        Args:
+            ax (plt.Axes): Axes object to change title
+            prefix (str, optional): Prefix string to append. Defaults to "".
+            suffix (str, optional): Suffix string to append. Defaults to "".
+        """
+        _title = ax.get_title()
+        prefix = prefix if len(prefix) < 1 else f"{prefix.strip()} "
+        _title = _title if len(suffix) < 1 else f"{_title.strip()} "
+        ax.set_title(f"{prefix}{_title}{suffix}")
+
+    def par(self, key, default=None):
+        return plt.rcParams.get(key, default)
+
+    def ecdf(
+        self, data: pd.Series | pd.DataFrame, ax: plt.Axes | None = None, **kwargs
+    ):
+        fig, ax = self.check_ax(ax)
+        if isinstance(data, pd.DataFrame):
+            data = data.iloc[:, 0]  # first column
+        _x = data.sort_values()
+        _y = np.arange(len(_x)) / float(len(_x))
+        ax.plot(_x, _y, drawstyle="steps-pre", **kwargs)
+        ax.set_ylabel("density")
+        return ax
+
     def color_marker_lines(self, line_type="--"):
         return [f"{m}{line_type}" for m in self._plot_color_markers]
 
