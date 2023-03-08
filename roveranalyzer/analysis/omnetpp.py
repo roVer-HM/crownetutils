@@ -60,6 +60,62 @@ class _hdf_Extractor(AnalysisBase):
         _hdf.write_frame(group="trajectories", frame=pos)
 
     @classmethod
+    def extract_rvcd_statistics(cls, hdf_file: str, sql: Scave.CrownetSql):
+        _hdf = BaseHdfProvider(hdf_file, "rcvd_stats")
+        if _hdf.hdf_file_exists:
+            logger.info("hdf file exists nothing to do.")
+            return
+        df = []
+        for module_name, m_str in [(sql.m_beacon(), "b"), (sql.m_map(), "m")]:
+            logger.info(f"read vector data for {module_name}")
+            seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
+            seqNo_vec = sql.find_vector_name(module_name, seqNo_vec)
+            vec_names = {
+                seqNo_vec: {
+                    "name": "seqNo",
+                    "dtype": np.int32,
+                },
+                "rcvdPktPerSrcLossCount:vector": dict(
+                    name="pkt_loss_sum", dtype=np.int32
+                ),
+                "rcvdPktPerSrcCount:vector": dict(
+                    name="total_pkt_received", dtype=np.int32
+                ),
+                "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
+                "rcvdPktPerSrcJitter:vector": dict(name="jitter", dtype=np.float32),
+                "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
+            }
+
+            vec_data = sql.vec_data_pivot(
+                module_name, vec_names, append_index=["srcHostId"]
+            ).sort_index()
+
+            # drop self messages, where hostId == srcHostId
+            _shape = vec_data.shape
+            _m = vec_data.index.get_level_values(
+                "hostId"
+            ) != vec_data.index.get_level_values("srcHostId")
+            vec_data = vec_data[_m].copy(deep=True)
+            logger.info(
+                f"remove self references (hostId==srcHostId): {_shape}->{vec_data.shape} "
+            )
+
+            # packet loss
+            vec_data["total_pkt_send"] = (
+                vec_data["pkt_loss_sum"] + vec_data["total_pkt_received"]
+            )
+            vec_data["PRR"] = (
+                vec_data["total_pkt_received"] / vec_data["total_pkt_send"]
+            )
+
+            # add application tag and update index
+            vec_data["app"] = m_str
+            vec_data = vec_data.set_index(["app"], append=True).sort_index()
+            df.append(vec_data)
+        df = pd.concat(df, axis=0, verify_integrity=False)
+        _hdf.write_frame(group="rcvd_stats", frame=df)
+
+    @classmethod
     def extract_packet_loss(
         cls, hdf_file: str, group_suffix: str, sql: CrownetSql, app: SqlOp
     ):
@@ -275,18 +331,19 @@ class _OppAnalysis(AnalysisBase):
             "rcvdPkHostId:vector",
             name_columns=["hostId"],
             pull_data=True,
-            value_name="tx_host_id",
+            value_name="srcHostId",
             columns=columns,
             drop=["vectorId"],
         )
-        df["tx_host_id"] = df["tx_host_id"].astype(int)
+        df["srcHostId"] = df["srcHostId"].astype(int)
         return df
 
-    @timing
-    def get_received_packet_jitter(
+    def get_rcvd_generic_vec_data(
         self,
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
+        vector_name: str,
+        value_name: str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = False,
@@ -307,23 +364,108 @@ class _OppAnalysis(AnalysisBase):
         if with_host_id or append_source_id:
             df = sql.vector_ids_to_host(
                 module_name,
-                "rcvdPktPerSrcJitter:vector",
+                vector_name,
                 pull_data=True,
-                value_name="jitter",
+                value_name=value_name,
+                name_columns=["hostId"],
                 columns=columns,
                 drop=drop_col if drop_col is None else list(drop_col),
             )
         else:
             df = sql.vec_data(
                 module_name=module_name,
-                vector_name="rcvdPktPerSrcJitter:vector",
-                value_name="jitter",
+                vector_name=vector_name,
+                value_name=value_name,
                 drop=drop_col if drop_col is None else list(drop_col),
             )
 
         if append_source_id:
             df = self._merge_rx_host_id(df, sql, module_name, drop_self_message)
         return df
+
+    @timing
+    def get_received_packet_jitter(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = True,
+        drop_col: List[str] | None = ("vectorId",),
+    ) -> pd.DataFrame:
+        return self.get_rcvd_generic_vec_data(
+            sql,
+            module_name,
+            vector_name="rcvdPktPerSrcJitter:vector",
+            value_name="jitter",
+            with_host_id=with_host_id,
+            append_source_id=append_source_id,
+            drop_self_message=drop_self_message,
+            drop_col=drop_col,
+        )
+
+    @timing
+    def get_received_packet_delay(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = True,
+        drop_columns: List[str] | None = ("vectorId",),
+    ) -> pd.DataFrame:
+        return self.get_rcvd_generic_vec_data(
+            sql,
+            module_name,
+            vector_name="rcvdPkLifetime:vector",
+            value_name="delay",
+            with_host_id=with_host_id,
+            append_source_id=append_source_id,
+            drop_self_message=drop_self_message,
+            drop_col=drop_columns,
+        )
+
+    @timing
+    def get_received_packet_loss(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = True,
+        drop_columns: List[str] | None = ("vectorId",),
+    ) -> pd.DataFrame:
+        return self.get_rcvd_generic_vec_data(
+            sql,
+            module_name,
+            vector_name="rcvdPktPerSrcLossCount:vector",
+            value_name="pkt_loss_sum",
+            with_host_id=with_host_id,
+            append_source_id=append_source_id,
+            drop_self_message=drop_self_message,
+            drop_col=drop_columns,
+        )
+
+    @timing
+    def get_received_packet_count_per_source(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = True,
+        drop_columns: List[str] | None = ("vectorId",),
+    ) -> pd.DataFrame:
+        return self.get_rcvd_generic_vec_data(
+            sql,
+            module_name,
+            vector_name="rcvdPktPerSrcCount:vector",
+            value_name="total_pkt_received",
+            with_host_id=with_host_id,
+            append_source_id=append_source_id,
+            drop_self_message=drop_self_message,
+            drop_col=drop_columns,
+        )
 
     def _merge_rx_host_id(
         self, data: pd.DataFrame, sql, module_name, drop_self_msg: bool = False
@@ -339,9 +481,13 @@ class _OppAnalysis(AnalysisBase):
         data = pd.concat(
             [data, tx_host_ids], axis=1, ignore_index=False, verify_integrity=True
         )
+        data = data.reset_index()
         if drop_self_msg:
-            _mask = data.index.get_level_values("hostId") == data["tx_host_id"]
+            _mask = data["hostId"] == data["srcHostId"]
             data = data[~_mask]
+        data = data.set_index(
+            ["hostId", "srcHostId", "eventNumber", "time"]
+        ).sort_index()
         return data
 
     @timing
@@ -468,130 +614,6 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     @timing
-    def build_rx_cache(
-        self,
-        sql: Scave.CrownetSql,
-        hdf_path,
-    ):
-        v = sql.OR(
-            [
-                "packetReceived:vector(packetBytes)",
-                "rcvdPkLifetime:vector",
-                "rcvdPkHostId:vector",
-                "rcvdPktPerSrcJitter:vector",
-                "rcvdPktPerSrcAvgSize:vector",
-                "rcvdPktPerSrcCount:vector",
-                "rcvdPktPerSrcLossCount:vector",
-                "rcvdPktPerSrcSeqNo:vector",
-            ]
-        )
-        map_module_index_list = sql.vector_ids_to_host(
-            sql.m_map(),
-            v,
-            pull_data=False,
-            name_columns=["vecIdx"],
-        )["vecIdx"].unique()
-        beacon_module_index_list = sql.vector_ids_to_host(
-            sql.m_beacon(),
-            v,
-            pull_data=False,
-            name_columns=["vecIdx"],
-        )["vecIdx"].unique()
-
-        p = BaseHdfProvider(hdf_path)
-        with p.ctx(
-            mode="a",
-        ) as store:
-            for idx, i in enumerate(map_module_index_list):
-                print(f"read map app from node {i} {idx}/{len(map_module_index_list)}")
-                df = self._load_vectors(i, sql, sql.m_map, v)
-                store.append(
-                    key="rx_info",
-                    value=df,
-                    index=False,
-                    format="table",
-                    data_columns=True,
-                )
-            for i in beacon_module_index_list:
-                print(
-                    f"read beacon app from node {i} {idx}/{len(map_module_index_list)}"
-                )
-                df = self._load_vectors(i, sql, sql.m_beacon, v)
-                store.append(
-                    key="rx_info",
-                    value=df,
-                    index=False,
-                    format="table",
-                    data_columns=True,
-                )
-
-            print("create index")
-            store.create_table_index(
-                key="rx_info",
-                columns=["hostId", "time", "app", "eventNumber"],
-                optlevel=9,
-                kind="full",
-            )
-
-    @timing
-    def get_received_packet_delay(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
-        delay_resolution: float = 1.0,
-        with_host_id: bool = False,
-        append_source_id: bool = False,
-        drop_self_message: bool = False,
-        drop_columns: List[str] | None = ("vectorId",),
-    ) -> pd.DataFrame:
-        """Packet delay data based on single applications in '<Network>.<Module>[*].app[*].app'
-
-        Args:
-            sql (Scave.CrownetSql): DB handler see Scave.CrownetSql for more information
-            module_name (Scave.SqlOp): Module selector for application(s). See CrownetSql.m_XXX methods for examples
-            delay_resolution (float, optional): Delay resolution mutliplier. Defaults to 1.0 (seconds).
-            describe (bool, optional): [description]. If true second data frame contains descriptive statistics based on hostId/srcHostId. Defaults to True.
-
-        Returns:
-            tuple[pd.DataFrame, pd.DataFrame]: DataFrame of the form (index)[columns]:
-            (1) raw data (hostId, srcHostId, time)[delay]
-            (2) empty  or (hostId, srcHostId)[count, mean, std, min, 25%, 50%, 75%, max] if describe=True
-        """
-        if drop_self_message:
-            logger.info(
-                f"drop data points where hostId (i.e. receiving node) and tx_host_id are equal."
-            )
-            # drop_self_message implies that these must be true!
-            append_source_id = True
-            with_host_id = True
-        if append_source_id:
-            columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
-        else:
-            columns = ["vectorId", "simtimeRaw", "value"]
-
-        if with_host_id:
-            df = sql.vector_ids_to_host(
-                module_name,
-                "rcvdPkLifetime:vector",
-                pull_data=True,
-                value_name="delay",
-                name_columns=["hostId"],
-                columns=columns,
-                drop=drop_columns if drop_columns is None else list(drop_columns),
-            )
-        else:
-            df = sql.vec_data(
-                module_name=module_name,
-                vector_name="rcvdPkLifetime:vector",
-                value_name="delay",
-                drop=drop_columns if drop_columns is None else list(drop_columns),
-            )
-        df["delay"] *= delay_resolution
-        if append_source_id:
-            df = self._merge_rx_host_id(df, sql, module_name, drop_self_message)
-        return df
-
-    @timing
     def get_measured_sinr_d2d(
         self,
         sql: Scave.CrownetSql,
@@ -684,8 +706,8 @@ class _OppAnalysis(AnalysisBase):
         self, sql: Scave.CrownetSql, hdf_path: str, return_group: str = "Map"
     ) -> pd.DataFrame:
         hdf = BaseHdfProvider(hdf_path=hdf_path)
-        if return_group is not None and return_group not in ["Beacon", "Map"]:
-            raise ValueError("Expected Map or Beacon group")
+        if return_group is not None and return_group not in ["Beacon", "Map", "Both"]:
+            raise ValueError("Expected Map, Beacon or Both as return_group")
         if hdf.contains_group("Beacon"):
             logger.info("found Beacon group nothing to do")
         else:
@@ -697,14 +719,32 @@ class _OppAnalysis(AnalysisBase):
             logger.info("found Map group nothing to do")
         else:
             logger.info("build Map group...")
-            df = self.get_received_packet_loss(sql, sql.m_map(idx=1))
+            df = self.get_received_packet_loss(sql, sql.m_map())
             hdf.put_frame_fixed("Map", df)
 
-        return None if return_group is None else hdf.get_dataframe(return_group)
+        if return_group is None:
+            return None
+        if return_group == "Both":
+            d1 = hdf.get_dataframe("Beacon")
+            idx_names = list(d1.index.names)
+            d1["app"] = "Beacon"
+            d2 = hdf.get_dataframe("Map")
+            d2["app"] = "Map"
+            df = pd.concat(
+                [d1.reset_index(), d2.reset_index()],
+                axis=0,
+                ignore_index=True,
+                verify_integrity=False,
+            )
+            df = df.set_index([*idx_names, "app"]).sort_index()
+            return df
+        return hdf.get_dataframe(return_group)
 
     @timing
-    def get_received_packet_loss(
-        self, sql: Scave.CrownetSql, module_name: Scave.SqlOp | str
+    def get_received_packet_loss2(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
     ) -> pd.DataFrame:
 
         logger.info("load packet loss data from *.vec")
@@ -718,23 +758,32 @@ class _OppAnalysis(AnalysisBase):
                 "dtype": np.int32,
             },
             "rcvdPktPerSrcLossCount:vector": dict(name="pkt_loss_sum", dtype=np.int32),
-            "rcvdPktPerSrcCount:vector": dict(name="pkt_count", dtype=np.int32),
-            "rcvdPkHostId:vector": {"name": "srcHostId", "dtype": np.int32},
+            "rcvdPktPerSrcCount:vector": dict(
+                name="total_pkt_received", dtype=np.int32
+            ),
+            "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
+            "rcvdPktPerSrcJitter:vector": dict(name="jitter", dtype=np.float32),
+            "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
         }
 
         vec_data = sql.vec_data_pivot(
             module_name, vec_names, append_index=["srcHostId"]
         ).sort_index()
 
-        vec_data["pkt_loss"] = 0
-        _pkt_loss = (
-            vec_data.groupby(["hostId", "srcHostId"])["pkt_loss_sum"]
-            .diff()
-            .fillna(0)
-            .astype(np.int32)
+        # drop self messages, where hostId == srcHostId
+        _shape = vec_data.shape
+        _m = vec_data.index.get_level_values(
+            "hostId"
+        ) != vec_data.index.get_level_values("srcHostId")
+        vec_data = vec_data[_m].copy(deep=True)
+        logger.info(
+            f"remove self references (hostId==srcHostId): {_shape}->{vec_data.shape} "
         )
-        vec_data.loc[_pkt_loss.index, "pkt_loss"] = _pkt_loss
-        vec_data["pkt_loss_ratio"] = vec_data["pkt_loss_sum"] / vec_data["seqNo"]
+        vec_data["total_pkt_send"] = (
+            vec_data["pkt_loss_sum"] + vec_data["total_pkt_received"]
+        )
+        vec_data["PRR"] = vec_data["total_pkt_received"] / vec_data["total_pkt_send"]
+
         return vec_data
 
     def get_received_packet_bytes(

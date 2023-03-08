@@ -6,7 +6,7 @@ pgf.texsystem   : pdflatex
 path.simplify: True
 
 font.size       : 14
-font.family    : serif
+font.family    : sans-serif
 axes.titlesize  : x-large
 axes.titleweight    : bold
 axes.labelsize      : large

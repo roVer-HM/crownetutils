@@ -7,17 +7,20 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pandas import IndexSlice as _i
 
 import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as p
 from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.flaskapp.application.layout import IdProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
+from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import (
     FigureSaver,
     FigureSaverSimple,
     _PlotUtil,
+    percentile,
     with_axis,
 )
 
@@ -374,25 +377,21 @@ class _PlotAppMisc(_PlotUtil):
 
         return delay, jitter
 
-    def plot_application_jitter(
+    def plot_application_delay_jitter(
         self, sim: Simulation, *, saver: FigureSaver | None = None
     ):
         saver = FigureSaver.FIG(saver)
 
-        def f(df, host_id, rx_id):
-            _m = (df["hostId"] == host_id) & (df["tx_host_id"] == rx_id)
-            return df[_m]
+        hdf = BaseHdfProvider(sim.path("rcvd_stats.h5"), "rcvd_stats")
+        with hdf.ctx() as c:
+            df = c.select(key="rcvd_stats", where="app=m", columns=["delay", "jitter"])
 
-        map_delay, map_jitter = self.get_jitter_delay_cached(
-            sim, sim.path("delay_jitter.h5")
-        )
-        map_delay = map_delay.reset_index()
-        map_jitter = map_jitter.reset_index()
+        df = df.reset_index()
         fig, ax = self.check_ax()
         ax.scatter(
             "time",
             "delay",
-            data=map_delay,
+            data=df,
             marker="x",
             alpha=0.5,
             label="delay",
@@ -400,7 +399,7 @@ class _PlotAppMisc(_PlotUtil):
         ax.scatter(
             "time",
             "jitter",
-            data=map_jitter,
+            data=df,
             marker="+",
             alpha=0.5,
             label="jitter",
@@ -410,36 +409,76 @@ class _PlotAppMisc(_PlotUtil):
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Map: Delay and Jitter over time")
         saver(fig, "Map_delay_and_jitter.png")
+        plt.close(fig)
 
-        host_id_map = sim.sql.host_ids()
         fig, ax = self.check_ax()
-        ax.scatter(
-            "time",
-            "delay",
-            data=f(map_delay, 20876, 17075),
-            marker="x",
-            alpha=0.5,
-            label="delay",
-        )
-        ax.scatter(
-            "time",
-            "jitter",
-            data=f(map_jitter, 20876, 17075),
-            marker="+",
-            alpha=0.5,
-            label="jitter",
-        )
-        try:
-            ax.set_title(
-                f"Delay and Jitter seen by {host_id_map[20876]} received from {host_id_map[17075]}"
-            )
-        except:
-            pass
+        self.ecdf(df["delay"], ax=ax, label="Delay")
+        self.ecdf(df["jitter"], ax=ax, label="Jitter")
         ax.legend()
-        saver(fig, "Map_delay_and_jitter_one_node.png")
-        ax.set_xlim(190.0, 220.0)
-        saver(fig, "Map_delay_and_jitter_one_node_zoomed.png")
-        print("hi")
+        ax.set_xlabel("Time in seconds")
+        ax.set_title("CDF of jitter and delay")
+        saver(fig, "Map_delay_and_jitter_ecdf.png")
+        plt.close(fig)
+
+        fig, ax = self.df_to_table(df[["delay", "jitter"]].describe().reset_index())
+        saver(fig, "Map_delay_and_jitter_describe_tbl.png")
+
+    def plot_pkt_loss(
+        self,
+        sim: Simulation | List[Simulation],
+        saver: FigureSaver,
+        app: str = "Both",  # Map, Beacon, Both
+    ):
+        sim = sim if isinstance(sim, list) else [sim]
+        _, ax_ts = self.check_ax()
+        _, ax_ecdf = self.check_ax()
+
+        def lbl(_s, lbl):
+            if len(sim) > 1:
+                return f"{_s.label}: {lbl}"
+            else:
+                return lbl
+
+        for s in sim:
+            data = OppAnalysis.build_received_packet_loss_cache(
+                s.sql, s.path("pkt_loss.h5"), return_group=app
+            )
+            if app == "Both":
+                m = data.loc[_i[:, :, :, :, "Map"], "pkt_loss"]
+                c = ax_ts.scatter(
+                    m.index.get_level_values("time"), y=m, s=1, marker="x", alpha=0.35
+                )
+                c.set_label(lbl(s, "Map pkt loss"))
+                self.ecdf(m, ax_ecdf, label=lbl(s, "Map pkt loss"))
+
+                b = data.loc[_i[:, :, :, :, "Beacon"], ["pkt_loss"]]
+                c = ax_ts.scatter(
+                    b.index.get_level_values("time"), y=b, s=1, marker="<", alpha=0.35
+                )
+                c.set_label(lbl(s, "Beacon pkt loss"))
+                self.ecdf(b, ax_ecdf, label=lbl(s, "Beacon pkt loss"), linestyle="--")
+            else:
+                c = ax_ts.scatter(
+                    data.index.get_level_values("time"),
+                    y=data["pkt_loss"],
+                    s=1,
+                    marker="x",
+                    alpha=0.35,
+                )
+                if len(sim) > 1:
+                    c.set_label(f"{s.label}: {app} pkt loss")
+                else:
+                    c.set_label(f"{app} pkt loss")
+
+        ax_ts.legend(markerscale=6)
+        ax_ts.set_xlabel("Simulation time in seconds")
+        ax_ts.set_ylabel("Pkt loss encountered since last reception")
+        ax_ts.set_title("Packet loss over time based on received packets")
+        saver(ax_ts.get_figure(), "Pkt_loss_ts.pdf")
+        ax_ecdf.legend()
+        ax_ecdf.set_ylabel("Packet loss encountered sind last reception")
+        ax_ecdf.set_title("Packet loss ECDF")
+        saver(ax_ecdf.get_figure(), "Pkt_loss_ecdf.pdf")
 
 
 PlotAppMisc = _PlotAppMisc()

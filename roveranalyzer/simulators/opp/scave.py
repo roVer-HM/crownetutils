@@ -294,6 +294,9 @@ class SqlOp:
         _items = ", ".join(self._group)
         return f"{self._operator}[{_items}]"
 
+    def __iter__(self):
+        return iter(self._group)
+
     def __repr__(self) -> str:
         return self.info_str()
 

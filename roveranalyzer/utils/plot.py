@@ -54,6 +54,14 @@ class FigureSaver:
         raise NotImplementedError()
 
 
+def percentile(n):
+    def percentile_(x):
+        return np.percentile(x, n)
+
+    percentile_.__name__ = f"p{n}"
+    return percentile_
+
+
 class FigureSaverSimple(FigureSaver):
     def __init__(
         self, override_base_path: str | None = None, figure_type: str | None = None
@@ -479,6 +487,38 @@ class _PlotUtil:
         plt.sca(current_ax)
         return im.axes.figure.colorbar(im, cax=cax, **kwargs)
 
+    def append_bin(
+        self,
+        data: pd.DataFrame,
+        idx_name: str = "time",
+        bin_size: float = 1.0,
+        start: float | None = None,
+        end: float | None = None,
+        *,
+        columns: None | List[str] = None,
+        agg: None | List[Any] = None,
+    ):
+        if idx_name in data.columns:
+            idx = data[idx_name]
+        elif idx_name in data.index.names:
+            idx = data.index.get_level_values(idx_name)
+        else:
+            raise ValueError("No index found with name {idx_name}")
+        start = idx.min() if start is None else start
+        end = idx.max() if end is None else end
+        bins = pd.interval_range(start=start, end=end, freq=bin_size, closed="left")
+        data["bin"] = pd.cut(idx, bins)
+        if agg is not None:
+            _n = data.index.names
+            data = data.reset_index().set_index([*_n, "bin"]).sort_index()
+            if columns is not None:
+                data = data[columns]
+            data = data.groupby("bin").agg(agg)
+            data = data.set_axis([f"{a}_{b}" for a, b in data.columns], axis=1)
+            data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
+            data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+        return data
+
     def fill_between(
         self,
         data: pd.DataFrame,
@@ -494,32 +534,39 @@ class _PlotUtil:
         **kwds,
     ) -> plt.Axes:
         """Create error bar plot with filled area of same color with reduced alpha"""
-        if x is None:
-            # assume first level as x-axes
-            x = data.index.get_level_values(0)
-        elif isinstance(x, str):
-            x = data[x]
+        if all([i is None for i in [x, val, fill_val]]) and data.shape[1] == 4:
+            # noting set and exactly 4 columns
+            x = data.iloc[:, 0]
+            val = data.iloc[:, 1]
+            l_bound = data.iloc[:, 2]
+            u_bound = data.iloc[:, 3]
+        else:
+            if x is None:
+                # assume first level as x-axes
+                x = data.index.get_level_values(0)
+            elif isinstance(x, str):
+                x = data[x]
 
-        if val is None:
-            # assume first column if not set
-            val = data.iloc[:, 0]
-        elif isinstance(val, str):
-            val = data[val]
+            if val is None:
+                # assume first column if not set
+                val = data.iloc[:, 0]
+            elif isinstance(val, str):
+                val = data[val]
 
-        if fill_val is None:
-            # assume symmetric additive bounds based on second column
-            fill_val = data.iloc[:, 1]
-            l_bound = val - fill_val
-            u_bound = val + fill_val
-        elif isinstance(fill_val, str):
-            # assume symmetric additive bounds based on column
-            fill_val = data[fill_val]
-            l_bound = val - fill_val
-            u_bound = val + fill_val
-        elif isinstance(fill_val, list):
-            # use two sided bounds with absolute values
-            l_bound = data.loc[:, fill_val[0]]
-            u_bound = data.loc[:, fill_val[1]]
+            if fill_val is None:
+                # assume symmetric additive bounds based on second column
+                fill_val = data.iloc[:, 1]
+                l_bound = val - fill_val
+                u_bound = val + fill_val
+            elif isinstance(fill_val, str):
+                # assume symmetric additive bounds based on column
+                fill_val = data[fill_val]
+                l_bound = val - fill_val
+                u_bound = val + fill_val
+            elif isinstance(fill_val, list):
+                # use two sided bounds with absolute values
+                l_bound = data.loc[:, fill_val[0]]
+                u_bound = data.loc[:, fill_val[1]]
 
         fig, ax = self.check_ax(ax)
         line = ax.plot(x, val, **({} if line_args is None else line_args))[-1]
