@@ -19,13 +19,18 @@ from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import (
     FigureSaver,
     FigureSaverSimple,
-    _PlotUtil,
+    PlotUtil_,
     percentile,
     with_axis,
 )
 
 
-class _PlotAppTxInterval(_PlotUtil):
+class PlotAppTxInterval_(PlotUtil_):
+    """Collection of plot methods for application transmission intervals"""
+
+    def __init__(self) -> None:
+        super().__init__()
+
     @timing
     def plot_txinterval_all(
         self,
@@ -48,18 +53,22 @@ class _PlotAppTxInterval(_PlotUtil):
         )
         self.append_title(ax, prefix=f"{app}: ")
         saver(fig, f"{app}_tx_AppIntervall_stat.pdf")
+        plt.close(fig)
 
         fig, ax = self.plot_ts_txinterval(data, app_name=app, time_bucket_length=1.0)
         self.append_title(ax, prefix=f"{app}: ")
         saver(fig, f"{app}_txAppInterval_ts.pdf")
+        plt.close(fig)
 
         fig, ax = self.plot_hist_txinterval(data)
         self.append_title(ax, prefix=f"{app}: ")
         saver(fig, f"{app}_tx_AppInterval_hist_.pdf")
+        plt.close(fig)
 
         fig, ax = self.plot_ecdf_txinterval(data)
         self.append_title(ax, prefix=f"{app}: ")
         saver(fig, f"{app}_tx_AppInterval_ecdf.pdf")
+        plt.close(fig)
 
     def plot_ts_txinterval(
         self, data: pd.DataFrame, app_name="", time_bucket_length=1.0
@@ -112,10 +121,10 @@ class _PlotAppTxInterval(_PlotUtil):
         return fig, ax
 
 
-PlotAppTxInterval = _PlotAppTxInterval()
+PlotAppTxInterval = PlotAppTxInterval_()
 
 
-class _PlotAppMisc(_PlotUtil):
+class PlotAppMisc_(PlotUtil_):
     @staticmethod
     def ts_mean(data: pd.DataFrame, time_bin=1.0, index="time", col="value"):
         if index in data.columns:
@@ -248,6 +257,7 @@ class _PlotAppMisc(_PlotUtil):
         tx_rate = OppAnalysis.get_sent_packet_throughput_by_app(sim.sql, cache=tx_pkt)
         fig, _ = self.plot_tx_throughput(tx_rate, sim.sql)
         saver(fig, "System_tx_data_rate.pdf")
+        plt.close(fig)
 
     def plot_number_of_agents(
         self, sim: Simulation, *, saver: FigureSaver | None = None
@@ -307,6 +317,7 @@ class _PlotAppMisc(_PlotUtil):
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Number of members used in the tx interval algorithm over time")
         saver(fig, "Node_count_ts.png")
+        plt.close(fig)
 
         fig, ax = self.check_ax()
         nt_count_d = self.ts_mean(nt_count.set_index("time")).dropna()
@@ -354,6 +365,7 @@ class _PlotAppMisc(_PlotUtil):
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Number of members used in the tx interval algorithm over time")
         saver(fig, "Mode_count_ts_mean.png")
+        plt.close(fig)
 
     def get_jitter_delay_cached(
         self, sim: Simulation, hdf_path: str | None = None
@@ -481,4 +493,4 @@ class _PlotAppMisc(_PlotUtil):
         saver(ax_ecdf.get_figure(), "Pkt_loss_ecdf.pdf")
 
 
-PlotAppMisc = _PlotAppMisc()
+PlotAppMisc = PlotAppMisc_()

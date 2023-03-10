@@ -22,14 +22,14 @@ from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import (
     FigureSaver,
     FigureSaverPdfPages,
+    PlotUtil_,
     Style,
-    _PlotUtil,
     savefigure,
     with_axis,
 )
 
 
-class _PlotDpmMap(_PlotUtil):
+class _PlotDpmMap(PlotUtil_):
     """Default and reusable plots for
     Decentralized Pedestrian Measurement Map (DPMM)
     """

@@ -249,7 +249,7 @@ class StyleMap:
         return self._style_map[key]
 
 
-class _PlotUtil:
+class PlotUtil_:
     _hatch_patterns = ("||", "--", "++", "x", "\\", "*", "|", "-", "+")
     _plot_markers = ["o", "x", "*", ".", "v", "1", "2", "3", "4"]
     _plot_colors = ["b", "g", "r", "c", "m", "k"]
@@ -584,7 +584,7 @@ class _PlotUtil:
         return ax, line, ret_fill
 
 
-PlotUtil = _PlotUtil()
+PlotUtil = PlotUtil_()
 
 
 def with_axis(method):

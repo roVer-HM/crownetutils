@@ -10,10 +10,10 @@ import pandas as pd
 import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.analysis.omnetpp import OppAnalysis, Simulation
 from roveranalyzer.utils.logging import logger, timing
-from roveranalyzer.utils.plot import FigureSaver, _PlotUtil, with_axis
+from roveranalyzer.utils.plot import FigureSaver, PlotUtil_, with_axis
 
 
-class _PlotEnb(_PlotUtil):
+class _PlotEnb(PlotUtil_):
     @timing
     def cmp_plot_served_blocks_ul_all(
         self,
