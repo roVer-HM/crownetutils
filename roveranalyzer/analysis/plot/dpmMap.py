@@ -16,6 +16,7 @@ import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.analysis.common import RunMap, Simulation
 from roveranalyzer.analysis.omnetpp import OppAnalysis
+from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import (
@@ -74,6 +75,30 @@ class _PlotDpmMap(_PlotUtil):
         ax.set_ylabel("Mean squared cell error (MSCE)")
         ax.set_xlabel("Simulation time in seconds")
         ax.legend()
+        return ax.get_figure(), ax
+
+    @with_axis
+    @savefigure
+    def cmp_msce_ecdf(
+        self,
+        sims: List[Simulation],
+        *,
+        frame_c: FrameConsumer = FrameConsumer.EMPTY,
+        ax: plt.Axes | None = None,
+    ):
+
+        for sim in sims:
+            dmap = sim.get_dcdMap()
+            msce = dmap.cell_count_measure(columns=["cell_mse"])
+            # apply frame consumer if present
+            msce = frame_c(msce).reset_index()
+            print(sim.label)
+            print(msce["cell_mse"].describe())
+            self.ecdf(msce["cell_mse"], label=sim.label, ax=ax)
+
+        ax.legend()
+        ax.set_xlabel("MSCE")
+        ax.set_title("ECDF: Mean squared cell error (MSCE) comparison")
         return ax.get_figure(), ax
 
     @with_axis
