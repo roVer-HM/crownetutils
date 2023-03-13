@@ -717,7 +717,8 @@ class DcdMap2D(DcdMap):
         # if self.scenario_plotter is not None:
         #     self.scenario_plotter.add_obstacles(ax)
 
-        _d = update_dict(pcolormesh_dict, shading="flat")
+        _d = dict(pcolormesh_dict)
+        _d.set_default("shading", "flat")
 
         pcm = ax.pcolormesh(self.metadata.X_flat, self.metadata.Y_flat, df, **_d)
 
