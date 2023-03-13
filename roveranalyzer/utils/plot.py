@@ -1,3 +1,13 @@
+""" Miscellaneous utility functions and classes to simplify common plotting tasks.
+
+This contains default configurations of the matplotrc, dataframe to table, and 
+decorator functions to inject axes and save paths. 
+
+`PlotUtl_` is the main class that combines plot related helpers. Specialized plot
+classes for specific simulation runs can inherit from this class to reuse plot 
+functionalities. 
+
+"""
 from __future__ import annotations
 
 import itertools
@@ -6,7 +16,7 @@ import random
 from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
-from typing import Any, ContextManager, List, Protocol, Tuple, Union
+from typing import Any, Callable, ContextManager, List, Protocol, Tuple, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -52,14 +62,6 @@ class FigureSaver:
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
         raise NotImplementedError()
-
-
-def percentile(n):
-    def percentile_(x):
-        return np.percentile(x, n)
-
-    percentile_.__name__ = f"p{n}"
-    return percentile_
 
 
 class FigureSaverSimple(FigureSaver):
@@ -587,43 +589,6 @@ class PlotUtil_:
 PlotUtil = PlotUtil_()
 
 
-def with_axis(method):
-    @wraps(method)
-    def with_axis_impl(self, *method_args, **method_kwargs):
-        if "ax" not in method_kwargs:
-            _, ax = PlotUtil.check_ax(None)
-            method_kwargs.setdefault("ax", ax)
-        elif "ax" in method_kwargs and method_kwargs["ax"] is None:
-            _, ax = PlotUtil.check_ax()
-            method_kwargs["ax"] = ax
-        return method(self, *method_args, **method_kwargs)
-
-    return with_axis_impl
-
-
-def savefigure(method):
-    @wraps(method)
-    def savefigure_impl(self, *method_args, **method_kwargs):
-        savefig = None
-        if "savefig" in method_kwargs:
-            savefig = method_kwargs["savefig"]
-            del method_kwargs["savefig"]
-        fig, ax = method(self, *method_args, **method_kwargs)
-        if savefig is not None:
-            if isinstance(savefig, PdfPages):
-                savefig.savefig(fig)
-            elif isinstance(savefig, str):
-                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
-                logger.info(f"save figure: {savefig}")
-                fig.savefig(savefig)
-            else:
-                # assume some callable
-                savefig(fig)
-        return fig, ax
-
-    return savefigure_impl
-
-
 def plot_decorator(method):
     @wraps(method)
     def _plot_decorator(self, *method_args, **method_kwargs):
@@ -739,5 +704,73 @@ class PlotAttrs:
         self.idx_m = 0
 
 
-if __name__ == "__main__":
-    print(list(PlotUtil.color_marker_lines()))
+def percentile(n: int) -> Callable[[Any], Any]:
+    """Function to generate a numpy based percentile function
+
+    Args:
+        n (int): Percentile to compute, which must be between 0 and 100 inclusive.
+    Returns:
+        Callable[[Any], Any]: Function that compute the n-th percentile of the provided data.
+    """
+
+    def percentile_(x):
+        return np.percentile(x, n)
+
+    percentile_.__name__ = f"p{n}"
+    return percentile_
+
+
+def with_axis(func):
+    """Decorator that injects an keyword argument 'ax' of the
+    type `plt.Axes` if missing.
+
+    Args:
+        func (Callable): Function to be decorated
+
+    Returns:
+        Callable: Decorated (i.e. extended) function
+    """
+
+    @wraps(func)
+    def with_axis_impl(self, *func_args, **func_kwargs):
+        if "ax" not in func_kwargs:
+            _, ax = PlotUtil.check_ax(None)
+            func_kwargs.setdefault("ax", ax)
+        elif "ax" in func_kwargs and func_kwargs["ax"] is None:
+            _, ax = PlotUtil.check_ax()
+            func_kwargs["ax"] = ax
+        return func(self, *func_args, **func_kwargs)
+
+    return with_axis_impl
+
+
+def savefigure(func):
+    """Decorator that looks for a keyword argument 'savefig'.
+    todo::
+    Args:
+        func (Callable): Function to be decorated
+
+    Returns:
+        Callable: Decorated (i.e. extended) function
+    """
+
+    @wraps(func)
+    def savefigure_impl(self, *func_args, **func_kwargs):
+        savefig = None
+        if "savefig" in func_kwargs:
+            savefig = func_kwargs["savefig"]
+            del func_kwargs["savefig"]
+        fig, ax = func(self, *func_args, **func_kwargs)
+        if savefig is not None:
+            if isinstance(savefig, PdfPages):
+                savefig.savefig(fig)
+            elif isinstance(savefig, str):
+                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+                logger.info(f"save figure: {savefig}")
+                fig.savefig(savefig)
+            else:
+                # assume some callable
+                savefig(fig)
+        return fig, ax
+
+    return savefigure_impl

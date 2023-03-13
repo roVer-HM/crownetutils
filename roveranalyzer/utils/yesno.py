@@ -1,17 +1,23 @@
+"""Utils for user interaction on the command line.
+
+"""
+
 import sys
 
 
-# Trent Mick https://code.activestate.com/recipes/users/4173505/
-# https://code.activestate.com/recipes/577058/
-def query_yes_no(question, default=None):
+def query_yes_no(question: str, default=None) -> bool:
     """Ask a yes/no question via raw_input() and return their answer.
 
-    "question" is a string that is presented to the user.
-    "default" is the presumed answer if the user just hits <Enter>.
-        It must be "yes" (the default), "no" or None (meaning
-        an answer is required of the user).
+    Source:
+    `Trent Mick  <https://code.activestate.com/recipes/users/4173505/>`_ at
+    `Activestate <https://code.activestate.com/recipes/577058/>`_
 
-    The "answer" return value is one of "yes" or "no".
+    Args:
+        question (str): prompt text for user.
+        default (str, optional): Default answer yes or no. If not set an answer is required. Defaults to None.
+
+    Returns:
+        bool: user input
     """
     valid = {"yes": True, "y": True, "ye": True, "j": True, "no": False, "n": False}
     if default is None:

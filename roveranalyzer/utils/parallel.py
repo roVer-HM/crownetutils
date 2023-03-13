@@ -1,17 +1,30 @@
+""" Multiprocessing map function helper in both args/kwargs versions.
+
+"""
 from __future__ import annotations
 
 import traceback
-from cmath import exp
 from functools import partial
 from itertools import repeat
 from multiprocessing import get_context
-from re import I
 from typing import Any, List, Tuple
 
 from roveranalyzer.utils.logging import logger
 
 
-def kwargs_with_try(func, kwargs, append_args: bool = False):
+def kwargs_with_try(
+    func, kwargs: dict, append_args: bool = False
+) -> Tuple[bool, Any] | Tuple[bool, Tuple[dict, Any]]:
+    """Execute func in try-except block and return result without rasing any exception.
+
+    Args:
+        func (callable): Function to execute.
+        kwargs (dict): Dictionary arguments passed to func.
+        append_args (bool, optional): Append argument dictionary in return type. Defaults to False.
+
+    Returns:
+        Tuple[bool, Any]|Tuple[bool, Tuple[dict, Any]]: Result code, result and used arguments if 'append_args' is true
+    """
     try:
         logger.debug(f"Execute {kwargs}")
         ret = func(**kwargs)
@@ -33,11 +46,11 @@ def run_kwargs_map(
     raise_on_error: bool = True,
     append_args: bool = False,
     filter_id: int | List[int] | None = None,
-) -> List[Tuple(bool, Any)] | List[Any]:
+) -> List[Tuple[bool, Any]] | List[Any]:
     """Execute `func` in parallel
 
     Args:
-        func (_type_): function to be executed
+        func (callable): function to be executed
         kwargs_iter (int): used keyword arguments
         pool_type: (str): Defaults to spawn
         pool_size (int, optional): Number of processes. Defaults to 10.
@@ -46,7 +59,7 @@ def run_kwargs_map(
         filter_id (int | List[int] | None, optional): Only run selection of runs given by kwargs_iter. Defaults to None.
 
     Returns:
-        List[Tuple(bool, Any)] | List[Any]: Either list of result codes and result or results only if raise_on_err is True.
+        List[Tuple[bool, Any]] | List[Any]: Either list of result codes and result or results only if raise_on_err is True.
 
     """
     map = [(False, "No results")]
@@ -80,7 +93,19 @@ def run_kwargs_map(
         return map
 
 
-def args_with_try(func, args, append_args: bool = False):
+def args_with_try(
+    func, args: List[Any], append_args: bool = False
+) -> Tuple[bool, Any] | Tuple[bool, Tuple[List[Any], Any]]:
+    """Execute func in try-except block and return result without rasing any exception.
+
+    Args:
+        func (callable): Function to execute.
+        args (List[Any]): Positional arguments passed to func.
+        append_args (bool, optional): Append used arguments to return value. Defaults to False.
+
+    Returns:
+        Tuple[bool, Any]|Tuple[bool, Tuple[List[Any], Any]]: Return code and result and argument list if append_args is true.
+    """
     try:
         logger.debug(f"Execute {args}")
         ret = func(*args)
@@ -108,7 +133,7 @@ def run_args_map(
     filter_id function argument.
 
     Args:
-        func (_type_): function to be executed
+        func (callable): function to be executed
         args_iter (int): used arguments
         pool_type: (str): Defaults to spawn
         pool_size (int, optional): Number of processes. Defaults to 10.
