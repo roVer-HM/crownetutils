@@ -26,14 +26,7 @@ from roveranalyzer.utils.dataframe import (
     partial_index_match,
 )
 from roveranalyzer.utils.misc import intersect
-from roveranalyzer.utils.plot import (
-    PlotUtil,
-    Style,
-    plot_decorator,
-    savefigure,
-    update_dict,
-    with_axis,
-)
+from roveranalyzer.utils.plot import PlotUtil, Style, savefigure, with_axis
 
 
 class MapType(enum.Enum):
@@ -346,7 +339,6 @@ class DcdMap2D(DcdMap):
         print("=" * 79)
 
     @savefigure
-    @plot_decorator
     def plot_summary(self, simtime, node_id, title="", **kwargs):
         kwargs.setdefault("figsize", (16, 9))
         f, ax = plt.subplots(2, 2, **kwargs)
@@ -360,7 +352,6 @@ class DcdMap2D(DcdMap):
 
     @savefigure
     @with_axis
-    @plot_decorator
     def plot_location_map(self, time_step, *, ax: plt.Axes = None, add_legend=True):
         places = self.own_cell()
         _i = pd.IndexSlice
@@ -384,7 +375,6 @@ class DcdMap2D(DcdMap):
 
     @savefigure
     @with_axis
-    @plot_decorator
     def plot_location_map_annotated(self, time_step, *, ax: plt.Axes = None):
         places = self.own_cell()
         _i = pd.IndexSlice
@@ -502,7 +492,6 @@ class DcdMap2D(DcdMap):
 
     @savefigure
     @with_axis
-    @plot_decorator
     def plot_error_histogram(
         self,
         time_slice: slice = slice(None),
@@ -531,7 +520,6 @@ class DcdMap2D(DcdMap):
 
     @savefigure
     @with_axis
-    @plot_decorator
     def plot_error_quantil_histogram(
         self,
         value="err",
@@ -591,7 +579,6 @@ class DcdMap2D(DcdMap):
             raise ValueError(f"Expected ax or array of 5 axes but got {type(ax)}")
 
     @savefigure
-    @plot_decorator
     def plot_error_over_distance(
         self,
         time_step,
@@ -630,7 +617,6 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @savefigure
-    @plot_decorator
     def plot_delay_over_distance(
         self,
         time_step,
@@ -679,7 +665,6 @@ class DcdMap2D(DcdMap):
         return f, ax
 
     @savefigure
-    @plot_decorator
     def plot_area(
         self,
         time_step: float,
@@ -734,7 +719,6 @@ class DcdMap2D(DcdMap):
 
     @savefigure
     @with_axis
-    @plot_decorator
     def plot_count(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         ax.set_title("Total node count over time", **self.font_dict["title"])
         ax.set_xlabel("time [s]", **self.font_dict["xlabel"])
@@ -1128,7 +1112,6 @@ class DcdMap2D(DcdMap):
 
     @savefigure
     @with_axis
-    @plot_decorator
     def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
         if "data_source" in kwargs:
             nodes = kwargs["data_source"]()
@@ -1174,7 +1157,6 @@ class DcdMap2D(DcdMap):
         return data, _cut
 
     @savefigure
-    @plot_decorator
     def plot_err_box_over_time(
         self, bin_width=10.0, xtick_sep=5, *, ax=None, **kwargs
     ) -> Tuple[Figure, Axes]:

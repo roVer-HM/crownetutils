@@ -589,17 +589,6 @@ class PlotUtil_:
 PlotUtil = PlotUtil_()
 
 
-def plot_decorator(method):
-    @wraps(method)
-    def _plot_decorator(self, *method_args, **method_kwargs):
-        if self.plot_wrapper is not None:
-            return self.plot_wrapper(method, self, *method_args, **method_kwargs)
-        else:
-            return method(self, *method_args, **method_kwargs)
-
-    return _plot_decorator
-
-
 def tex_1col_fig(
     ratio: float = 16 / 9, *arg, **kwargs
 ) -> tuple[plt.Figure, list[list[plt.Axes]]]:
