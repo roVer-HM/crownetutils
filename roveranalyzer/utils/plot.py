@@ -600,16 +600,49 @@ def plot_decorator(method):
     return _plot_decorator
 
 
-def tex_1col_fig(ratio=16 / 9, *arg, **kwargs):
+def tex_1col_fig(
+    ratio: float = 16 / 9, *arg, **kwargs
+) -> tuple[plt.Figure, list[list[plt.Axes]]]:
+    """Return 1 column wide figure for latex 2 column based template
+
+    Args:
+        ratio (float, optional): Figure ratio. Defaults to 16/9.
+
+    Returns:
+        tuple[plt.Figure, list[list[plt.Axes]]]: _description_
+    """
     return plt.subplots(*arg, **kwargs, figsize=(5, 5 / ratio))
 
 
-def tex_2col_fig(ratio=16 / 9, *arg, **kwargs):
+def tex_2col_fig(
+    ratio: float = 16 / 9, *arg, **kwargs
+) -> tuple[plt.Figure, list[list[plt.Axes]]]:
+    """Return 2 colum wide figure for latex 2 column based templates.
+
+    Args:
+        ratio (float, optional): Figure ratio. Defaults to 16/9.
+
+    Returns:
+        tuple[plt.Figure, list[list[plt.Axes]]]
+    """
     return plt.subplots(*arg, **kwargs, figsize=(18, 18 / ratio))
 
 
 @contextmanager
 def empty_fig(title) -> ContextManager[plt.figure]:
+    """Create empty figure with centered text field.
+
+    Function ensures that created figure is closed to mitigate warning about to many figures.
+
+    Args:
+        title (str): Text to add to figure
+
+    Returns:
+        ContextManager[plt.figure]: return figure to caller to modify and save
+
+    Yields:
+        Iterator[ContextManager[plt.figure]]: return figure to caller to modify and save
+    """
     fig, ax = PlotUtil.check_ax()
     ax.axis("off")
     fig.text(0.5, 0.5, title, ha="center", va="center")
