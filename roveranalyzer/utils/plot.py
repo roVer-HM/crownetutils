@@ -16,7 +16,7 @@ import random
 from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
-from typing import Any, Callable, ContextManager, List, Protocol, Tuple, Union
+from typing import Any, Callable, ContextManager, Dict, List, Protocol, Tuple, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -24,7 +24,9 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colorbar import Colorbar
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm, to_rgba_array
+from matplotlib.image import AxesImage
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
 from mpl_toolkits import axes_grid1
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -35,6 +37,78 @@ import roveranalyzer.utils.styles as Styles
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 
 logger = _log.logger
+
+
+def percentile(n: int) -> Callable[[Any], Any]:
+    """Function to generate a numpy based percentile function
+
+    Args:
+        n (int): Percentile to compute, which must be between 0 and 100 inclusive.
+    Returns:
+        Callable[[Any], Any]: Function that compute the n-th percentile of the provided data.
+    """
+
+    def percentile_(x):
+        return np.percentile(x, n)
+
+    percentile_.__name__ = f"p{n}"
+    return percentile_
+
+
+def with_axis(func):
+    """Decorator that injects an keyword argument 'ax' of the
+    type `plt.Axes` if missing.
+
+    Args:
+        func (Callable): Function to be decorated
+
+    Returns:
+        Callable: Decorated (i.e. extended) function
+    """
+
+    @wraps(func)
+    def with_axis_impl(self, *func_args, **func_kwargs):
+        if "ax" not in func_kwargs:
+            _, ax = PlotUtil.check_ax(None)
+            func_kwargs.setdefault("ax", ax)
+        elif "ax" in func_kwargs and func_kwargs["ax"] is None:
+            _, ax = PlotUtil.check_ax()
+            func_kwargs["ax"] = ax
+        return func(self, *func_args, **func_kwargs)
+
+    return with_axis_impl
+
+
+def savefigure(func):
+    """Decorator that looks for a keyword argument 'savefig'.
+    todo::
+    Args:
+        func (Callable): Function to be decorated
+
+    Returns:
+        Callable: Decorated (i.e. extended) function
+    """
+
+    @wraps(func)
+    def savefigure_impl(self, *func_args, **func_kwargs):
+        savefig = None
+        if "savefig" in func_kwargs:
+            savefig = func_kwargs["savefig"]
+            del func_kwargs["savefig"]
+        fig, ax = func(self, *func_args, **func_kwargs)
+        if savefig is not None:
+            if isinstance(savefig, PdfPages):
+                savefig.savefig(fig)
+            elif isinstance(savefig, str):
+                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
+                logger.info(f"save figure: {savefig}")
+                fig.savefig(savefig)
+            else:
+                # assume some callable
+                savefig(fig)
+        return fig, ax
+
+    return savefigure_impl
 
 
 class FigureSaver:
@@ -342,7 +416,17 @@ class PlotUtil_:
 
     def df_to_table(
         self, df: pd.DataFrame, ax: plt.Axes | None = None, title: str | None = None
-    ):
+    ) -> Tuple[plt.Figuer, plt.Axes]:
+        """Save columns of dataframe as matplotlib table.
+
+        Args:
+            df (pd.DataFrame):
+            ax (plt.Axes | None, optional): Axes to which to add table. If None new one is created. Defaults to None.
+            title (str | None, optional): title of table. Defaults to None.
+
+        Returns:
+            Tuple[plt.Figure, plt.Axes]:
+        """
         fig, ax = self.check_ax(ax)
         fig.patch.set_visible(False)
         ax.axis("off")
@@ -357,18 +441,45 @@ class PlotUtil_:
             ax.set_title(title)
         return fig, ax
 
-    def fig_to_pdf(self, path, figures: List[plt.figure]):
+    def fig_to_pdf(self, path, figures: List[plt.figure], close_figures: bool = False):
+        """Save list of figures into one pdf file. Close figure object at the end if set.
+
+        Args:
+            path (str): Path of pdf.
+            figures (List[plt.figure]): Figures to save to pdf.
+            close_figures (bool): If yes close figures after save. Default False.
+        """
         with PdfPages(path) as pdf:
             for f in figures:
                 pdf.savefig(f)
+                if close_figures:
+                    plt.close(f)
 
-    def check_ax(self, ax=None, **kwargs):
-        """
-        check if axis exist if not create new figure with one axis
+    def check_ax(
+        self, ax: plt.Axes | None = None, **kwargs
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Return figure, ax pair of given `ax` based on configured `ax_provider`. If ax is None create a new plot with one axes.
+
+        Args:
+            ax (plt.Axes | None, optional): _description_. Defaults to None.
+
+        Returns:
+            Tuple[plt.Figure, plt.Axes]:
         """
         return self.ax_provider(ax, **kwargs)
 
-    def _check_ax(self, ax=None, **kwargs):
+    def _check_ax(
+        self, ax: plt.Axes | None = None, **kwargs
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Return figure, ax pair of given `ax`. If ax is None create a new plot with one axes. This is the default `ax_provider`
+        if nothing else was set.
+
+        Args:
+            ax (plt.Axes|None, optional): If None create new object otherwise just return proved axes without modification. Defaults to None.
+
+        Returns:
+            Tuple[plt.Figure, plt.Axes]
+        """
         args = kwargs.copy()
         args.setdefault("figsize", (16, 9))
         if ax is None:
@@ -397,14 +508,16 @@ class PlotUtil_:
         scenario: VaderScenarioPlotHelper,
         xy_slices: Tuple[slice, slice],
         c: float | Tuple[float, float] = 5.0,
-    ):
-        """Creates free and obstacle covered cell indexes within the provided
-            rectangle area
+    ) -> Tuple[pd.MultiIndex, pd.MultiIndex]:
+        """Creates free and obstacle covered cell indexes within the provided rectangle area
 
         Args:
             scenario (VaderScenarioPlotHelper): Wrapper object of Vadere scenario file
             xy_slices (Tuple[slice, slice]): rectangle area slice to use
             c (float|Tuple[float, float], optional): Cell size if not provided as as slice step. Defaults to 5.0.
+
+        Returns:
+            Tuple[pd.MultiIndex, pd.MultiIndex]: free and covered cells.
         """
 
         _covered = []
@@ -441,8 +554,26 @@ class PlotUtil_:
         return _free, _covered
 
     def cell_to_tex(
-        self, polygons: List[Polygon] | pd.MultiIndex, c=5.0, fd=None, attr=None, **kwds
-    ):
+        self,
+        polygons: List[Polygon] | pd.MultiIndex,
+        c=5.0,
+        fd=None,
+        attr: None | Dict[str, Any] = None,
+        **kwds,
+    ) -> str | None:
+        """Create tikz string of provided polygons and save or return result. In polygons is a pd.MultiIndex
+        create polygons, i.e. square cells with a length of `c`, first.
+
+        Args:
+            polygons (List[Polygon] | pd.MultiIndex): List of Polygons or input to create square cells
+            c (float, optional): Cell side length in case `polygons` is an index. Defaults to 5.0.
+            fd (str, optional): File path to save result to or None if result should be returned. Defaults to None.
+            attr (None | Dict[str,Any], optional): Tikz attributes for `\draw` command. Defaults to None.
+
+        Returns:
+            str|None: String of `\draw` command or nothing if saved to file.
+        """
+
         ret = ""
         if attr is None:
             attr = ""
@@ -472,15 +603,33 @@ class PlotUtil_:
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(ret)
 
-    def mult_locator(self, axis, major, minor=None):
+    def mult_locator(self, axis: plt.Axes, major: float, minor: float | None = None):
+        """Append major or major and minor axis locators to provided axes.
+
+        Args:
+            axis (plt.Axes): Axes.
+            major (float): Tick at each integer multiple
+            minor (float | None, optional): Tick at each integer multiple. If None do not display. Defaults to None.
+        """
         axis.set_major_locator(MultipleLocator(major))
         axis.set_minor_locator(MultipleLocator(minor))
         _which = "major" if minor is None else "both"
         _axis = axis.axis_name
         axis.axes.grid(True, _which, _axis)
 
-    def add_colorbar(self, im, aspect=20, pad_fraction=0.5, **kwargs):
-        """Add a vertical color bar to an image plot."""
+    def add_colorbar(
+        self, im: AxesImage, aspect: float = 20, pad_fraction: float = 0.5, **kwargs
+    ) -> Colorbar:
+        """Add a vertical `Colorbar` on the right side to an image plot
+
+        Args:
+            im (AxesImage): Image to which the color bar is added.
+            aspect (float, optional): Aspect ratio for color bar. Defaults to 20.
+            pad_fraction (float, optional): padding fraction. Defaults to 0.5.
+
+        Returns:
+            Colorbar: Create colorbar
+        """
         divider = axes_grid1.make_axes_locatable(im.axes)
         width = axes_grid1.axes_size.AxesY(im.axes, aspect=1.0 / aspect)
         pad = axes_grid1.axes_size.Fraction(pad_fraction, width)
@@ -499,7 +648,25 @@ class PlotUtil_:
         *,
         columns: None | List[str] = None,
         agg: None | List[Any] = None,
-    ):
+    ) -> pd.DataFrame:
+        """Append interval index based on the index 'idx_name'. If aggregation functions are provided
+        use interval index as group key and evaluate the aggregation function.
+
+        Args:
+            data (pd.DataFrame): Input data.
+            idx_name (str, optional): Name of column or index to used for interval range. Defaults to "time".
+            bin_size (float, optional): Size of interval. Defaults to 1.0.
+            start (float | None, optional): Start value for interval range. If None use data minimum. Defaults to None.
+            end (float | None, optional): End value of interval range. If None use data maximum. Defaults to None.
+            columns (None | List[str], optional): Column filter applied before aggregation is applied. Only used if agg is not None. Defaults to None.
+            agg (None | List[Any], optional): List of aggregation function names or callables used in groupby.agg([....]). Defaults to None.
+
+        Raises:
+            ValueError: idx_name must be present in columns or as an index value.
+
+        Returns:
+            pd.DataFrame: Input with appended interval index or aggregation result over interval index.
+        """
         if idx_name in data.columns:
             idx = data[idx_name]
         elif idx_name in data.index.names:
@@ -521,11 +688,12 @@ class PlotUtil_:
             data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
         return data
 
+    @with_axis
     def fill_between(
         self,
         data: pd.DataFrame,
-        x=None,
-        val=None,
+        x: str | None = None,
+        val: str | None = None,
         fill_val=None,
         fill_alpha=0.2,
         *,
@@ -535,7 +703,27 @@ class PlotUtil_:
         ax: plt.Axes | None = None,
         **kwds,
     ) -> plt.Axes:
-        """Create error bar plot with filled area of same color with reduced alpha"""
+        """Generate plot with the actual data and a shaded 'fill between area' with the same color.
+
+        If parameters `x`, `val`, `fill_val` are None and data as exactly 4 columns the columns are
+        read as [x, val, l_bound, u_bound]. Otherwise see argument description.
+
+        Args:
+            data (pd.DataFrame): Dataframe containing at least the data and optional upper and lower bounds.
+            x (str|None, optional): Column name for x axis. If None use first index (index 0) of dataframe. Defaults to None.
+            val (str|None, optional): Column name for data. If None use column 0 of dataframe. Defaults to None.
+            fill_val (str|List[str]|None, optional):Column name of symmetric upper and lower bound if string.
+                                                    If None use column 1 of dataframe. If list use as [lower, upper] bound. Defaults to None.
+            fill_alpha (float, optional): Alpha value of area between lower and upper bound. Defaults to 0.2.
+            plot_lbl (str | None, optional): Label for data. Defaults to None.
+            line_args (dict | None, optional): Kwargs passed to line plot of data values. Defaults to None.
+            fill_args (dict | None, optional): Kwargs passed to fill_between plot. Defaults to None.
+            ax (plt.Axes | None, optional): Axes object to add line to. If None `with_axis` decorator will inject new object. Defaults to None.
+
+        Returns:
+            plt.Axes:
+        """
+        # Create error bar plot with filled area of same color with reduced alpha
         if all([i is None for i in [x, val, fill_val]]) and data.shape[1] == 4:
             # noting set and exactly 4 columns
             x = data.iloc[:, 0]
@@ -570,7 +758,6 @@ class PlotUtil_:
                 l_bound = data.loc[:, fill_val[0]]
                 u_bound = data.loc[:, fill_val[1]]
 
-        fig, ax = self.check_ax(ax)
         line = ax.plot(x, val, **({} if line_args is None else line_args))[-1]
         if plot_lbl is not None:
             line.set_label(plot_lbl)
@@ -670,75 +857,3 @@ class PlotHelper:
     @property
     def plot_data(self) -> pd.DataFrame:
         return self._plot_data
-
-
-def percentile(n: int) -> Callable[[Any], Any]:
-    """Function to generate a numpy based percentile function
-
-    Args:
-        n (int): Percentile to compute, which must be between 0 and 100 inclusive.
-    Returns:
-        Callable[[Any], Any]: Function that compute the n-th percentile of the provided data.
-    """
-
-    def percentile_(x):
-        return np.percentile(x, n)
-
-    percentile_.__name__ = f"p{n}"
-    return percentile_
-
-
-def with_axis(func):
-    """Decorator that injects an keyword argument 'ax' of the
-    type `plt.Axes` if missing.
-
-    Args:
-        func (Callable): Function to be decorated
-
-    Returns:
-        Callable: Decorated (i.e. extended) function
-    """
-
-    @wraps(func)
-    def with_axis_impl(self, *func_args, **func_kwargs):
-        if "ax" not in func_kwargs:
-            _, ax = PlotUtil.check_ax(None)
-            func_kwargs.setdefault("ax", ax)
-        elif "ax" in func_kwargs and func_kwargs["ax"] is None:
-            _, ax = PlotUtil.check_ax()
-            func_kwargs["ax"] = ax
-        return func(self, *func_args, **func_kwargs)
-
-    return with_axis_impl
-
-
-def savefigure(func):
-    """Decorator that looks for a keyword argument 'savefig'.
-    todo::
-    Args:
-        func (Callable): Function to be decorated
-
-    Returns:
-        Callable: Decorated (i.e. extended) function
-    """
-
-    @wraps(func)
-    def savefigure_impl(self, *func_args, **func_kwargs):
-        savefig = None
-        if "savefig" in func_kwargs:
-            savefig = func_kwargs["savefig"]
-            del func_kwargs["savefig"]
-        fig, ax = func(self, *func_args, **func_kwargs)
-        if savefig is not None:
-            if isinstance(savefig, PdfPages):
-                savefig.savefig(fig)
-            elif isinstance(savefig, str):
-                os.makedirs(os.path.dirname(os.path.abspath(savefig)), exist_ok=True)
-                logger.info(f"save figure: {savefig}")
-                fig.savefig(savefig)
-            else:
-                # assume some callable
-                savefig(fig)
-        return fig, ax
-
-    return savefigure_impl
