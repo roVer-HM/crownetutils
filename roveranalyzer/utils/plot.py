@@ -16,7 +16,17 @@ import random
 from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
-from typing import Any, Callable, ContextManager, Dict, List, Protocol, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    Iterable,
+    List,
+    Protocol,
+    Tuple,
+    Union,
+)
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -342,18 +352,6 @@ class PlotUtil_:
         random.Random(13).shuffle(self._plot_color_lines)
         self.ax_provider = self._check_ax
 
-    def contour_two_slope_colors(
-        self, norm: TwoSlopeNorm, n_colors, c_map="coolwarm", mid_white: bool = False
-    ):
-        lvl = plt.MaxNLocator(nbins=n_colors)
-        levels = lvl.tick_values(norm.vmin, norm.vmax)
-        colors = plt.get_cmap(c_map)(norm(levels))
-
-        if mid_white:
-            colors[(levels == 0.0).argmax()] = [1.0, 1.0, 1.0, 1.0]
-            # colors[(levels==.0).argmax()-1] = [1., 1., 1., 1.]
-        return levels, colors
-
     def append_title(self, ax: plt.Axes, *, prefix="", suffix=""):
         """Append string at front or back of the axes title
 
@@ -367,13 +365,31 @@ class PlotUtil_:
         _title = _title if len(suffix) < 1 else f"{_title.strip()} "
         ax.set_title(f"{prefix}{_title}{suffix}")
 
-    def par(self, key, default=None):
+    def par(self, key: str, default: Any = None) -> Any:
+        """Matplolib rcParams wrapper to access rcParams or return default. This is a read only access!
+
+        Args:
+            key (str): rcParmas key to access
+            default (Any, optional): Default value. Defaults to None.
+
+        Returns:
+            Any: rcParameter for key or provided default. Can be None.
+        """
         return plt.rcParams.get(key, default)
 
+    @with_axis
     def ecdf(
         self, data: pd.Series | pd.DataFrame, ax: plt.Axes | None = None, **kwargs
-    ):
-        fig, ax = self.check_ax(ax)
+    ) -> plt.Axes:
+        """Create empirical copulative density function (ECDF) of provided data.
+
+        Args:
+            data (pd.Series | pd.DataFrame): Data used. If Dataframe use first column
+            ax (plt.Axes | None, optional): Provided axes for plotting. New object inject via `@with_axis` if None. Defaults to None.
+
+        Returns:
+            plt.Axes:
+        """
         if isinstance(data, pd.DataFrame):
             data = data.iloc[:, 0]  # first column
         _x = data.sort_values()
@@ -382,10 +398,37 @@ class PlotUtil_:
         ax.set_ylabel("density")
         return ax
 
-    def color_marker_lines(self, line_type="--"):
+    def color_marker_lines(self, line_type="--") -> List[str]:
+        """Create color/marker/line_type string for provided line type.
+
+        Example:
+            For line_type='--'
+            [bo--, go--, ro--, b*--, g*--, r*--]
+            'black line with spaces ----o----o---and non-filled circle marker
+
+        Args:
+            line_type (str, optional): Legal line type of matplotlib. E.g. [-, :, -., --].Defaults to "--".
+
+        Returns:
+            List[str]: List of color/marker/line strings for plot line formatting.
+        """
         return [f"{m}{line_type}" for m in self._plot_color_markers]
 
-    def color_lines(self, line_type: Union[str, List[str], str] = None, cycle=True):
+    def color_lines(
+        self, line_type: str | List[str] | None = None, cycle: bool = True
+    ) -> List[str] | Iterable[str]:
+        """Create color/marker string for line formatting in matpltolib.
+
+        Args:
+            line_type (str | List[str] | None, optional): Line. Defaults to None.
+            cycle (bool, optional): _description_. Defaults to True.
+
+        Raises:
+            ValueError: _description_
+
+        Returns:
+            List[str]|Iterable[str]: _description_
+        """
         if line_type is None:
             lines = self._plot_color_lines
         elif type(line_type) == list:
@@ -403,6 +446,14 @@ class PlotUtil_:
             return lines
 
     def equalize_axis(self, axes: List[plt.Axes], axis="y"):
+        """Equalize x or y ax limit to min/max of all provided axis.
+
+        This ensures that multiple axes show the same area and are comparable.
+
+        Args:
+            axes (List[plt.Axes]): List of axes to equalize
+            axis (str, optional): axis identifier. Defaults to "y".
+        """
         if axis == "y":
             max_ = max([i.get_yticks().max() for i in axes])
             min_ = min([i.get_yticks().min() for i in axes])
