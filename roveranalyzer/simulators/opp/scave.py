@@ -713,6 +713,7 @@ class OppSql:
         else:
             _time = ""
         _sql = f"select {columns} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
+        print(_sql)
         df = self.query_vec(_sql, type="df", **kwargs)
         if time_resolution is not None and "simtimeRaw" in columns:
             df["simtimeRaw"] = df["simtimeRaw"] / time_resolution

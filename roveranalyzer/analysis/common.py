@@ -853,7 +853,7 @@ class SuqcStudy:
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
 
-    def get_failed_missing_runs(self):
+    def get_failed_missing_runs(self, run_item_filter=lambda x: True):
         def check_fail(**kwargs) -> bool:
             if "out" not in kwargs:
                 return True  # failed (i.e. not started) Simulation
@@ -875,8 +875,9 @@ class SuqcStudy:
 
             return False
 
+        _items = self.get_run_items(filter=run_item_filter)
         runs_failed: List[RunContext] = [
-            self.get_run_context(k) for k, v in self.runs.items() if check_fail(**v)
+            self.get_run_context(k) for k, v in _items if check_fail(**v)
         ]
         return runs_failed
 

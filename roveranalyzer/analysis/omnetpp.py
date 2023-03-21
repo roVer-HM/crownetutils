@@ -845,6 +845,50 @@ class _OppAnalysis(AnalysisBase):
         tx_rate.index.name = "time"
         return tx_rate
 
+    def get_sent_packet_bytes_for_map(
+        self,
+        sql: Scave.CrownetSql,
+        freq: float = 1.0,
+    ) -> pd.DataFrame:
+        vec_ids = sql.vec_ids(
+            sql.m_map(),
+            "packetSent:vector(packetBytes)",
+        )
+        df = (
+            sql.vec_data(
+                # sql.m_map(),
+                # "packetSent:vector(packetBytes)",
+                ids=vec_ids[0:50],
+                time_slice=slice(0, 100.0),
+            )
+            .drop(columns=["vectorId"])
+            .sort_index()
+        )
+
+        bins = pd.interval_range(
+            start=0.0,
+            end=df.index.get_level_values(0).max(),
+            freq=freq,
+            closed="right",
+        )
+        df = df.groupby(pd.cut(df.index, bins)).sum() / freq / 1000  # kbps
+
+        return df
+
+    def sg_get_sent_packet_throughput_by_app(
+        self, sim_group: SimulationGroup, freq: float = 1.0
+    ) -> pd.DataFrame:
+        dfs = []
+        for rep, sim in sim_group.simulation_iter():
+            print(rep, sim)
+            df = self.get_sent_packet_bytes_for_map(sim.sql, freq=freq)
+            df["rep"] = rep
+            dfs.append(df.reset_index())
+
+        dfs = pd.concat(dfs, axis=1, ignore_index=True, verify_integrity=False)
+        dfs = dfs.set_index(["time", "app", "rep"])
+        return dfs
+
     @timing
     def append_count_diff_to_hdf(
         self,

@@ -1,9 +1,33 @@
 import contextlib as c
 import locale
 import time
-from typing import List
+from typing import Any, List
 
 import numpy as np
+
+
+class Result:
+    @classmethod
+    def ok(cls, result=None):
+        return cls(ret_code=True, result=result)
+
+    @classmethod
+    def err(cls, msg):
+        return cls(ret_code=False, result=None, msg=msg)
+
+    def __init__(self, ret_code: bool, result: Any, msg: str = "") -> None:
+        self.ret_code = ret_code
+        self.result = result
+        self.msg = msg
+
+    def get(self):
+        return self.result
+
+    def __bool__(self):
+        return self.ret_code
+
+    def __repr__(self) -> str:
+        return f"<Result: {self.ret_code}, msg='{self.msg}'"
 
 
 @c.contextmanager
