@@ -142,12 +142,12 @@ class PlotAppMisc_(PlotUtil_):
         self, data: pd.DataFrame, *, ax: plt.Axes | None = None, **plot_args
     ):
         _i = pd.IndexSlice
-        d = data.loc[_i[:, "Beacon"], "value"]
+        d = data.loc[_i[:, "b"], "value"]
         ax.scatter(
             d.index.get_level_values(0), d, marker="x", label="Beacon", **plot_args
         )
 
-        d = data.loc[_i[:, "Map"], "value"]
+        d = data.loc[_i[:, "m"], "value"]
         ax.scatter(d.index.get_level_values(0), d, marker="+", label="Map", **plot_args)
 
         ax.set_ylabel("Packet size in bytes")
@@ -237,7 +237,11 @@ class PlotAppMisc_(PlotUtil_):
         saver(ax_app_t.get_figure(), "System_tx_data_rate.pdf")
 
     def plot_system_level_tx_rate_based_on_application_layer_data(
-        self, sim: Simulation, *, saver: FigureSaver | None = None
+        self,
+        sim: Simulation,
+        *,
+        create_hdf_cache: bool = True,
+        saver: FigureSaver | None = None,
     ):
         """
         How many packets, at which size, and at what rate are produced by each application
@@ -249,6 +253,10 @@ class PlotAppMisc_(PlotUtil_):
         """
         saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
         tx_pkt = OppAnalysis.get_sent_packet_bytes_by_app(sim.sql)
+        if create_hdf_cache:
+            _hdf = sim.get_base_provider("tk_pkt_bytes", sim.path("tk_pkt_bytes.h"))
+            _hdf.write_frame("tk_pkt_bytes", tx_pkt)
+
         # (1) packet size t
         fig, _ = self.plot_packet_size_ts(data=tx_pkt)
         saver(fig, "Packet_size_ts.pdf")

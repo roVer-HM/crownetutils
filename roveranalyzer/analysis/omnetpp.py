@@ -803,11 +803,11 @@ class _OppAnalysis(AnalysisBase):
         tx_pkt_beacon = sql.vec_data(
             sql.m_beacon(), "packetSent:vector(packetBytes)"
         ).drop(columns=["vectorId"])
-        tx_pkt_beacon["app"] = "Beacon"
+        tx_pkt_beacon["app"] = "b"
         tx_pkt_map = sql.vec_data(sql.m_map(), "packetSent:vector(packetBytes)").drop(
             columns=["vectorId"]
         )
-        tx_pkt_map["app"] = "Map"
+        tx_pkt_map["app"] = "m"
 
         tx_pkt = pd.concat(
             [tx_pkt_beacon, tx_pkt_map], axis=0, ignore_index=True
