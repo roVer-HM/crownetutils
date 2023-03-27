@@ -29,6 +29,7 @@ from typing import (
 )
 
 import matplotlib
+import matplotlib.patches as pltPatch
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -365,6 +366,10 @@ class PlotUtil_:
         _title = _title if len(suffix) < 1 else f"{_title.strip()} "
         ax.set_title(f"{prefix}{_title}{suffix}")
 
+    def get_default_color_cycle(self):
+        """Default color cycle defined in currently set rcParams"""
+        return plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
     def par(self, key: str, default: Any = None) -> Any:
         """Matplolib rcParams wrapper to access rcParams or return default. This is a read only access!
 
@@ -697,6 +702,7 @@ class PlotUtil_:
         start: float | None = None,
         end: float | None = None,
         *,
+        closed: str = "right",
         columns: None | List[str] = None,
         agg: None | List[Any] = None,
     ) -> pd.DataFrame:
@@ -719,15 +725,16 @@ class PlotUtil_:
             pd.DataFrame: Input with appended interval index or aggregation result over interval index.
         """
         if idx_name in data.columns:
-            idx = data[idx_name]
+            data = data.reset_index(drop=True).set_index(idx_name).sort_index()
+            idx = data.index.get_level_values(idx_name)
         elif idx_name in data.index.names:
             idx = data.index.get_level_values(idx_name)
         else:
             raise ValueError("No index found with name {idx_name}")
         start = idx.min() if start is None else start
-        end = idx.max() if end is None else end
-        bins = pd.interval_range(start=start, end=end, freq=bin_size, closed="left")
-        data["bin"] = pd.cut(idx, bins)
+        end = idx.max() + bin_size if end is None else end
+        bins = pd.interval_range(start=start, end=end, freq=bin_size, closed=closed)
+        data["bin"] = pd.cut(idx, bins, right=closed == "right")
         if agg is not None:
             _n = data.index.names
             data = data.reset_index().set_index([*_n, "bin"]).sort_index()
@@ -822,6 +829,70 @@ class PlotUtil_:
             **({} if fill_args is None else fill_args),
         )
         return ax, line, ret_fill
+
+    def color_box_plot(
+        self,
+        bp: dict,
+        fill_color,
+        ax: plt.Axes,
+        edge_color="black",
+        flier="+",
+        flier_size=3,
+    ) -> None:
+        """Create manual filled box plots based on the `bp` dictionary returned by `pandas.GroubBy.boxplot` function
+
+        Args:
+            bp (dict): Dictionary of Box artists
+            fill_color (_type_): Color to use to fill the boxes.
+            ax (plt.Axes): Axes to add the patches to.
+            edge_color (str, optional): Edge color for boxes. Defaults to "black".
+            flier (str, optional): Marker for fliers. Defaults to "+".
+            flier_size (int, optional): Marker size for fliers. Defaults to 3.
+        """
+
+        plt.setp(bp["boxes"], color=edge_color)
+        plt.setp(bp["medians"], color=edge_color)
+        plt.setp(
+            bp["fliers"],
+            mec=fill_color,
+            mfc=fill_color,
+            marker=flier,
+            markersize=flier_size,
+        )
+        if "means" in bp:
+            plt.setp(
+                bp["means"],
+                mec=edge_color,
+                mfc=fill_color,
+                marker="*",
+                markersize=flier_size + 2,
+            )
+
+        for b in bp["boxes"]:
+            _coords = list(zip(b.get_xdata(), b.get_ydata()))
+            _patch = pltPatch.Polygon(_coords, facecolor=fill_color)
+            ax.add_patch(_patch)
+
+    def merge_legend_patches(self, h, l):
+        """Merge provided handles pair-wise using the first label. This is useful to combine
+           the labels of fill between plots where the line and the shaded area are combined.
+
+           This method assumes same length of both `h` and `l` as well as even number of items in each.
+        Args:
+            h (_type_): List of label handles.
+            l (_type_): List of label strings.
+
+        Returns:
+            _type_: Tuple of handle and label lists.
+        """
+        l_new = []
+        h_new = []
+        i = 0
+        while i < len(l):
+            h_new.append((h[i], h[i + 1]))
+            l_new.append(l[i])
+            i += 2
+        return h_new, l_new
 
 
 PlotUtil = PlotUtil_()

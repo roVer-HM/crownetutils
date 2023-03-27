@@ -123,6 +123,17 @@ class DcdMetaData:
             ]
         return pd.MultiIndex.from_product(_idx, names=("x", "y"))
 
+    def create_full_index_slice(self):
+        """Return map structure as a pair of slices
+
+        Returns:
+            Tuple[slice, slice]: x,y slice describing all cells in the map.
+        """
+        _s = self.cell_size
+        x = slice(0, self.x_count * _s, _s)
+        y = slice(0, self.y_count * _s, _s)
+        return x, y
+
     def create_full_index(self, times, real_coords=False):
         if real_coords:
             _idx = [

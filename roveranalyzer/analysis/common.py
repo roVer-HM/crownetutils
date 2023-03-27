@@ -125,6 +125,15 @@ class SimulationGroup:
         return [sim.run_context.mobility_seed for sim in self.simulations]
 
     def simulation_iter(self, enum: bool = False) -> Iterator[Tuple[int, Simulation]]:
+        """Get iterator of all items (run_id, simulation) in this group. If enum is
+        set the iterator returns (run_id, global_sim_id, simulation) instead.
+
+        Args:
+            enum (bool, optional): Add global id to iterator. Defaults to False.
+
+        Yields:
+            Iterator[Tuple[int, Simulation]]: _description_
+        """
         for idx, sim in enumerate(self.simulations):
             if enum:
                 yield (idx, sim.global_id(), sim)
@@ -466,6 +475,19 @@ class RunContext:
         regex: str | None = None,
         apply: Callable[[Any], Any] = lambda x: x,
     ):
+        """Return ini entry for key. Apply regex and any given `apply` function to returned value.
+
+        Args:
+            key (str): Ini-File key.
+            regex (str | None, optional): Regex with _ONE_ group to apply to raw value returned. Defaults to None.
+            apply (_type_, optional): Any consumer of the the returned value for further cleanup. Defaults to no action.
+
+        Raises:
+            ValueError: ValueError if regex does not return a match
+
+        Returns:
+            _type_: Ini Value
+        """
         value = self.oppini[key]
         if regex is not None:
             pattern = re.compile(regex)
@@ -474,6 +496,31 @@ class RunContext:
                 raise ValueError(f"no match for {key}={value} in regex {pattern}")
             value = match.groups()[0]
         return apply(value)
+
+    def ini_get_or_default(
+        self,
+        key: str,
+        regex: str | None = None,
+        apply: Callable[[Any], Any] = lambda x: x,
+        default: Any = None,
+    ):
+        """Return ini entry for key or default. Apply regex and any given `apply` function to returned value.
+
+        Args:
+            key (str): Ini-File key.
+            regex (str | None, optional): Regex with _ONE_ group to apply to raw value returned. Defaults to None.
+            apply (_type_, optional): Any consumer of the the returned value for further cleanup. Defaults to no action.
+            default (Any): Default value in case key does not exist.
+
+        Returns:
+            _type_: Ini Value or default.
+        """
+
+        try:
+            ret = self.ini_get(key, regex, apply)
+        except ValueError:
+            ret = default
+        return ret
 
     @property
     def opp_seed(self) -> int:
@@ -679,6 +726,26 @@ class Simulation:
 
     def base_hdf(self, group_name) -> BaseHdfProvider:
         return self.get_base_provider(group_name, join(self.data_root, "data.h5"))
+
+    def from_hdf(self, hdf_path: str, group: str, **kwargs) -> pd.DataFrame:
+        """Extract dataframe from provided hdf file. Use kwargs to select portion of data.
+        This method accepts all keywords from pandas.HDFStore.select (where, start, stop, columns)
+
+        Args:
+            hdf_path (str): Path to hdf file. If relative use simulation root as as basis.
+            group (str): group to select from
+
+        Returns:
+            pd.DataFrame:
+        """
+        if not os.path.isabs(hdf_path):
+            hdf_path = self.path(hdf_path)
+        _hdf = BaseHdfProvider(hdf_path, group)
+        if len(kwargs) == 0:
+            return _hdf.get_dataframe(group)
+        else:
+            with _hdf.ctx(mode="r") as ctx:
+                return ctx.select(key=group, **kwargs)
 
     def global_id(self):
         return self.run_context.par_id + self._id_offset

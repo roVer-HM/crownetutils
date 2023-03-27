@@ -153,9 +153,19 @@ class BaseHdfProvider:
     def get_time_interval(self):
         return self.get_attribute("time_interval")
 
-    def contains_group(self, group):
-        with self.ctx() as ctx:
-            return group in [g._v_name for g in ctx.groups()]
+    def contains_group(self, group: str) -> bool:
+        """Check if group exists in HDF file. Returns false if file does not exist.
+
+        Args:
+            group (str): group name
+
+        Returns:
+            bool: True if file and group exists. False otherwise.
+        """
+        if self.hdf_file_exists:
+            with self.ctx() as ctx:
+                return group in [g._v_name for g in ctx.groups()]
+        return False
 
     @contextlib.contextmanager  # to ensure store closes after access
     def ctx(self, mode="a", **kwargs) -> Iterator[pd.HDFStore]:

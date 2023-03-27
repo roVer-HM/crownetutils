@@ -17,3 +17,5 @@ axes.grid.which:    major   # grid lines at {major, minor, both} ticks
 
 grid.alpha: 0.8
 legend.facecolor:   (1.0, 1.0, 1.0, 1.0)
+legend.frameon:     True
+legend.framealpha:    1.0

@@ -6,8 +6,9 @@ pgf.texsystem   : pdflatex
 path.simplify: True
 
 font.size       : 14
-font.familiy    : serif
+font.family    : serif
 axes.titlesize  : x-large
+axes.titleweight    : bold
 axes.labelsize      : large
 
 
@@ -16,4 +17,7 @@ axes.grid.axis:     both    # which axis the grid should apply to
 axes.grid.which:    major   # grid lines at {major, minor, both} ticks
 
 grid.alpha: 0.8
+grid.alpha: 0.8
 legend.facecolor:   (1.0, 1.0, 1.0, 1.0)
+legend.frameon:     True
+legend.framealpha:    1.0

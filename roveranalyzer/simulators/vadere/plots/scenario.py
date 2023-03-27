@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json as j
+from ast import Tuple
 from re import I
-from typing import Union
+from typing import List, Union
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -212,3 +213,37 @@ class VaderScenarioPlotHelper:
                 ax.add_patch(patch)
 
         return ax
+
+    def get_legal_cells(self, xy_slices: Tuple[slice, slice], c=5.0):
+        """Filter cells based on __FULL__ encloser within obstacles.
+
+        Args:
+            xy_slices (Tuple[slice, slice]): area to search of overlapping with obstacles.
+            c (float, optional): Size of cells. (Step in slices will be ignored!) . Defaults to 5.0.
+
+        Returns:
+            Tuple[pd.MultiIndex, pd.MultiIndex]: Free and covered cells described as pd.MultiIndex.
+        """
+
+        _covered = []
+        _free = []
+        _x, _y = xy_slices
+        obs: List[Polygon] = [
+            self.scenario.shape_to_list(s["shape"], to_shapely=True)
+            for s in self.scenario.obstacles
+        ]
+        for x in np.arange(_x.start, _x.stop, c):
+            for y in np.arange(_y.start, _y.stop, c):
+                idx = (x, y)
+                cell = Polygon([[x, y], [x + c, y], [x + c, y + c], [x, y + c], [x, y]])
+                for _o in obs:
+                    if _o.covers(cell):
+                        _covered.append(idx)
+                        break
+                if _covered[-1] != idx:
+                    _free.append(idx)
+
+        _covered = pd.MultiIndex.from_tuples(_covered, names=["x", "y"])
+        _free = pd.MultiIndex.from_tuples(_free, names=["x", "y"])
+
+        return _free, _covered

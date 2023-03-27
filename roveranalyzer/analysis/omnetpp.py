@@ -548,37 +548,78 @@ class _OppAnalysis(AnalysisBase):
         ax.set_xlabel("Simulation time in seconds")
         saver(fig, os.path.join(data_root, f"txMapPktCount_ts.pdf"))
 
+    def append_run_col(self, func, run: int, **kwargs) -> pd.DataFrame:
+        print(f"run func for run {run}")
+        df = func(**kwargs)
+        df["run"] = run
+        df = df.reset_index()
+        return df
+
+    @timing
+    def sg_get_txAppInterval(
+        self,
+        sg: SimulationGroup,
+        app_type: str = "beacon",
+        interval_type: str = "all",
+        jobs: int = 5,
+    ) -> pd.DataFrame:
+        df = []
+        kw_list = [
+            dict(
+                func=self.get_txAppInterval,
+                run=run_id,
+                sql=sim.sql,
+                app_type=app_type,
+                interval_type=interval_type,
+            )
+            for run_id, sim in sg.simulation_iter()
+        ]
+        df = run_kwargs_map(func=self.append_run_col, kwargs_iter=kw_list, pool_size=5)
+        # for run_id, sim in sg.simulation_iter():
+        #     print(f"read run {run_id}")
+        #     _df = self.get_txAppInterval(sim.sql, app_type, interval_type)
+        #     _df["run"] = run_id
+        #     _df = _df.reset_index()
+        #     df.append(_df)
+        df = pd.concat(df, ignore_index=True, verify_integrity=False)
+        return df
+
     @timing
     def get_txAppInterval(
         self,
         sql: Scave.CrownetSql,
         app_type: str = "beacon",
-        index: List[str] | None = ("time",),
+        interval_type: str = "all",
     ) -> pd.DataFrame:
         if app_type.lower() == "beacon":
             m = sql.m_beacon(app_mod="scheduler")
         else:
             m = sql.m_map(app_mod="scheduler")
 
-        df1 = sql.vector_ids_to_host(
-            module_name=m,
-            vector_name="txInterval:vector",
-            name_columns=["host", "hostId"],
-            pull_data=True,
-            value_name="txInterval",
-            index=["time", "host", "hostId"],
-        ).drop(columns=["vectorId"])
-        df2 = sql.vector_ids_to_host(
-            module_name=m,
-            vector_name="txDetInterval:vector",
-            name_columns=["host", "hostId"],
-            pull_data=True,
-            value_name="txDetInterval",
-            index=["time", "host", "hostId"],
-        ).drop(columns=["vectorId"])
-
-        df = pd.concat([df1, df2], axis=1, ignore_index=False)
-        return df
+        if interval_type in ["all", "real"]:
+            df1 = sql.vector_ids_to_host(
+                module_name=m,
+                vector_name="txInterval:vector",
+                name_columns=["hostId"],
+                pull_data=True,
+                value_name="txInterval",
+                index=["time", "hostId"],
+            ).drop(columns=["vectorId"])
+        if interval_type in ["all", "det"]:
+            df2 = sql.vector_ids_to_host(
+                module_name=m,
+                vector_name="txDetInterval:vector",
+                name_columns=["host", "hostId"],
+                pull_data=True,
+                value_name="txDetInterval",
+                index=["time", "hostId"],
+            ).drop(columns=["vectorId"])
+        if interval_type == "real":
+            return df1
+        elif interval_type == "det":
+            return df2
+        else:
+            return pd.concat([df1, df2], axis=1, ignore_index=False)
 
     def _load_vectors(
         self,
