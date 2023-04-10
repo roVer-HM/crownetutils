@@ -125,7 +125,7 @@ class SimulationGroup:
         return [sim.run_context.mobility_seed for sim in self.simulations]
 
     def simulation_iter(self, enum: bool = False) -> Iterator[Tuple[int, Simulation]]:
-        """Get iterator of all items (run_id, simulation) in this group. If enum is
+        """Get iterator of all items (global_sim_id, simulation) in this group. If enum is
         set the iterator returns (run_id, global_sim_id, simulation) instead.
 
         Args:
@@ -719,10 +719,12 @@ class Simulation:
             )
         return self._sql
 
-    def get_base_provider(self, group_name, path=None) -> BaseHdfProvider:
-        return BaseHdfProvider(
-            hdf_path=path or join(self.data_root, ""), group=group_name
-        )
+    def get_base_provider(self, group_name="root", path="data.h5") -> BaseHdfProvider:
+
+        if not os.path.isabs(path):
+            path = self.path(path)
+
+        return BaseHdfProvider(hdf_path=path, group=group_name)
 
     def base_hdf(self, group_name) -> BaseHdfProvider:
         return self.get_base_provider(group_name, join(self.data_root, "data.h5"))

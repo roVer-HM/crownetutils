@@ -472,7 +472,7 @@ class PlotUtil_:
 
     def df_to_table(
         self, df: pd.DataFrame, ax: plt.Axes | None = None, title: str | None = None
-    ) -> Tuple[plt.Figuer, plt.Axes]:
+    ) -> Tuple[plt.Figuer, plt.Axes, plt.Table]:
         """Save columns of dataframe as matplotlib table.
 
         Args:
@@ -486,16 +486,21 @@ class PlotUtil_:
         fig, ax = self.check_ax(ax)
         fig.patch.set_visible(False)
         ax.axis("off")
-        t = ax.table(cellText=df.values, colLabels=df.columns, loc="center")
+        t = ax.table(
+            cellText=df.values,
+            colLabels=df.columns,
+            loc="center",
+            bbox=[0.0, 0.0, 1.0, 1.0],
+        )
         t.auto_set_font_size(False)
         t.set_fontsize(11)
         t.auto_set_column_width(col=(list(range(df.shape[1]))))
-        [c.set_height(0.06) for c in t.get_celld().values()]
+        [c.set_height(0.2) for c in t.get_celld().values()]
         ax.get_yaxis().set_visible(False)
         ax.get_xaxis().set_visible(False)
         if title is not None:
             ax.set_title(title)
-        return fig, ax
+        return fig, ax, t
 
     def fig_to_pdf(self, path, figures: List[plt.figure], close_figures: bool = False):
         """Save list of figures into one pdf file. Close figure object at the end if set.
@@ -784,6 +789,7 @@ class PlotUtil_:
         # Create error bar plot with filled area of same color with reduced alpha
         if all([i is None for i in [x, val, fill_val]]) and data.shape[1] == 4:
             # noting set and exactly 4 columns
+            print("found 4 columns. Use as 'x, value, l_bound, u_bound' ")
             x = data.iloc[:, 0]
             val = data.iloc[:, 1]
             l_bound = data.iloc[:, 2]
@@ -849,28 +855,34 @@ class PlotUtil_:
             flier (str, optional): Marker for fliers. Defaults to "+".
             flier_size (int, optional): Marker size for fliers. Defaults to 3.
         """
+        if isinstance(fill_color, list):
+            if len(fill_color) != len(bp["boxes"]):
+                raise ValueError("Number of colors des not match number of boxes.")
+        else:
+            fill_color = [fill_color]
 
-        plt.setp(bp["boxes"], color=edge_color)
-        plt.setp(bp["medians"], color=edge_color)
-        plt.setp(
-            bp["fliers"],
-            mec=fill_color,
-            mfc=fill_color,
-            marker=flier,
-            markersize=flier_size,
-        )
-        if "means" in bp:
+        for idx, color in enumerate(fill_color):
+            plt.setp(bp["boxes"][idx], color=edge_color, zorder=2.1)
+            plt.setp(bp["medians"][idx], color=edge_color)
             plt.setp(
-                bp["means"],
-                mec=edge_color,
-                mfc=fill_color,
-                marker="*",
-                markersize=flier_size + 2,
+                bp["fliers"][idx],
+                mec=color,
+                mfc=color,
+                marker=flier,
+                markersize=flier_size,
             )
+            if "means" in bp and len(bp["means"]) > 0:
+                plt.setp(
+                    bp["means"][idx],
+                    mec=edge_color,
+                    mfc=color,
+                    marker="*",
+                    markersize=flier_size + 2,
+                )
 
-        for b in bp["boxes"]:
+            b = bp["boxes"][idx]
             _coords = list(zip(b.get_xdata(), b.get_ydata()))
-            _patch = pltPatch.Polygon(_coords, facecolor=fill_color)
+            _patch = pltPatch.Polygon(_coords, facecolor=color, zorder=2.0)
             ax.add_patch(_patch)
 
     def merge_legend_patches(self, h, l):

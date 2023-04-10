@@ -840,7 +840,17 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     @timing
-    def get_sent_packet_bytes_by_app(self, sql: Scave.CrownetSql) -> pd.DataFrame:
+    def get_sent_packet_bytes_by_app(
+        self,
+        sql: Scave.CrownetSql,
+        hdf: BaseHdfProvider | None = None,
+        hdf_group: str = "tx_pkt_bytes",
+    ) -> pd.DataFrame:
+
+        if hdf is not None:
+            if hdf.contains_group(hdf_group):
+                return hdf.get_dataframe(hdf_group)
+        print("create tx_pkt_beacon")
         tx_pkt_beacon = sql.vec_data(
             sql.m_beacon(), "packetSent:vector(packetBytes)"
         ).drop(columns=["vectorId"])
@@ -850,29 +860,69 @@ class _OppAnalysis(AnalysisBase):
         )
         tx_pkt_map["app"] = "m"
 
-        tx_pkt = pd.concat(
-            [tx_pkt_beacon, tx_pkt_map], axis=0, ignore_index=True
-        ).set_index(["time", "app"])
+        tx_pkt = (
+            pd.concat([tx_pkt_beacon, tx_pkt_map], axis=0, ignore_index=True)
+            .set_index(["app", "time"])
+            .sort_index()
+        )
+        if hdf is not None:
+            print(f"write frame to hdf. group: {hdf_group}")
+            hdf.write_frame(hdf_group, tx_pkt)
         return tx_pkt
+
+    def get_sent_packet_throughput_diff_by_app(
+        self,
+        sql: Scave.CrownetSql,
+        target_rate: dict,
+        freq: float = 1.0,
+        hdf: BaseHdfProvider | None = None,
+        hdf_group_base: str = "tx_throughput",
+    ):
+
+        hdf_group_diff = f"{hdf_group_base}_diff_{str(freq).replace('.','_')}"
+        if hdf is not None and hdf.contains_group(hdf_group_diff):
+            return hdf.get_dataframe(hdf_group_diff)
+
+        hdf_group = f"{hdf_group_base}{str(freq).replace('.','_')}"
+        if hdf is not None and hdf.contains_group(hdf_group):
+            print("found group")
+            data = hdf.get_dataframe(hdf_group)
+        else:
+            print("create packet throughput by app")
+            data = self.get_sent_packet_throughput_by_app(sql, freq=freq, hdf=hdf)
+        for c in data.columns:
+            _rate = target_rate[c]
+            data[f"diff_{c}"] = data[c] - _rate
+        if hdf is not None:
+            hdf.write_frame(hdf_group_diff, data)
+
+        return data
 
     def get_sent_packet_throughput_by_app(
         self,
         sql: Scave.CrownetSql,
         freq: float = 1.0,
-        cache: pd.DataFrame | None = None,
+        tx_byte_data: pd.DataFrame | None = None,
+        hdf: BaseHdfProvider | None = None,
+        hdf_group_base: str = "tx_throughput",
     ):
-        if cache is None:
-            data = self.get_sent_packet_bytes_by_app(sql)
+        hdf_group = f"{hdf_group_base}{str(freq).replace('.','_')}"
+        if hdf is not None and hdf.contains_group(hdf_group):
+            return hdf.get_dataframe(hdf_group)
+
+        if tx_byte_data is None:
+            data = self.get_sent_packet_bytes_by_app(sql, hdf=hdf)
         else:
-            data = cache
+            data = tx_byte_data
 
         tx_rate = data.reset_index(["app"])
         bins = pd.interval_range(
             start=0.0,
             end=tx_rate.index.get_level_values(0).max(),
             freq=freq,
-            closed="left",
+            closed="right",
         )
+        # rate in kilo bytes per seconds
         tx_rate = (
             (
                 tx_rate.groupby([pd.cut(tx_rate.index, bins=bins), "app"]).sum()
@@ -882,53 +932,55 @@ class _OppAnalysis(AnalysisBase):
             .unstack("app")
             .droplevel(0, axis=1)
         )
-        tx_rate.index = bins.left
+        tx_rate.index = bins.right
         tx_rate.index.name = "time"
+        if hdf is not None:
+            hdf.write_frame(hdf_group, tx_rate)
         return tx_rate
 
-    def get_sent_packet_bytes_for_map(
-        self,
-        sql: Scave.CrownetSql,
-        freq: float = 1.0,
-    ) -> pd.DataFrame:
-        vec_ids = sql.vec_ids(
-            sql.m_map(),
-            "packetSent:vector(packetBytes)",
-        )
-        df = (
-            sql.vec_data(
-                # sql.m_map(),
-                # "packetSent:vector(packetBytes)",
-                ids=vec_ids[0:50],
-                time_slice=slice(0, 100.0),
-            )
-            .drop(columns=["vectorId"])
-            .sort_index()
-        )
+    # def get_sent_packet_bytes_for_map(
+    #     self,
+    #     sql: Scave.CrownetSql,
+    #     freq: float = 1.0,
+    # ) -> pd.DataFrame:
+    #     vec_ids = sql.vec_ids(
+    #         sql.m_map(),
+    #         "packetSent:vector(packetBytes)",
+    #     )
+    #     df = (
+    #         sql.vec_data(
+    #             # sql.m_map(),
+    #             # "packetSent:vector(packetBytes)",
+    #             ids=vec_ids[0:50],
+    #             time_slice=slice(0, 100.0),
+    #         )
+    #         .drop(columns=["vectorId"])
+    #         .sort_index()
+    #     )
 
-        bins = pd.interval_range(
-            start=0.0,
-            end=df.index.get_level_values(0).max(),
-            freq=freq,
-            closed="right",
-        )
-        df = df.groupby(pd.cut(df.index, bins)).sum() / freq / 1000  # kbps
+    #     bins = pd.interval_range(
+    #         start=0.0,
+    #         end=df.index.get_level_values(0).max(),
+    #         freq=freq,
+    #         closed="right",
+    #     )
+    #     df = df.groupby(pd.cut(df.index, bins)).sum() / freq / 1000  # kbps
 
-        return df
+    #     return df
 
-    def sg_get_sent_packet_throughput_by_app(
-        self, sim_group: SimulationGroup, freq: float = 1.0
-    ) -> pd.DataFrame:
-        dfs = []
-        for rep, sim in sim_group.simulation_iter():
-            print(rep, sim)
-            df = self.get_sent_packet_bytes_for_map(sim.sql, freq=freq)
-            df["rep"] = rep
-            dfs.append(df.reset_index())
+    # def sg_get_sent_packet_throughput_by_app(
+    #     self, sim_group: SimulationGroup, freq: float = 1.0
+    # ) -> pd.DataFrame:
+    #     dfs = []
+    #     for rep, sim in sim_group.simulation_iter():
+    #         print(rep, sim)
+    #         df = self.get_sent_packet_bytes_for_map(sim.sql, freq=freq)
+    #         df["rep"] = rep
+    #         dfs.append(df.reset_index())
 
-        dfs = pd.concat(dfs, axis=1, ignore_index=True, verify_integrity=False)
-        dfs = dfs.set_index(["time", "app", "rep"])
-        return dfs
+    #     dfs = pd.concat(dfs, axis=1, ignore_index=True, verify_integrity=False)
+    #     dfs = dfs.set_index(["time", "app", "rep"])
+    #     return dfs
 
     @timing
     def append_count_diff_to_hdf(

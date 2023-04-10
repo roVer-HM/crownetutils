@@ -252,10 +252,11 @@ class PlotAppMisc_(PlotUtil_):
         (3) What are the number of neighbors/members used in the tx interval algorithm?
         """
         saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
-        tx_pkt = OppAnalysis.get_sent_packet_bytes_by_app(sim.sql)
         if create_hdf_cache:
-            _hdf = sim.get_base_provider("tk_pkt_bytes", sim.path("tk_pkt_bytes.h"))
-            _hdf.write_frame("tk_pkt_bytes", tx_pkt)
+            _hdf = sim.get_base_provider("tx_pkt_bytes", sim.path("tx_pkt_bytes.h5"))
+        tx_pkt = OppAnalysis.get_sent_packet_bytes_by_app(
+            sim.sql, hdf=_hdf, hdf_group="tx_pkt_bytes"
+        )
 
         # (1) packet size t
         fig, _ = self.plot_packet_size_ts(data=tx_pkt)
