@@ -53,7 +53,7 @@ class CrowNetConfig:
         return os.path.join(cls.path_crownet_home(), other)
 
 
-class Config:
+class ScaveConfig:
     """
     Config object to determine the correct way to call the scavetool.
     """

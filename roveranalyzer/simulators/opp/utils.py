@@ -3,7 +3,7 @@ import os
 
 import matplotlib.pyplot as plt
 
-from roveranalyzer.simulators.opp.configuration import Config
+from roveranalyzer.simulators.opp.configuration import ScaveConfig
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import ScaveRunConverter, ScaveTool
 from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput
@@ -32,7 +32,7 @@ class OppDataProvider:
         analysis_name,
         analysis_dir=None,
         hdf_store_name=None,
-        cfg: Config = None,
+        cfg: ScaveConfig = None,
     ):
         self._root = path
         # output

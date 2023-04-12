@@ -20,7 +20,7 @@ from shapely.geometry import Point, Polygon
 from traitlets.traitlets import Bool
 
 from roveranalyzer.simulators.opp.accessor import Opp
-from roveranalyzer.simulators.opp.configuration import Config
+from roveranalyzer.simulators.opp.configuration import ScaveConfig
 from roveranalyzer.utils import Timer, logger
 from roveranalyzer.utils.logging import timing
 
@@ -137,9 +137,9 @@ class ScaveFilter:
     def create(cls):
         return cls()
 
-    def __init__(self, config: Config = None):
+    def __init__(self, config: ScaveConfig = None):
         if config is None:
-            self._config = Config()  # default
+            self._config = ScaveConfig()  # default
         else:
             self._config = config
         self._filter = []
@@ -1280,9 +1280,9 @@ class ScaveTool:
     _OUTPUT = "-o"
     _FILTER = "--filter"
 
-    def __init__(self, config: Config = None, timeout=360):
+    def __init__(self, config: ScaveConfig = None, timeout=360):
         if config is None:
-            self._config = Config()  # default
+            self._config = ScaveConfig()  # default
         else:
             self._config = config
         self._SCAVE_TOOL = self._config.scave_cmd(silent=True)
