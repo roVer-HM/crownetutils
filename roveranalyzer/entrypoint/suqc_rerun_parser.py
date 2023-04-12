@@ -4,7 +4,7 @@ from typing import List
 from roveranalyzer.analysis.common import SuqcStudy
 
 
-def suqc_run_append_parser(
+def append_suqc_rerun_parser(
     sub: argparse.ArgumentParser, parents: List[argparse.ArgumentParser]
 ):
     post = sub.add_parser(

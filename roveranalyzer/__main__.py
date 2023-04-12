@@ -3,7 +3,7 @@ import sys
 
 from roveranalyzer import __version__
 from roveranalyzer.analysis.flaskapp.wsgi import run_app_ns
-from roveranalyzer.entrypoints import suqc_run_append_parser
+from roveranalyzer.entrypoint.suqc_rerun_parser import append_suqc_rerun_parser
 
 
 def parse_arguments():
@@ -36,7 +36,7 @@ def parse_arguments():
     dash_parser.set_defaults(main_func=run_app_ns)
 
     # Rerun postprocesing
-    suqc_run_append_parser(sub, [parent])
+    append_suqc_rerun_parser(sub, [parent])
 
     return main.parse_args()
 
