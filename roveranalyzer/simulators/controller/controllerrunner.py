@@ -7,8 +7,8 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerRunner,
 )
 from roveranalyzer.entrypoint.parser import ArgList
-from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.utils.logging import logger
+from roveranalyzer.utils.path import PathHelper
 
 
 class ControlRunner(DockerRunner):
@@ -83,7 +83,7 @@ class ControlRunner(DockerRunner):
         if use_local:
             exec_cmd = "/init_dev.sh"
             env = self.run_args.get("environment", {})
-            env.setdefault("CROWNET_HOME", CrowNetConfig.path_crownet_home())
+            env.setdefault("CROWNET_HOME", PathHelper.crownet_home().get_base())
             self.run_args["environment"] = env
         else:
             exec_cmd = "python3"

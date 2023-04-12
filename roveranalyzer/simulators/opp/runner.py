@@ -7,8 +7,8 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerRunner,
 )
 from roveranalyzer.entrypoint.parser import ArgList
-from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.utils.logging import logger
+from roveranalyzer.utils.path import PathHelper
 
 
 class OppRunner(DockerRunner):
@@ -36,7 +36,7 @@ class OppRunner(DockerRunner):
         )
         if len(os.path.split(run_cmd)[0]) == 0 and "CROWNET" in run_cmd:
             # run_cmd only contains executable without path. Assume default location
-            self.run_cmd = CrowNetConfig.join_home(f"crownet/src/{run_cmd}")
+            self.run_cmd = PathHelper.crownet_home().join(f"crownet/src/{run_cmd}")
         else:
             self.run_cmd = run_cmd
 
@@ -52,15 +52,16 @@ class OppRunner(DockerRunner):
             cmd = [base_cmd]
         else:
             cmd = base_cmd
+
+        crownet_home = PathHelper.crownet_home()
         cmd.extend(["-u", "Cmdenv"])
-        cmd.extend(["-l", CrowNetConfig.join_home("inet4/src/INET")])
-        # cmd.extend(["-l", CrowNetConfig.join_home("crownet/src/CROWNET")])
-        cmd.extend(["-l", CrowNetConfig.join_home("simulte/src/lte")])
-        cmd.extend(["-l", CrowNetConfig.join_home("veins/src/veins")])
+        cmd.extend(["-l", crownet_home.join("inet4/src/INET")])
+        cmd.extend(["-l", crownet_home.join("simulte/src/lte")])
+        cmd.extend(["-l", crownet_home.join("veins/src/veins")])
         cmd.extend(
             [
                 "-l",
-                CrowNetConfig.join_home("veins/subprojects/veins_inet/src/veins_inet"),
+                crownet_home.join("veins/subprojects/veins_inet/src/veins_inet"),
             ]
         )
         return cmd

@@ -2,6 +2,8 @@ import os
 import pathlib
 from pathlib import Path
 
+from roveranalyzer.utils.path import PathHelper
+
 _default_scavetool_cmd = "opp_scavetool"
 _default_use_docker_container = True
 
@@ -32,25 +34,6 @@ def check_setup(_cls):
     if "CROWNET_HOME" not in os.environ:
         raise ValueError("CROWNET_HOME not set.")
     return _cls
-
-
-class CrowNetConfig:
-    NAME_PACKAGE = "roveranalyzer"
-    NAME_ROVER_CONFIG_FILE = "roveranalyzer.conf"
-
-    @classmethod
-    def path_userhome(cls):
-        return pathlib.Path.home()
-
-    @classmethod
-    def path_crownet_home(cls):
-        if "CROWNET_HOME" not in os.environ:
-            raise ValueError("CROWNET_HOME not set.")
-        return os.environ.get("CROWNET_HOME")
-
-    @classmethod
-    def join_home(cls, other):
-        return os.path.join(cls.path_crownet_home(), other)
 
 
 class ScaveConfig:

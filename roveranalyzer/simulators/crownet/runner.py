@@ -24,11 +24,11 @@ from roveranalyzer.entrypoint.parser import (
     filter_options,
 )
 from roveranalyzer.simulators.controller.controllerrunner import ControlRunner
-from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.simulators.opp.runner import OppRunner
 from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
 from roveranalyzer.utils.logging import levels, logger, set_format, set_level
+from roveranalyzer.utils.path import PathHelper
 
 
 def add_base_arguments(parser: argparse.ArgumentParser):
@@ -587,8 +587,9 @@ class BaseRunner:
         opp_exec = (
             self.ns["opp_exec"]
             if bool(self.ns["opp_exec"])
-            else CrowNetConfig.join_home(f"crownet/src/run_crownet")
+            else PathHelper.crownet_home().join("crownet/src/run_crownet")
         )
+
         self.opp_runner = OppRunner(
             docker_client=self.docker_client,
             name=f"omnetpp_{run_name}",

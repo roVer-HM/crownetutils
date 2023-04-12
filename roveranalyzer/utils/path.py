@@ -162,7 +162,7 @@ class PathHelper:
     """
 
     @classmethod
-    def rover_sim(cls, sim_name, *extend_base):
+    def crownet_sim(cls, sim_name, *extend_base):
         return cls.from_env(
             "CROWNET_HOME", "rover/simulations/", sim_name, "results", *extend_base
         )
@@ -172,6 +172,10 @@ class PathHelper:
         return cls(str(pathlib.Path.home()))
 
     @classmethod
+    def crownet_home(cls):
+        return cls.from_env("CROWNET_HOME")
+
+    @classmethod
     def from_env(cls, env_var, *extend_base):
         if env_var in os.environ:
             c = cls(os.environ[env_var])
@@ -179,7 +183,7 @@ class PathHelper:
                 c.extend_base(*extend_base)
             return c
         else:
-            raise KeyError(f"no Variable name '{env_var}' found")
+            raise KeyError(f"no environment variable with name '{env_var}' found")
 
     def __init__(self, base, create_missing=False):
         self._base = os.path.abspath(base)
@@ -232,7 +236,7 @@ class PathHelper:
 class ResultPath(PathHelper):
     @classmethod
     def create(cls, simulation, run_name):
-        _obj = cls.rover_sim(simulation, run_name)
+        _obj = cls.crownet_sim(simulation, run_name)
         return _obj
 
     @property

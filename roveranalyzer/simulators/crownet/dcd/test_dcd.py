@@ -106,7 +106,7 @@ class DcdMapTestLocal(DcdMapSimpleTest, unittest.TestCase):
         # run_name = "0_vadere00_geo_20201026-ymf_map"
         run_name = "0_vadere00_geo_20201103-10:32:09_all"
         test_data_local_001 = TestDataHandler.local(
-            path=PathHelper.rover_sim(simulation, run_name).abs_path()
+            path=PathHelper.crownet_sim(simulation, run_name).abs_path()
         )
         self.handler = test_data_local_001
         self.handler.download_test_data(override=True)
