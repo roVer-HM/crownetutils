@@ -1304,7 +1304,6 @@ class _OppAnalysis(AnalysisBase):
         See DcDMap class for simulation based function.
 
         Args:
-            study (SuqcRun): _description_
             run_dict (Parameter_Variation): _description_
             cell_count (int): Number of cells used for normalization. Might differ from map shape if not reachable cells are
                             removed from the analysis. Removed cells must not have any error value.
@@ -1365,7 +1364,6 @@ class _OppAnalysis(AnalysisBase):
         See sg_get_msce_data for simulation group based function
 
         Args:
-            study (SuqcRun): Suq-controller run object containing the data.
             run_map (RunMap): Map of ParameterVariations under investigation
             hdf_path (str): Path to save result. If it already exist just load it.
             cell_count (int): Number of cells used for normalization. Might differ from map shape if not reachable cells are

@@ -36,11 +36,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
-import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.analysis.base import AnalysisBase
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.crownet.runner import read_config_file
+from roveranalyzer.simulators.opp import CrownetSql
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils import Project, logger
 from roveranalyzer.utils.misc import apply_str_filter
@@ -69,9 +69,9 @@ class SimulationGroup:
 
     The grouped simulation have some similar property, mostly they are the of the
     parameter variation but with different seeds. The Simulation object do not have to
-    be from the same SuqcRun. If Simulation objects from different runs are combined the
+    be from the same SuqcStudy. If Simulation objects from different runs are combined the
     user must ensure that there are no id overlaps. Use the id_offset in the Simulation object.
-    See RunMap   and SuqcRun.update_run_map for details.
+    See RunMap   and SuqcStudy.update_run_map for details.
     """
 
     def __init__(
@@ -710,9 +710,9 @@ class Simulation:
         return self._builder
 
     @property
-    def sql(self) -> OMNeT.CrownetSql:
+    def sql(self) -> CrownetSql:
         if self._sql is None:
-            self._sql = OMNeT.CrownetSql(
+            self._sql = CrownetSql(
                 vec_path=f"{self.data_root}/vars_rep_0.vec",
                 sca_path=f"{self.data_root}/vars_rep_0.sca",
                 network="World",
