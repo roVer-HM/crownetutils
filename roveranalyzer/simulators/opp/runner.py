@@ -8,7 +8,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
 )
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.opp.configuration import CrowNetConfig
-from roveranalyzer.utils import logger
+from roveranalyzer.utils.logging import logger
 
 
 class OppRunner(DockerRunner):

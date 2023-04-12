@@ -1,7 +1,7 @@
 import subprocess
 import time
 
-from roveranalyzer.utils import logger
+from roveranalyzer.utils.logging import logger
 
 SOCKET_TIMEOUT = 10
 

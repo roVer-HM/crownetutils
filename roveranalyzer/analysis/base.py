@@ -6,7 +6,7 @@ from typing import Tuple
 import roveranalyzer.simulators.crownet.dcd as Dcd
 from roveranalyzer.simulators.crownet.dcd.dcd_map import MapType
 from roveranalyzer.simulators.opp.scave import CrownetSql
-from roveranalyzer.utils.general import Project
+from roveranalyzer.utils.misc import Project
 
 
 class AnalysisBase:

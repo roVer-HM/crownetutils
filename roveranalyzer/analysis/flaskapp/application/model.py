@@ -17,8 +17,8 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvi
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
 from roveranalyzer.utils.dataframe import LazyDataFrame
-from roveranalyzer.utils.general import Project
 from roveranalyzer.utils.logging import timing
+from roveranalyzer.utils.misc import Project
 
 
 @threaded_lru(maxsize=16)

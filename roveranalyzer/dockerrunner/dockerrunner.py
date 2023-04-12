@@ -14,7 +14,7 @@ from docker.types import LogConfig
 from requests import ReadTimeout
 
 from roveranalyzer.dockerrunner import DockerCfg
-from roveranalyzer.utils import logger
+from roveranalyzer.utils.logging import logger
 
 
 class ContainerLogWriter:

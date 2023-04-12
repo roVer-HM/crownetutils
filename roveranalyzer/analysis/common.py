@@ -42,8 +42,8 @@ from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.crownet.runner import read_config_file
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql
-from roveranalyzer.utils import Project, logger
-from roveranalyzer.utils.misc import apply_str_filter
+from roveranalyzer.utils.logging import logger
+from roveranalyzer.utils.misc import Project, apply_str_filter
 from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map
 
 

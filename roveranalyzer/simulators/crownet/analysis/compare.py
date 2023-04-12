@@ -3,7 +3,7 @@ import math
 import os
 import re
 from enum import Enum
-from typing import List, Union, Tuple, Any, Dict
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 
 from roveranalyzer.simulators.opp.scave import ScaveTool
 from roveranalyzer.simulators.opp.utils import Simulation
-from roveranalyzer.utils import PathHelper
+from roveranalyzer.utils.path import PathHelper
 
 
 class How(Enum):

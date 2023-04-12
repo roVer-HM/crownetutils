@@ -15,7 +15,8 @@ from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
 from roveranalyzer.simulators.vadere.plots.plots import pcolormesh_dict
 from roveranalyzer.tests.utils import TestDataHandler
-from roveranalyzer.utils import PathHelper, intersect
+from roveranalyzer.utils.misc import intersect
+from roveranalyzer.utils.path import PathHelper
 
 hasQt = importlib.util.find_spec("PyQt5")
 

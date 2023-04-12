@@ -28,12 +28,12 @@ from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMap
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
-from roveranalyzer.utils import logging
 from roveranalyzer.utils.dataframe import (
     ArbitraryValueImputation,
     FrameConsumer,
     MissingValueImputationStrategy,
 )
+from roveranalyzer.utils.logging import logging
 
 
 def _hdf_job(args):

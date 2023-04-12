@@ -16,7 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 
 from roveranalyzer.simulators.opp.provider.hdf.IHdfGeoProvider import GeoProvider
 from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
-from roveranalyzer.utils import logger
+from roveranalyzer.utils.logging import logger
 
 
 class UnsupportedOperation(RuntimeError):

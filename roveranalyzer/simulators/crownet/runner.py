@@ -28,7 +28,7 @@ from roveranalyzer.simulators.opp.configuration import CrowNetConfig
 from roveranalyzer.simulators.opp.runner import OppRunner
 from roveranalyzer.simulators.sumo.runner import SumoRunner
 from roveranalyzer.simulators.vadere.runner import VadereRunner
-from roveranalyzer.utils import levels, logger, set_format, set_level
+from roveranalyzer.utils.logging import levels, logger, set_format, set_level
 
 
 def add_base_arguments(parser: argparse.ArgumentParser):

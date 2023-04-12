@@ -16,7 +16,7 @@ from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
 )
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
-from roveranalyzer.utils.general import Project
+from roveranalyzer.utils.misc import Project
 
 
 class _folium:

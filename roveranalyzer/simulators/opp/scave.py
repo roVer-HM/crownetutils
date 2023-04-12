@@ -21,8 +21,8 @@ from traitlets.traitlets import Bool
 
 from roveranalyzer.simulators.opp.accessor import Opp
 from roveranalyzer.simulators.opp.configuration import ScaveConfig
-from roveranalyzer.utils import Timer, logger
-from roveranalyzer.utils.logging import timing
+from roveranalyzer.utils.logging import logger, timing
+from roveranalyzer.utils.misc import Timer
 
 
 class SqlEmptyResult(Exception):

@@ -30,8 +30,8 @@ from roveranalyzer.utils.dataframe import (
     format_frame,
     siunitx,
 )
-from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
+from roveranalyzer.utils.misc import DataSource
 from roveranalyzer.utils.parallel import run_kwargs_map
 from roveranalyzer.utils.plot import PlotUtil, with_axis
 

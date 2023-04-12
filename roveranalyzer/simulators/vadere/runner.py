@@ -6,7 +6,8 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
-from roveranalyzer.utils import logger, sockcheck
+from roveranalyzer.utils import sockcheck
+from roveranalyzer.utils.logging import logger
 
 
 class VadereRunner(DockerRunner):

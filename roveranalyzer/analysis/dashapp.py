@@ -22,7 +22,7 @@ from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
-from roveranalyzer.utils.general import Project
+from roveranalyzer.utils.misc import Project
 
 dash_app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 dash_app.config.suppress_callback_exceptions = True

@@ -17,8 +17,8 @@ import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.analysis.common import RunMap, Simulation
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.dataframe import FrameConsumer
-from roveranalyzer.utils.general import DataSource
 from roveranalyzer.utils.logging import logger, timing
+from roveranalyzer.utils.misc import DataSource
 from roveranalyzer.utils.plot import (
     FigureSaver,
     FigureSaverPdfPages,

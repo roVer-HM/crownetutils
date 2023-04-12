@@ -19,12 +19,12 @@ from pandas import IndexSlice as Idx
 from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
-from roveranalyzer.utils import logger
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,
     partial_index_match,
 )
+from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.plot import PlotUtil, Style, savefigure, with_axis
 

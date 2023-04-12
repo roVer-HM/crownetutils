@@ -10,7 +10,8 @@ from shapely import geometry
 from shapely.geometry import Point, box
 
 from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
-from roveranalyzer.utils import LazyDataFrame, Project, Timer
+from roveranalyzer.utils.dataframe import LazyDataFrame
+from roveranalyzer.utils.misc import Timer
 
 
 def create_error_df(map_df, glb_df):

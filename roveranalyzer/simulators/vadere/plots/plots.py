@@ -13,8 +13,9 @@ import trimesh
 from matplotlib.colors import ListedColormap, Normalize, TwoSlopeNorm
 
 from roveranalyzer.simulators.vadere.plots.custom_tripcolor import tripcolor_costum
-from roveranalyzer.utils import PlotHelper, Timer
 from roveranalyzer.utils.mesh import SimpleMesh
+from roveranalyzer.utils.misc import Timer
+from roveranalyzer.utils.plot import PlotHelper
 
 sys.path.append(
     os.path.abspath("")
