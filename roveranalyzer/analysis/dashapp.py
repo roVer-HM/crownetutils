@@ -14,15 +14,14 @@ import numpy as np
 import pandas as pd
 from dash import Dash, dash_table, dcc, html
 from dash_extensions.javascript import Namespace, arrow_function
-from flask_caching import Cache
 
-import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.analysis.density_map import DensityMap
 from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
 from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
-from roveranalyzer.simulators.vadere.plots.scenario import Scenario
+from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.misc import Project
+from roveranalyzer.vadere.scenario import Scenario
 
 dash_app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 dash_app.config.suppress_callback_exceptions = True
@@ -73,11 +72,11 @@ class Ctx:
 
 class OppModel:
     def __init__(
-        self, data_root: str, builder: DpmmHdfBuilder, sql: OMNeT.CrownetSql
+        self, data_root: str, builder: DpmmHdfBuilder, sql: CrownetSql
     ) -> None:
         self.data_root: str = data_root
         self.builder: DpmmHdfBuilder = builder
-        self.sql: OMNeT.CrownetSql = sql
+        self.sql: CrownetSql = sql
         self.ctx: Ctx = Ctx()
         self.load()
         self._lock = threading.Lock()

@@ -12,7 +12,6 @@ import roveranalyzer.analysis.dpmm.csv_loader as DcdUtil
 from roveranalyzer.analysis.dpmm.dpmm import DpmMap
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.dpmm.plot.interactive import InteractiveAreaPlot
-from roveranalyzer.simulators.vadere.plots.plots import pcolormesh_dict
 from roveranalyzer.tests.utils import TestDataHandler
 from roveranalyzer.utils.misc import intersect
 from roveranalyzer.utils.path import PathHelper

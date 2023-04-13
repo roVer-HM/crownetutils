@@ -12,7 +12,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
 from scipy.stats import kstest, mannwhitneyu
 
-import roveranalyzer.simulators.opp.scave as Scave
+import roveranalyzer.omnetpp.scave as Scave
 from roveranalyzer.analysis.common import RunMap, Simulation
 from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
 from roveranalyzer.analysis.omnetpp import OppAnalysis

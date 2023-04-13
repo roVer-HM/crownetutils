@@ -45,7 +45,7 @@ from shapely.geometry import Polygon
 
 import roveranalyzer.utils.logging as _log
 import roveranalyzer.utils.styles as Styles
-from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
+from roveranalyzer.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 logger = _log.logger
 
@@ -566,7 +566,7 @@ class PlotUtil_:
 
     def get_vadere_legal_cells(
         self,
-        scenario: VaderScenarioPlotHelper,
+        scenario: VadereTopographyPlotter,
         xy_slices: Tuple[slice, slice],
         c: float | Tuple[float, float] = 5.0,
     ) -> Tuple[pd.MultiIndex, pd.MultiIndex]:

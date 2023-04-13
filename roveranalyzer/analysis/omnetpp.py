@@ -12,7 +12,7 @@ import seaborn as sns
 from pandas import IndexSlice as _i
 
 sns.set(font_scale=1.0, rc={"text.usetex": True})
-import roveranalyzer.simulators.opp.scave as Scave
+import roveranalyzer.omnetpp.scave as Scave
 import roveranalyzer.utils.plot as _Plot
 from roveranalyzer.analysis.base import AnalysisBase
 from roveranalyzer.analysis.common import (
@@ -23,7 +23,7 @@ from roveranalyzer.analysis.common import (
 )
 from roveranalyzer.analysis.dpmm.dpmm import percentile
 from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
-from roveranalyzer.simulators.opp.scave import CrownetSql, SqlEmptyResult, SqlOp
+from roveranalyzer.omnetpp.scave import CrownetSql, SqlEmptyResult, SqlOp
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     append_index,

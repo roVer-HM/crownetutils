@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pandas import IndexSlice as _i
 
-import roveranalyzer.simulators.opp.scave as Scave
+import roveranalyzer.omnetpp.scave as Scave
 import roveranalyzer.utils.plot as p
 from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.flaskapp.application.layout import IdProvider

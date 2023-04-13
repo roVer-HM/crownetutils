@@ -23,13 +23,13 @@ from roveranalyzer.analysis.dpmm.hdf.dpmm_global_positon_provider import (
 from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.hdf.provider import ProviderVersion
-from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils.dataframe import (
     ArbitraryValueImputation,
     FrameConsumer,
     MissingValueImputationStrategy,
 )
 from roveranalyzer.utils.logging import logging
+from roveranalyzer.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 
 def _hdf_job(args):

@@ -9,7 +9,7 @@ from click import style
 from geopandas import GeoDataFrame
 from pandas.core.frame import DataFrame
 
-import roveranalyzer.simulators.opp.scave as Scave
+import roveranalyzer.omnetpp.scave as Scave
 from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from roveranalyzer.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     DpmmGlobal,

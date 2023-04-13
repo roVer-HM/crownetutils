@@ -5,7 +5,7 @@ from typing import Tuple
 
 from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
 from roveranalyzer.analysis.dpmm.dpmm import MapType
-from roveranalyzer.simulators.opp.scave import CrownetSql
+from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.misc import Project
 
 

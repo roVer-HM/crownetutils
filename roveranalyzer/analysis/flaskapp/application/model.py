@@ -14,11 +14,11 @@ from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from roveranalyzer.analysis.flaskapp.application.utils import threaded_lru
-from roveranalyzer.simulators.opp.scave import CrownetSql
-from roveranalyzer.simulators.vadere.plots.scenario import Scenario
+from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.dataframe import LazyDataFrame
 from roveranalyzer.utils.logging import timing
 from roveranalyzer.utils.misc import Project
+from roveranalyzer.vadere.scenario import Scenario
 
 
 @threaded_lru(maxsize=16)

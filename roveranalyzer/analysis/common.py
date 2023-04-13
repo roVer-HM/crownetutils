@@ -41,7 +41,7 @@ from roveranalyzer.analysis.dpmm.dpmm import DpmMap
 from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.dockerrunner.run_argparser import read_sim_run_context
 from roveranalyzer.entrypoint.parser import ArgList
-from roveranalyzer.simulators.opp.scave import CrownetSql
+from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import Project, apply_str_filter
 from roveranalyzer.utils.parallel import run_args_map, run_kwargs_map

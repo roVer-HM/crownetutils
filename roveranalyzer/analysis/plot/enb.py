@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import roveranalyzer.simulators.opp.scave as Scave
+import roveranalyzer.omnetpp.scave as Scave
 from roveranalyzer.analysis.omnetpp import OppAnalysis, Simulation
 from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import FigureSaver, PlotUtil_, with_axis
