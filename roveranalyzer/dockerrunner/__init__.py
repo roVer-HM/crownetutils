@@ -1,7 +1,40 @@
 import logging
 import os
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
+
+
+class SimulationDispatcher(Protocol):
+    """Dispatcher to run different combination of CrowNet supported simulators"""
+
+    def run_vadere(self) -> int:
+        """Run only a vadere simulation"""
+        ...
+
+    def run_simulation_vadere_ctl(self) -> int:
+        """Run coupled (controlled) vadere simulation"""
+        ...
+
+    def run_simulation_vadere_omnet_ctl(self) -> int:
+        """Run coupled simulation with vadere, control and omnet"""
+        ...
+
+    def run_simulation_omnet_vadere(self) -> int:
+        """Run coupled simulation with omnet and vadere"""
+        ...
+
+    def run_simulation_omnet_sumo(self) -> int:
+        """Run coupled simulation with omnet and sumo"""
+        ...
+
+    def run_simulation_omnet(self) -> int:
+        """Run only a omnet simulation (without external mobility provider)"""
+        ...
+
+    def run_postprocessing_only(self) -> int:
+        """Do not execute the simulations but execute post processing of each run."""
+        ...
 
 
 class _DockerCfg:

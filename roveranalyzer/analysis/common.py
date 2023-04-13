@@ -37,9 +37,9 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 from roveranalyzer.analysis.base import AnalysisBase
+from roveranalyzer.dockerrunner.run_argparser import read_sim_run_context
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
-from roveranalyzer.simulators.crownet.runner import read_config_file
 from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.utils.logging import logger
@@ -444,7 +444,7 @@ class RunContext:
     def __init__(self, data, ctx_path: str | None = None) -> None:
         self.data = data
         self.ctx_path = ctx_path
-        self._ns = read_config_file(self._dummy_runner(), self.data)
+        self._ns = read_sim_run_context(self._dummy_runner(), self.data)
         self.args: ArgList = ArgList.from_flat_list(self.data["cmd_args"])
         self._opp_seed = None
         self._m_seed = None

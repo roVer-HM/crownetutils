@@ -1,5 +1,7 @@
+import argparse
 import os
 import warnings
+from typing import List
 
 from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -7,6 +9,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
+from roveranalyzer.entrypoint.parser import ArgList, SimulationArgAction, filter_options
 from roveranalyzer.utils import sockcheck
 from roveranalyzer.utils.logging import logger
 
@@ -120,3 +123,35 @@ class SumoRunner(DockerRunner):
         start sumo gui to create or execute scenarios.
         """
         pass
+
+
+def add_sumo_arguments(parser: argparse.ArgumentParser, args: List[str]):
+    parser.add_argument(
+        "--sumo.xxx",
+        *filter_options(args, "--sumo."),
+        dest="sumo_args",
+        default=ArgList.from_list(
+            [
+                ["--port", "9999"],
+                ["--bind", "0.0.0.0"],
+            ]
+        ),
+        action=SimulationArgAction,
+        prefix="--sumo.",
+        help="Sumo Arguments",
+    )
+    parser.add_argument(
+        "--create-sumo-container",
+        dest="create_sumo_container",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set a sumo container with name sumo_<run-name> is created matching to opp_<run-name> container.",
+    )
+    parser.add_argument(
+        "--sumo-tag",
+        dest="sumo_tag",
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_SUMO_TAG),
+        required=False,
+        help=f"Choose Sumo container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_SUMO_TAG)})",
+    )

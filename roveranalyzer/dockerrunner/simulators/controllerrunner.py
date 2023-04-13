@@ -1,4 +1,6 @@
+import argparse
 import os
+from typing import List
 
 from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -6,7 +8,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
-from roveranalyzer.entrypoint.parser import ArgList
+from roveranalyzer.entrypoint.parser import ArgList, SimulationArgAction, filter_options
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.path import PathHelper
 
@@ -109,3 +111,41 @@ class ControlRunner(DockerRunner):
         if connection_mode == "server":
             self.wait_for_log(f"listening on port {traci_port} ...")
         return run_result
+
+
+def add_control_arguments(parser: argparse.ArgumentParser, args: List[str]):
+    parser.add_argument(
+        "--control-tag",
+        dest="control_tag",
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_CONTROL_TAG),
+        required=False,
+        help=f"Choose Control container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_CONTROL_TAG)})",
+    )
+    parser.add_argument(
+        "--ctrl.xxx",
+        *filter_options(args, "--ctrl."),
+        dest="ctrl_args",
+        default=ArgList(),
+        action=SimulationArgAction,
+        prefix="--ctrl.",
+        help="Specify arguments for the control script. Use --ctrl. prefix to specify arguments to pass to the control executable."
+        "`--ctrl.foo bar` --> `--foo bar`. If single '-' is needed use `--ctrl.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
+    )
+    parser.add_argument(
+        "-wc",
+        "--with-control",
+        dest="control",
+        default="control.py",
+        required=True,
+        help="Choose file that contains control strategy. (Default: 'control.py')",
+    )
+    parser.add_argument(
+        "--control-use-local",
+        dest="ctl_local",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If true container uses currently checkout code instead of installed coded during container creation.",
+    )

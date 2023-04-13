@@ -1,3 +1,4 @@
+import argparse
 import os
 
 from roveranalyzer.dockerrunner import DockerCfg
@@ -130,3 +131,58 @@ class VadereRunner(DockerRunner):
         start vadere gui to create or execute vadere scenarios.
         """
         pass
+
+
+def add_vadere_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "-sf",
+        "--scenario-file",
+        dest="scenario_file",
+        default="",
+        required=False,
+        help="Scenario-file *.scenario for Vadere simulation.",
+    )
+    parser.add_argument(
+        "--create-vadere-container",
+        dest="create_vadere_container",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If set a vadere container with name vadere_<run-name> is created matching to opp_<run-name> container.",
+    )
+    parser.add_argument(
+        "--v.wait-timeout",
+        dest="v_wait_timeout",
+        default=360,
+        required=False,
+        help="Time to wait for vadere container to close after OMNeT++ container has finished. Default=360s",
+    )
+    parser.add_argument(
+        "--v.traci-port",
+        dest="v_traci_port",
+        default="9998",
+        required=False,
+        help="Set TraCI Port in Vadere container. (Default: 9998)",
+    )
+    parser.add_argument(
+        "--vadere-tag",
+        dest="vadere_tag",
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_VADERE_TAG),
+        required=False,
+        help=f"Choose Vadere container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_VADERE_TAG)})",
+    )
+    parser.add_argument(
+        "--v.loglevel",
+        dest="v_loglevel",
+        default="INFO",
+        required=False,
+        help="Set loglevel of (Vadere)TraCI Server [WARN, INFO, DEBUG, TRACE]. (Default: INFO)",
+    )
+    parser.add_argument(
+        "--v.logfile",
+        dest="v_logfile",
+        default="",
+        required=False,
+        help="Set log file name of Vadere. If not set '', log file will not be created. "
+        "This setting has no effect on --log-journald. (Default: '') ",
+    )

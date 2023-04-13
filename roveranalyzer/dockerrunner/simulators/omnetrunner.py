@@ -1,4 +1,6 @@
+import argparse
 import os
+from typing import List
 
 from roveranalyzer.dockerrunner import DockerCfg
 from roveranalyzer.dockerrunner.dockerrunner import (
@@ -6,7 +8,7 @@ from roveranalyzer.dockerrunner.dockerrunner import (
     DockerReuse,
     DockerRunner,
 )
-from roveranalyzer.entrypoint.parser import ArgList
+from roveranalyzer.entrypoint.parser import ArgList, SimulationArgAction, filter_options
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.path import PathHelper
 
@@ -95,3 +97,35 @@ class OppRunner(DockerRunner):
         logger.debug(f"start omnett++ container(exec_opp_run)")
         logger.debug(f"cmd: {_arg.to_string()}")
         return self.run(_arg.to_string(), **run_args_override)
+
+
+def add_omnet_arguments(parser: argparse.ArgumentParser, args: List[str]):
+    parser.add_argument(
+        "--opp-exec",
+        dest="opp_exec",
+        default="",
+        help="Specify OMNeT++ executable Default($CROWNET_HOME/crownet/src/run_crownet). "
+        "Use --opp. prefix to specify arguments to pass to the "
+        "given executable.",
+    )
+    parser.add_argument(
+        "--opp.xxx",
+        *filter_options(args, "--opp."),
+        dest="opp_args",
+        default=ArgList.from_list(
+            [["-f", "omnetpp.ini"], ["-u", "Cmdenv"], ["-c", "final"]]
+        ),
+        action=SimulationArgAction,
+        prefix="--opp.",
+        help="Specify OMNeT++ executable. Use --opp. prefix to specify arguments to pass to the given executable."
+        "`--opp.foo bar` --> `--foo bar`. If single '-' is needed use `--opp.-v`. Multiple values "
+        "are supported `-opp.bar abc efg 123` will be `--bar abc efg 123`. For possible arguments see help of "
+        "executable. Defaults: ",
+    )
+    parser.add_argument(
+        "--omnet-tag",
+        dest="omnet_tag",
+        default=DockerCfg.get_default_tag(DockerCfg.VAR_OPP_TAG),
+        required=False,
+        help=f"Choose Omnet container. (Default: {DockerCfg.get_default_tag(DockerCfg.VAR_OPP_TAG)})",
+    )
