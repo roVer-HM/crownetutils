@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 from fs.tempfs import TempFS
 
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 
 
 def create_tmp_fs(name, auto_clean=True) -> TempFS:
@@ -63,7 +63,7 @@ def create_count_map_dataframe(number_entries: int = 50) -> pd.DataFrame:
 
 def create_dcd_csv_dataframe(
     number_entries: int = 50, node_id: int = 42
-) -> Tuple[pd.DataFrame, DcdMetaData]:
+) -> Tuple[pd.DataFrame, DpmmMetaData]:
     int_values = [i for i in range(number_entries)]
     float_values = [float(i) for i in range(number_entries)]
     nodes = [node_id for _ in range(number_entries)]
@@ -85,7 +85,7 @@ def create_dcd_csv_dataframe(
         drop=True,
         inplace=True,
     )
-    return df, DcdMetaData(3.0, 10, 10, 0)
+    return df, DpmmMetaData(3.0, 10, 10, 0)
 
 
 def safe_dataframe_to_hdf(

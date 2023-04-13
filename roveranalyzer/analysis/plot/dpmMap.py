@@ -12,9 +12,9 @@ from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue
 from scipy.stats import kstest, mannwhitneyu
 
-import roveranalyzer.simulators.crownet.dcd as Dcd
 import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.analysis.common import RunMap, Simulation
+from roveranalyzer.analysis.dpmm.builder import DcdHdfBuilder
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.logging import logger, timing
@@ -38,7 +38,7 @@ class _PlotDpmMap(PlotUtil_):
     def create_common_plots_density(
         self,
         data_root: str,
-        builder: Dcd.DcdHdfBuilder,
+        builder: DcdHdfBuilder,
         sql: Scave.CrownetSql,
         selection: str | None = None,
     ):

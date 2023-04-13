@@ -12,7 +12,7 @@ from matplotlib.backend_bases import key_press_handler
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.collections import QuadMesh
 
-from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
+from roveranalyzer.analysis.dpmm.dpmm import DpmMap
 
 
 class MyDialog(Dialog):
@@ -240,7 +240,7 @@ class InteractiveTableTimeNodeSlider(Interactive):
     :ax: the axes / figure used for interaction.
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes):
+    def __init__(self, dcd: DpmMap, ax: plt.Axes):
         super().__init__(ax)
         self.dcd = dcd
         self.table_var = {}
@@ -434,7 +434,7 @@ class InteractiveAreaPlot(InteractiveTableTimeNodeSlider):
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(self, dcd: DcdMap2D, ax: plt.Axes, value: str):
+    def __init__(self, dcd: DpmMap, ax: plt.Axes, value: str):
         super().__init__(dcd, ax)
 
         self.quadMesh = None
@@ -473,9 +473,7 @@ class InteractiveValueOverDistance(InteractiveTableTimeNodeSlider):
     2D DensityMap plot of some scenario (x, y head map)
     """
 
-    def __init__(
-        self, dcd: DcdMap2D, ax: plt.Axes, value, update_f, update_f_args=None
-    ):
+    def __init__(self, dcd: DpmMap, ax: plt.Axes, value, update_f, update_f_args=None):
         super().__init__(dcd, ax)
 
         self.node_id = self.id_vals[1]

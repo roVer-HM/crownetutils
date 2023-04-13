@@ -8,11 +8,11 @@ import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 
-import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
-from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdBuilder, PickleState
-from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
-from roveranalyzer.simulators.crownet.dcd.interactive import InteractiveAreaPlot
+import roveranalyzer.analysis.dpmm.csv_loader as DcdUtil
+from roveranalyzer.analysis.dpmm.builder import DcdBuilder, PickleState
+from roveranalyzer.analysis.dpmm.dpmm import DpmMap
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
+from roveranalyzer.analysis.dpmm.plot.interactive import InteractiveAreaPlot
 from roveranalyzer.simulators.vadere.plots.plots import pcolormesh_dict
 from roveranalyzer.tests.utils import TestDataHandler
 from roveranalyzer.utils.misc import intersect
@@ -40,7 +40,7 @@ class DcdMapTests:
 
     @staticmethod
     def regular_grid(cell_count, data, id=1):
-        meta = DcdMetaData(1, [cell_count, cell_count], [cell_count, cell_count], id)
+        meta = DpmmMetaData(1, [cell_count, cell_count], [cell_count, cell_count], id)
         idx = DcdMapTests.create_index(
             [1], [1.0], np.arange(cell_count), np.arange(cell_count)
         )
@@ -49,7 +49,7 @@ class DcdMapTests:
             if len(v) != lines:
                 data[k] = np.zeros(lines)
         df = pd.DataFrame(data, index=idx)
-        return DcdMap2D(meta, {1: 1}, df)
+        return DpmMap(meta, {1: 1}, df)
 
 
 class DcdMapSimpleTest(DcdMapTests):
@@ -58,7 +58,7 @@ class DcdMapSimpleTest(DcdMapTests):
             "global.csv", recursive=False, expect=1
         )
         node_map_paths = self.handler.data_dir.glob("0a:*.csv")
-        self.dcd = DcdMap2D.from_paths(
+        self.dcd = DpmMap.from_paths(
             global_data=global_map_path,
             node_data=node_map_paths,
             real_coords=True,

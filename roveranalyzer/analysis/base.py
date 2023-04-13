@@ -3,8 +3,8 @@ from __future__ import annotations
 from os.path import join
 from typing import Tuple
 
-import roveranalyzer.simulators.crownet.dcd as Dcd
-from roveranalyzer.simulators.crownet.dcd.dcd_map import MapType
+from roveranalyzer.analysis.dpmm.builder import DcdHdfBuilder
+from roveranalyzer.analysis.dpmm.dpmm import MapType
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.utils.misc import Project
 
@@ -19,9 +19,10 @@ class AnalysisBase:
         sca_name="vars_rep_0.sca",
         network_name="World",
         epsg_base=Project.UTM_32N,
-    ) -> Tuple[str, Dcd.DcdHdfBuilder, CrownetSql]:
+    ) -> Tuple[str, DcdHdfBuilder, CrownetSql]:
+
         # todo: try catch here?
-        builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
+        builder = DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
 
         sql: CrownetSql = CrownetSql(
             vec_path=f"{data_root}/{vec_name}",
@@ -46,13 +47,13 @@ class AnalysisBase:
         sca_name="vars_rep_0.sca",
         network_name="World",
         epsg_base=Project.UTM_32N,
-    ) -> Tuple[str, Dcd.DcdHdfBuilder, CrownetSql]:
+    ) -> Tuple[str, DcdHdfBuilder, CrownetSql]:
 
         data_root = join(
             data_root, "simulation_runs/outputs", f"Sample_{parameter_id}_{run_id}", out
         )
         print(data_root)
-        builder = Dcd.DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
+        builder = DcdHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
 
         sql = CrownetSql(
             vec_path=f"{data_root}/{vec_name}",
@@ -66,6 +67,6 @@ class AnalysisBase:
         return data_root, builder, sql
 
     @staticmethod
-    def find_selection_method(builder: Dcd.DcdHdfBuilder):
+    def find_selection_method(builder: DcdHdfBuilder):
         p = builder.build().map_p
         return p.get_attribute("used_selection")

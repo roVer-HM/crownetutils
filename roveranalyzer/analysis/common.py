@@ -35,12 +35,12 @@ from hjson import OrderedDict
 from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
 
-import roveranalyzer.simulators.crownet.dcd as Dcd
 from roveranalyzer.analysis.base import AnalysisBase
+from roveranalyzer.analysis.dpmm.builder import DcdHdfBuilder
+from roveranalyzer.analysis.dpmm.dpmm import DpmMap
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
 from roveranalyzer.dockerrunner.run_argparser import read_sim_run_context
 from roveranalyzer.entrypoint.parser import ArgList
-from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import Project, apply_str_filter
@@ -702,9 +702,9 @@ class Simulation:
         return f"<{self.__class__.__name__} object at {hex(id(self))} {self.label} ({self.study_id()}[{self.global_id()}])>"
 
     @property
-    def builder(self) -> Dcd.DcdHdfBuilder:
+    def builder(self) -> DcdHdfBuilder:
         if self._builder is None:
-            self._builder = Dcd.DcdHdfBuilder.get("data.h5", self.data_root).epsg(
+            self._builder = DcdHdfBuilder.get("data.h5", self.data_root).epsg(
                 Project.UTM_32N
             )
         return self._builder
@@ -765,7 +765,7 @@ class Simulation:
             join(self.data_root, "trajectories.h5"), group="trajectories"
         )
 
-    def get_dcdMap(self) -> DcdMap2D:
+    def get_dcdMap(self) -> DpmMap:
         sel = self.builder.map_p.get_attribute("used_selection")
         if sel is None:
             raise ValueError("selection not set!")

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from pandas import IndexSlice as Idx
 
-import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+import roveranalyzer.analysis.dpmm.csv_loader as DcdUtil
 from roveranalyzer.analysis.dpmm.DcDGlobalPosition import (
     DcdGlobalDensity,
     DcdGlobalPosition,
@@ -20,13 +20,9 @@ from roveranalyzer.analysis.dpmm.DcDGlobalPosition import (
 )
 from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
+from roveranalyzer.analysis.dpmm.dpmm import DpmMap, DpmMapMulti, MapType
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
-from roveranalyzer.simulators.crownet.common import DcdMetaData
-from roveranalyzer.simulators.crownet.dcd.dcd_map import (
-    DcdMap2D,
-    DcdMap2DMulti,
-    MapType,
-)
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils.dataframe import (
     ArbitraryValueImputation,
@@ -64,7 +60,7 @@ class DcdProviders:
         x_slice,
         y_slice,
     ):
-        self.metadata: DcdMetaData = metadata
+        self.metadata: DpmmMetaData = metadata
         self.global_p: DcdGlobalDensity = global_p
         self.position_p: DcdGlobalPosition = position_p
         self.map_p: DcdMapProvider = map_p
@@ -203,7 +199,7 @@ class DcdHdfBuilder(FrameConsumer):
             self.map_p.csv_filters.extend(self.single_df_filters)
             self.create_hdf_fast()
 
-        metadata = DcdMetaData(
+        metadata = DpmmMetaData(
             cell_size=self.position_p.get_attribute("cell_size"),
             cell_count=self.position_p.get_attribute("cell_count"),
             bound=self.position_p.get_attribute("cell_bound"),
@@ -247,7 +243,7 @@ class DcdHdfBuilder(FrameConsumer):
                 )
             selection = m[selection]
 
-        return DcdMap2D(
+        return DpmMap(
             metadata=providers.metadata,
             global_df=providers.global_df,
             map_df=None,  # lazy loading with provider
@@ -678,9 +674,9 @@ class DcdBuilder:
     @classmethod
     def _build(cls, data, map_type, **kwargs):
         if map_type == cls.FULL_MAP:
-            return DcdMap2DMulti(**data, **kwargs)
+            return DpmMapMulti(**data, **kwargs)
         else:
-            return DcdMap2D(**data, **kwargs)
+            return DpmMap(**data, **kwargs)
 
     def write_pickle(self, data: dict, **kwargs):
         """
@@ -724,7 +720,7 @@ class DcdBuilder:
         return _ret
 
     def do_csv(self, global_data_path, node_data_paths):
-        df_global = DcdUtil.build_density_map(
+        df_global = DcdUtil.build_dpm_map(
             csv_path=global_data_path,
             index=self._glb_idx,
             column_types=self._glb_cols,
@@ -747,7 +743,7 @@ class DcdBuilder:
                 }
                 for p in node_data_paths
             ]
-            df_data = DcdUtil.run_pool(pool, DcdUtil.build_density_map, job_args)
+            df_data = DcdUtil.run_pool(pool, DcdUtil.build_dpm_map, job_args)
         return {"global_data": df_global, "node_data": df_data}
 
     def do_merge(self, global_data, node_data):

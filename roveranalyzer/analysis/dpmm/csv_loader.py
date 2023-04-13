@@ -9,7 +9,7 @@ from pandas import IndexSlice as Idx
 from shapely import geometry
 from shapely.geometry import Point, box
 
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.utils.dataframe import LazyDataFrame
 from roveranalyzer.utils.misc import Timer
 
@@ -105,7 +105,7 @@ def delay_feature(_df_ret, **kwargs):
     return _df_ret
 
 
-def owner_dist_feature(_df_ret, meta: DcdMetaData, **kwargs):
+def owner_dist_feature(_df_ret, meta: DpmmMetaData, **kwargs):
     if "global_position" not in kwargs:
         # Warning: may lead to error if not all owner locations are part of the data frame
         return owner_dist_feature_old(_df_ret, **kwargs)
@@ -201,7 +201,7 @@ def read_csv(
     _col_types: dict,
     real_coords=True,
     df_filter=None,
-) -> Tuple[pd.DataFrame, DcdMetaData]:
+) -> Tuple[pd.DataFrame, DpmmMetaData]:
     """
     read csv and set index
     """
@@ -223,7 +223,7 @@ def read_csv(
             df_raw = df_filter(df_raw)
 
     meta = _df.read_meta_data()
-    _m = DcdMetaData.from_dict(meta)
+    _m = DpmmMetaData.from_dict(meta)
 
     if real_coords:
         df_raw = _apply_real_coords(df_raw, _m)
@@ -231,7 +231,7 @@ def read_csv(
     return df_raw, _m
 
 
-def _density_get_raw(csv_path, index, col_types):
+def _dpmm_get_raw(csv_path, index, col_types):
     """
     read csv and set index
     """
@@ -244,12 +244,12 @@ def _density_get_raw(csv_path, index, col_types):
     df_raw = df_raw.sort_index()
 
     meta = _df.read_meta_data()
-    _m = DcdMetaData.from_dict(meta)
+    _m = DpmmMetaData.from_dict(meta)
 
     return df_raw, _m
 
 
-def _apply_real_coords(_df, _meta: DcdMetaData):
+def _apply_real_coords(_df, _meta: DpmmMetaData):
     _idxOld = _df.index.to_frame(index=False)
     _idxOld["x"] = _idxOld["x"] * _meta.cell_size
     _idxOld["y"] = _idxOld["y"] * _meta.cell_size
@@ -258,7 +258,7 @@ def _apply_real_coords(_df, _meta: DcdMetaData):
 
 
 # deprecated
-def _full_map(df, _m: DcdMetaData, index, col_types, real_coords=False):
+def _full_map(df, _m: DpmmMetaData, index, col_types, real_coords=False):
     """
     create full index: time * numXCells * numYCells
     """
@@ -291,7 +291,7 @@ def apply_pool_kwargs(fn, kwargs):
     return fn(**kwargs)
 
 
-def build_density_map(
+def build_dpm_map(
     csv_path,
     index,
     column_types,
@@ -306,7 +306,7 @@ def build_density_map(
     #CELLSIZE=3.000000,DATACOL=-1,IDXCOL=3,SEP=;,XSIZE=581.135000,YSIZE=233.492000
     """
     print(f"load {csv_path}")
-    ret, meta = _density_get_raw(csv_path, index, column_types)
+    ret, meta = _dpmm_get_raw(csv_path, index, column_types)
 
     if df_filter is not None:
         if type(df_filter) == list:

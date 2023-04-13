@@ -10,14 +10,14 @@ import pandas as pd
 from pandas.core.indexing import IndexSlice
 from shapely.geometry.geo import box
 
-import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+import roveranalyzer.analysis.dpmm.csv_loader as DcdUtil
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import (
     IHdfProvider,
     ProviderVersion,
     VersionDict,
 )
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 from roveranalyzer.utils.dataframe import FrameConsumer, LazyDataFrame
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import ProgressCmd
@@ -191,7 +191,7 @@ class DcdMapProvider(IHdfProvider):
     def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
         _df = LazyDataFrame.from_path(path)
         meta = _df.read_meta_data()
-        meta = DcdMetaData.from_dict(meta)
+        meta = DpmmMetaData.from_dict(meta)
         if meta.version != self.version:
             logger.warn(f"version missmatch {meta.version}!={self.version} in {path}")
 

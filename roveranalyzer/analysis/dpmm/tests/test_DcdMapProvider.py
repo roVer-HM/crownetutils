@@ -7,6 +7,7 @@ import pandas as pd
 from fs.tempfs import TempFS
 
 from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapKey, DcdMapProvider
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.dpmm.tests.utils import (
     create_dcd_csv_dataframe,
     create_tmp_fs,
@@ -14,7 +15,6 @@ from roveranalyzer.analysis.dpmm.tests.utils import (
 )
 from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 
 
 class DcdMapProviderTest(unittest.TestCase):

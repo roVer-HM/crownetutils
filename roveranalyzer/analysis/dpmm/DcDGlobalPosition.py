@@ -6,10 +6,10 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, box
 
+from roveranalyzer.analysis.dpmm.csv_loader import read_csv
+from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import IHdfProvider
-from roveranalyzer.simulators.crownet.common import DcdMetaData
-from roveranalyzer.simulators.crownet.common.dcd_util import read_csv
 
 
 class DcdGlobalMapKey:
@@ -89,7 +89,7 @@ class DcdGlobalPosition(IHdfProvider):
 
         return df
 
-    def get_meta_object(self) -> DcdMetaData:
+    def get_meta_object(self) -> DpmmMetaData:
         cell_size = self.get_attribute("cell_size")
         cell_count = self.get_attribute("cell_count")
         cell_bound = self.get_attribute("cell_bound")
@@ -98,7 +98,7 @@ class DcdGlobalPosition(IHdfProvider):
         map_extend_x = self.get_attribute("map_extend_x")
         map_extend_y = self.get_attribute("map_extend_y")
 
-        return DcdMetaData(
+        return DpmmMetaData(
             cell_size,
             cell_count,
             cell_bound,
@@ -148,7 +148,7 @@ class DcdGlobalDensity(IHdfProvider):
     def default_index_key(self) -> str:
         return self.index_order()[0]
 
-    def get_meta_object(self) -> DcdMetaData:
+    def get_meta_object(self) -> DpmmMetaData:
         cell_size = self.get_attribute("cell_size")
         cell_count = self.get_attribute("cell_count")
         cell_bound = self.get_attribute("cell_bound")
@@ -157,7 +157,7 @@ class DcdGlobalDensity(IHdfProvider):
         map_extend_x = self.get_attribute("map_extend_x")
         map_extend_y = self.get_attribute("map_extend_y")
 
-        return DcdMetaData(
+        return DpmmMetaData(
             cell_size,
             cell_count,
             cell_bound,
@@ -194,7 +194,7 @@ class DcdGlobalDensity(IHdfProvider):
 def pos_density_from_csv(
     csv_path: str,
     hdf_path: str,
-) -> Tuple[DcdGlobalPosition, DcdGlobalDensity, DcdMetaData]:
+) -> Tuple[DcdGlobalPosition, DcdGlobalDensity, DpmmMetaData]:
     pos = DcdGlobalPosition(hdf_path)
     density = DcdGlobalDensity(hdf_path)
     global_df, meta = read_csv(

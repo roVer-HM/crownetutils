@@ -16,9 +16,9 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
+from roveranalyzer.analysis.dpmm.csv_loader import DpmmMetaData
 from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
 from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
-from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,
@@ -34,12 +34,12 @@ class MapType(enum.Enum):
     ENTROPY = "entropy"
 
 
-class DcdMap:
+class BaseDpmMap:
     tsc_global_id = 0
 
     def __init__(
         self,
-        metadata: DcdMetaData,
+        metadata: DpmmMetaData,
         position_df: pd.DataFrame,
         plotter=None,
         data_base_dir=None,
@@ -98,7 +98,7 @@ def percentile(n):
     return _percentil
 
 
-class DcdMap2D(DcdMap):
+class DpmMap(BaseDpmMap):
     """
     decentralized crowed map
     """
@@ -110,7 +110,7 @@ class DcdMap2D(DcdMap):
 
     def __init__(
         self,
-        metadata: DcdMetaData,
+        metadata: DpmmMetaData,
         global_df: pd.DataFrame,
         map_df: Union[pd.DataFrame, None],
         position_df: pd.DataFrame,
@@ -1211,12 +1211,12 @@ class DcdMap2D(DcdMap):
         return f, ax
 
 
-class DcdMap2DMulti(DcdMap2D):
+class DpmMapMulti(DpmMap):
     tsc_source_idx_name = "source"
 
     def __init__(
         self,
-        metadata: DcdMetaData,
+        metadata: DpmmMetaData,
         global_df: pd.DataFrame,
         map_df: pd.DataFrame,
         position_df: pd.DataFrame,

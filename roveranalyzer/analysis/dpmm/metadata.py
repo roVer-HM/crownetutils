@@ -9,7 +9,7 @@ from shapely.geometry import Point, box
 from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
 
 
-class DcdMetaData:
+class DpmmMetaData:
     expected_keys = ["XSIZE", "YSIZE", "CELLSIZE", "NODE_ID"]
 
     @classmethod
