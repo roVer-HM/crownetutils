@@ -6,7 +6,7 @@ import pandas as pd
 from fs.tempfs import TempFS
 
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
+from roveranalyzer.analysis.hdf.provider import ProviderVersion
 
 
 def create_tmp_fs(name, auto_clean=True) -> TempFS:
@@ -14,8 +14,8 @@ def create_tmp_fs(name, auto_clean=True) -> TempFS:
     return tmp_fs
 
 
-from roveranalyzer.analysis.dpmm.DcdMapCountProvider import CountMapKey
-from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapKey
+from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCountKey
+from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 
 
 def make_dirs(path: Any) -> None:
@@ -38,16 +38,16 @@ def create_count_map_dataframe(number_entries: int = 50) -> pd.DataFrame:
     entries = np.array([xs, xs, xs, xs]).transpose()
     mult_idx = pd.MultiIndex.from_arrays(
         [idxs, xs, ys, ids],
-        names=[CountMapKey.SIMTIME, CountMapKey.X, CountMapKey.Y, CountMapKey.ID],
+        names=[DpmmCountKey.SIMTIME, DpmmCountKey.X, DpmmCountKey.Y, DpmmCountKey.ID],
     )
     df = pd.DataFrame(
         entries,
         index=mult_idx,
         columns=[
-            CountMapKey.COUNT,
-            CountMapKey.ERR,
-            CountMapKey.OWNER_DIST,
-            CountMapKey.SQERR,
+            DpmmCountKey.COUNT,
+            DpmmCountKey.ERR,
+            DpmmCountKey.OWNER_DIST,
+            DpmmCountKey.SQERR,
         ],
     )
     # additional cases
@@ -71,17 +71,17 @@ def create_dcd_csv_dataframe(
     own_cells = [1 for _ in range(number_entries)]
 
     df = pd.DataFrame(data=None)
-    df[DcdMapKey.SIMTIME] = int_values
-    df[DcdMapKey.X] = int_values
-    df[DcdMapKey.Y] = int_values
-    df[DcdMapKey.COUNT] = int_values
-    df[DcdMapKey.MEASURE_TIME] = float_values
-    df[DcdMapKey.RECEIVED_TIME] = float_values
-    df[DcdMapKey.SOURCE] = nodes
-    df[DcdMapKey.SELECTION] = selections
-    df[DcdMapKey.OWN_CELL] = own_cells
+    df[DpmmKey.SIMTIME] = int_values
+    df[DpmmKey.X] = int_values
+    df[DpmmKey.Y] = int_values
+    df[DpmmKey.COUNT] = int_values
+    df[DpmmKey.MEASURE_TIME] = float_values
+    df[DpmmKey.RECEIVED_TIME] = float_values
+    df[DpmmKey.SOURCE] = nodes
+    df[DpmmKey.SELECTION] = selections
+    df[DpmmKey.OWN_CELL] = own_cells
     df.set_index(
-        list(DcdMapKey.types_csv_index[ProviderVersion.V0_1].keys()),
+        list(DpmmKey.types_csv_index[ProviderVersion.V0_1].keys()),
         drop=True,
         inplace=True,
     )

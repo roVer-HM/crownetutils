@@ -7,16 +7,16 @@ import pandas
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.analysis.dpmm.DcdMapCountProvider import CountMapKey, DcdMapCount
+from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount, DpmmCountKey
 from roveranalyzer.analysis.dpmm.tests.utils import (
     create_count_map_dataframe,
     create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
-from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import UnsupportedOperation
-from roveranalyzer.analysis.hdfprovider.Operation import Operation
+from roveranalyzer.analysis.hdf.groups import HdfGroups
+from roveranalyzer.analysis.hdf.operator import Operation
+from roveranalyzer.analysis.hdf.provider import UnsupportedOperation
 
 
 class IHDFProviderTest(unittest.TestCase):
@@ -24,7 +24,7 @@ class IHDFProviderTest(unittest.TestCase):
     fs: TempFS = create_tmp_fs("IHDFProviderTest")
     test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
-    provider: DcdMapCount = DcdMapCount(sample_file_dir)
+    provider: DpmmCount = DpmmCount(sample_file_dir)
     sample_dataframe: pd.DataFrame = create_count_map_dataframe()
 
     @classmethod
@@ -75,9 +75,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_7, None)
         self.assertEqual(result_8, test_class)
 
-    @patch(
-        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
-    )
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider._build_exact_condition")
     def test_handle_primitive(self, mock_exact_condition: MagicMock):
         key = "any_key"
         value = 1
@@ -101,9 +99,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_condition, conditions)
         self.assertEqual(result_columns, None)
 
-    @patch(
-        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
-    )
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider._build_range_condition")
     def test_handle_slice(self, mock_range_condition: MagicMock):
         key = "any_key"
         _min = 0
@@ -130,7 +126,7 @@ class IHDFProviderTest(unittest.TestCase):
             assert issubclass(w[-1].category, UserWarning)
             assert "Step size" in str(w[-1].message)
 
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatch")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.dispatch")
     def test_handle_index_tuple(self, mock_dispatch: MagicMock):
         # tuple to long
         try:
@@ -144,10 +140,10 @@ class IHDFProviderTest(unittest.TestCase):
         valid_tuple_complete = (1, 2, 3, 4)
         valid_tuple_missing = (1, 2)
         valid_tuple_none_values = (1, None, None, 4)
-        cond_1 = f"{CountMapKey.SIMTIME}={1}"
-        cond_2 = f"{CountMapKey.X}={2}"
-        cond_3 = f"{CountMapKey.Y}={3}"
-        cond_4 = f"{CountMapKey.ID}={4}"
+        cond_1 = f"{DpmmCountKey.SIMTIME}={1}"
+        cond_2 = f"{DpmmCountKey.X}={2}"
+        cond_3 = f"{DpmmCountKey.Y}={3}"
+        cond_4 = f"{DpmmCountKey.ID}={4}"
         mock_dispatch.side_effect = [
             [[cond_1]],
             [[cond_2]],
@@ -180,19 +176,17 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_2, [cond_1, cond_2])
         self.assertEqual(result_3, [cond_1, cond_4])
 
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatch")
-    @patch(
-        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._handle_index_tuple"
-    )
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.cast_to_set")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.dispatch")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider._handle_index_tuple")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.cast_to_set")
     def test_handle_tuple(
         self,
         mock_cast_set: MagicMock,
         mock_handle_index_tuple: MagicMock,
         mock_dispatch: MagicMock,
     ):
-        tuple_with_columns = (1, CountMapKey.COUNT)
-        expected_condition = [f"{CountMapKey.SIMTIME}={1}"]
+        tuple_with_columns = (1, DpmmCountKey.COUNT)
+        expected_condition = [f"{DpmmCountKey.SIMTIME}={1}"]
         mock_cast_set.side_effect = [{self.provider.columns()[0]}, {2}]
         mock_dispatch.return_value = [expected_condition]
         result_condition, result_columns = self.provider._handle_tuple(
@@ -202,14 +196,14 @@ class IHDFProviderTest(unittest.TestCase):
             self.provider.default_index_key(), tuple_with_columns[0]
         )
         self.assertEqual(result_condition, expected_condition)
-        self.assertEqual(result_columns, [CountMapKey.COUNT])
+        self.assertEqual(result_columns, [DpmmCountKey.COUNT])
 
         tuple_only_index = (1, 2, 3, 4)
         expected_condition = [
-            f"{CountMapKey.SIMTIME}={1}",
-            f"{CountMapKey.X}={2}",
-            f"{CountMapKey.Y}={3}",
-            f"{CountMapKey.ID}={4}",
+            f"{DpmmCountKey.SIMTIME}={1}",
+            f"{DpmmCountKey.X}={2}",
+            f"{DpmmCountKey.Y}={3}",
+            f"{DpmmCountKey.ID}={4}",
         ]
         mock_handle_index_tuple.return_value = expected_condition
         result_condition, result_columns = self.provider._handle_tuple(
@@ -218,7 +212,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_condition, expected_condition)
         self.assertEqual(result_columns, None)
 
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatcher")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.dispatcher")
     def test_dispatch(self, mock_dispatcher: MagicMock):
         expected_condition = ["condition"]
         expected_columns = ["columns"]
@@ -234,7 +228,7 @@ class IHDFProviderTest(unittest.TestCase):
         value_list = [1, 2]
         value_slice = slice(1, 4, 1)
         value_tuple = (1, 2, 3, 4)
-        value_tuple_in_tuple = ((1, 2), CountMapKey.COUNT)
+        value_tuple_in_tuple = ((1, 2), DpmmCountKey.COUNT)
 
         handle_primitive_name = self.provider._handle_primitive.__name__
         handle_slice_name = self.provider._handle_slice.__name__
@@ -264,8 +258,8 @@ class IHDFProviderTest(unittest.TestCase):
             handle_tuple_name,
         )
 
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatch")
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.dispatch")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider._select_where")
     def test_get_item(
         self,
         mock_select_where: MagicMock,
@@ -302,12 +296,12 @@ class IHDFProviderTest(unittest.TestCase):
 
     def test_write_dataframe(self):
         write_path = os.path.join(self.test_out_dir, "write_test.hdf5")
-        write_provider = DcdMapCount(write_path)
+        write_provider = DpmmCount(write_path)
         write_provider.write_dataframe(self.sample_dataframe)
         self.assertTrue(os.path.isfile(write_path))
 
     def test_exists(self):
-        non_existing_path_provider = DcdMapCount(
+        non_existing_path_provider = DpmmCount(
             os.path.join(self.test_out_dir, "non_existing_path.hdf5")
         )
         self.assertTrue(self.provider.exists())
@@ -325,7 +319,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertTrue(result_dataframe.equals(self.sample_dataframe))
 
     def test_build_range_condition(self):
-        key = CountMapKey.SIMTIME
+        key = DpmmCountKey.SIMTIME
         _min = 0
         _max = 5
         expected_condition = [f"{key}<={str(_max)}", f"{key}>={str(_min)}"]
@@ -333,7 +327,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(expected_condition, result_condition)
 
     def test_build_exact_condition(self):
-        key = CountMapKey.SIMTIME
+        key = DpmmCountKey.SIMTIME
         value = 42
         list_value = [42, 43]
         expected_gr = [f"{key}{Operation.GREATER}{value}"]

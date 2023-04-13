@@ -14,8 +14,8 @@ import pandas as pd
 import tables
 from geopandas.geodataframe import GeoDataFrame
 
-from roveranalyzer.analysis.hdfprovider.IHdfGeoProvider import GeoProvider
-from roveranalyzer.analysis.hdfprovider.Operation import Operation
+from roveranalyzer.analysis.hdf.geo_provider import GeoProvider
+from roveranalyzer.analysis.hdf.operator import Operation
 from roveranalyzer.utils.logging import logger
 
 

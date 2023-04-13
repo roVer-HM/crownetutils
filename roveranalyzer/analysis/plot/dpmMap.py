@@ -14,7 +14,7 @@ from scipy.stats import kstest, mannwhitneyu
 
 import roveranalyzer.simulators.opp.scave as Scave
 from roveranalyzer.analysis.common import RunMap, Simulation
-from roveranalyzer.analysis.dpmm.builder import DcdHdfBuilder
+from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.utils.dataframe import FrameConsumer
 from roveranalyzer.utils.logging import logger, timing
@@ -38,7 +38,7 @@ class _PlotDpmMap(PlotUtil_):
     def create_common_plots_density(
         self,
         data_root: str,
-        builder: DcdHdfBuilder,
+        builder: DpmmHdfBuilder,
         sql: Scave.CrownetSql,
         selection: str | None = None,
     ):

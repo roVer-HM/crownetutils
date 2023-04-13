@@ -10,10 +10,14 @@ import pandas as pd
 from pandas.core.indexing import IndexSlice
 from shapely.geometry.geo import box
 
-import roveranalyzer.analysis.dpmm.csv_loader as DcdUtil
+from roveranalyzer.analysis.dpmm.csv_loader import (
+    delay_feature,
+    owner_dist_feature,
+    read_csv,
+)
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
-from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import (
+from roveranalyzer.analysis.hdf.groups import HdfGroups
+from roveranalyzer.analysis.hdf.provider import (
     IHdfProvider,
     ProviderVersion,
     VersionDict,
@@ -23,7 +27,7 @@ from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import ProgressCmd
 
 
-class DcdMapKey:
+class DpmmKey:
     # index
     SIMTIME = "simtime"
     X = "x"
@@ -110,7 +114,7 @@ class DcdMapKey:
         return list(cls.columns(version).keys())
 
 
-class DcdMapProvider(IHdfProvider):
+class DpmmProvider(IHdfProvider):
     def __init__(self, hdf_path, version: str | None = None):
         super().__init__(hdf_path, version)
         self.selection_mapping = {
@@ -131,18 +135,18 @@ class DcdMapProvider(IHdfProvider):
 
     def index_order(self) -> Dict:
         return {
-            0: DcdMapKey.SIMTIME,
-            1: DcdMapKey.X,
-            2: DcdMapKey.Y,
-            3: DcdMapKey.SOURCE,
-            4: DcdMapKey.NODE,
+            0: DpmmKey.SIMTIME,
+            1: DpmmKey.X,
+            2: DpmmKey.Y,
+            3: DpmmKey.SOURCE,
+            4: DpmmKey.NODE,
         }
 
     def columns(self) -> List[str]:
-        return DcdMapKey.col_list(self.version)
+        return DpmmKey.col_list(self.version)
 
     def default_index_key(self) -> str:
-        return DcdMapKey.SIMTIME
+        return DpmmKey.SIMTIME
 
     def create_from_csv(
         self, csv_paths: List[str], frame_consumer: List[FrameConsumer] = [], **kwargs
@@ -195,29 +199,27 @@ class DcdMapProvider(IHdfProvider):
         if meta.version != self.version:
             logger.warn(f"version missmatch {meta.version}!={self.version} in {path}")
 
-        df, meta = DcdUtil.read_csv(
+        df, meta = read_csv(
             csv_path=path,
-            _index_types=DcdMapKey.types_csv_index[meta.version],
-            _col_types=DcdMapKey.types_csv_columns[meta.version],
+            _index_types=DpmmKey.types_csv_index[meta.version],
+            _col_types=DpmmKey.types_csv_columns[meta.version],
             real_coords=True,
             df_filter=self.csv_filters,
         )
         # add own node id
-        df[DcdMapKey.NODE] = self.parse_node_id(path)
+        df[DpmmKey.NODE] = self.parse_node_id(path)
         # set index
         df = df.reset_index()
         index = list(self.index_order().values())
         df = df.set_index(keys=index, verify_integrity=True, drop=True)
         # cleanup string based column
         # ensure all keys in df are mapped to integer. Add new ones if needed.
-        self.update_selection_map(df[DcdMapKey.SELECTION].unique().tolist())
+        self.update_selection_map(df[DpmmKey.SELECTION].unique().tolist())
 
-        df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].fillna(
+        df[DpmmKey.SELECTION] = df[DpmmKey.SELECTION].fillna(
             self.selection_mapping["NaN"]
         )
-        df[DcdMapKey.SELECTION] = df[DcdMapKey.SELECTION].replace(
-            self.selection_mapping
-        )
+        df[DpmmKey.SELECTION] = df[DpmmKey.SELECTION].replace(self.selection_mapping)
 
         # #####
         # apply features
@@ -226,14 +228,14 @@ class DcdMapProvider(IHdfProvider):
         num_rows = df.shape[0]
 
         # apply owner_dist_feature
-        df = DcdUtil.owner_dist_feature(df, meta, **kwargs)
+        df = owner_dist_feature(df, meta, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in owner_dist_feature. "
                 f"Number of rows were affected. actual: {df.shape[0]} expected: {num_rows} "
             )  # shape = df.shape
         # apply delay_feature
-        df = DcdUtil.delay_feature(df, **kwargs)
+        df = delay_feature(df, **kwargs)
         if df.shape[0] != num_rows:
             raise RuntimeError(
                 "Inconsistency detected in delay_feature. "

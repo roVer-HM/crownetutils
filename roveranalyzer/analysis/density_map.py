@@ -10,12 +10,12 @@ from geopandas import GeoDataFrame
 from pandas.core.frame import DataFrame
 
 import roveranalyzer.simulators.opp.scave as Scave
-from roveranalyzer.analysis.dpmm.DcDGlobalPosition import (
-    DcdGlobalDensity,
-    DcdGlobalPosition,
+from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
+from roveranalyzer.analysis.dpmm.hdf.dpmm_global_positon_provider import (
+    DpmmGlobal,
+    DpmmGlobalPosition,
 )
-from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
+from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from roveranalyzer.utils.misc import Project
 
 
@@ -39,17 +39,17 @@ class _DensityMap:
 
     def get_annotated_global_map(
         self,
-        global_map: Union[DcdGlobalDensity, GeoDataFrame],
-        position: Union[DcdGlobalPosition, DataFrame, GeoDataFrame],
+        global_map: Union[DpmmGlobal, GeoDataFrame],
+        position: Union[DpmmGlobalPosition, DataFrame, GeoDataFrame],
         crs: str,
         slice_: slice = slice(None),
     ) -> GeoDataFrame:
 
-        pos = DcdGlobalPosition.as_geo(position, crs, slice_)
+        pos = DpmmGlobalPosition.as_geo(position, crs, slice_)
         pos = pos.reset_index().groupby(["simtime", "x", "y"])["node_id"].apply(list)
         pos = pos.rename("occupancy")
 
-        if type(global_map) == DcdGlobalDensity:
+        if type(global_map) == DpmmGlobal:
             map = global_map.geo(crs)[slice_]
         else:
             map = global_map
@@ -61,7 +61,7 @@ class _DensityMap:
     def create_interactive_map(
         self,
         sql: Scave.CrownetSql,
-        global_p: DcdGlobalPosition,
+        global_p: DpmmGlobalPosition,
         time: float | None,
         epsg_code_base: str = Project.UTM_32N,
         epsg_code_to: str = Project.OpenStreetMaps,

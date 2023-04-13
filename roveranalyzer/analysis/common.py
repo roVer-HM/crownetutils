@@ -36,9 +36,9 @@ from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
 
 from roveranalyzer.analysis.base import AnalysisBase
-from roveranalyzer.analysis.dpmm.builder import DcdHdfBuilder
+from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
 from roveranalyzer.analysis.dpmm.dpmm import DpmMap
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
+from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.dockerrunner.run_argparser import read_sim_run_context
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.opp.scave import CrownetSql
@@ -702,9 +702,9 @@ class Simulation:
         return f"<{self.__class__.__name__} object at {hex(id(self))} {self.label} ({self.study_id()}[{self.global_id()}])>"
 
     @property
-    def builder(self) -> DcdHdfBuilder:
+    def builder(self) -> DpmmHdfBuilder:
         if self._builder is None:
-            self._builder = DcdHdfBuilder.get("data.h5", self.data_root).epsg(
+            self._builder = DpmmHdfBuilder.get("data.h5", self.data_root).epsg(
                 Project.UTM_32N
             )
         return self._builder

@@ -8,11 +8,11 @@ from shapely.geometry import Point, box
 
 from roveranalyzer.analysis.dpmm.csv_loader import read_csv
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
-from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import IHdfProvider
+from roveranalyzer.analysis.hdf.groups import HdfGroups
+from roveranalyzer.analysis.hdf.provider import IHdfProvider
 
 
-class DcdGlobalMapKey:
+class DpmMapKey:
     SIMTIME = "simtime"
     X = "x"
     Y = "y"
@@ -57,7 +57,7 @@ def build_position_df(glb_df):
     return glb_loc_df, glb_df
 
 
-class DcdGlobalPosition(IHdfProvider):
+class DpmmGlobalPosition(IHdfProvider):
     def __init__(self, hdf_path, version: str | None = None):
         super().__init__(hdf_path, version)
 
@@ -65,21 +65,21 @@ class DcdGlobalPosition(IHdfProvider):
         return HdfGroups.DCD_GLOBAL_POS
 
     def index_order(self) -> Dict:
-        return {0: DcdGlobalMapKey.SIMTIME, 1: DcdGlobalMapKey.NODE_ID}
+        return {0: DpmMapKey.SIMTIME, 1: DpmMapKey.NODE_ID}
 
     def columns(self) -> List[str]:
-        return [DcdGlobalMapKey.X, DcdGlobalMapKey.Y]
+        return [DpmMapKey.X, DpmMapKey.Y]
 
     def default_index_key(self) -> str:
         return self.index_order()[0]
 
     @staticmethod
     def as_geo(
-        df: Union[DcdGlobalPosition, pd.DataFrame, gpd.GeoDataFrame],
+        df: Union[DpmmGlobalPosition, pd.DataFrame, gpd.GeoDataFrame],
         crs: str,
         slice_: slice = slice(None),
     ) -> gpd.GeoDataFrame:
-        if type(df) == DcdGlobalPosition:
+        if type(df) == DpmmGlobalPosition:
             df = df.geo(crs)[slice_]
         elif type(df) == pd.DataFrame:
             geo = [Point(x, y) for x, y in zip(df["x"], df["y"])]
@@ -132,7 +132,7 @@ class DcdGlobalPosition(IHdfProvider):
         bound = self.get_attribute("cell_bound")
 
 
-class DcdGlobalDensity(IHdfProvider):
+class DpmmGlobal(IHdfProvider):
     def __init__(self, hdf_path, version: str | None = None):
         super().__init__(hdf_path, version)
 
@@ -140,10 +140,10 @@ class DcdGlobalDensity(IHdfProvider):
         return HdfGroups.DCD_GLOBAL_DENSITY
 
     def index_order(self) -> Dict:
-        return {0: DcdGlobalMapKey.SIMTIME, 1: DcdGlobalMapKey.X, 2: DcdGlobalMapKey.Y}
+        return {0: DpmMapKey.SIMTIME, 1: DpmMapKey.X, 2: DpmMapKey.Y}
 
     def columns(self) -> List[str]:
-        return [DcdGlobalMapKey.COUNT]
+        return [DpmMapKey.COUNT]
 
     def default_index_key(self) -> str:
         return self.index_order()[0]
@@ -194,13 +194,13 @@ class DcdGlobalDensity(IHdfProvider):
 def pos_density_from_csv(
     csv_path: str,
     hdf_path: str,
-) -> Tuple[DcdGlobalPosition, DcdGlobalDensity, DpmmMetaData]:
-    pos = DcdGlobalPosition(hdf_path)
-    density = DcdGlobalDensity(hdf_path)
+) -> Tuple[DpmmGlobalPosition, DpmmGlobal, DpmmMetaData]:
+    pos = DpmmGlobalPosition(hdf_path)
+    density = DpmmGlobal(hdf_path)
     global_df, meta = read_csv(
         csv_path=csv_path,
-        _index_types=DcdGlobalMapKey.types_global_raw_csv_index,
-        _col_types=DcdGlobalMapKey.types_global_raw_csv_col,
+        _index_types=DpmMapKey.types_global_raw_csv_index,
+        _col_types=DpmMapKey.types_global_raw_csv_col,
         real_coords=True,
     )
     position_df, global_df = build_position_df(global_df)

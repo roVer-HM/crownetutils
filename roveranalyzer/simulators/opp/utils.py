@@ -3,7 +3,7 @@ import os
 
 import matplotlib.pyplot as plt
 
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
+from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.simulators.opp.configuration import ScaveConfig
 from roveranalyzer.simulators.opp.scave import ScaveRunConverter, ScaveTool
 from roveranalyzer.simulators.vadere.scenario_output import ScenarioOutput

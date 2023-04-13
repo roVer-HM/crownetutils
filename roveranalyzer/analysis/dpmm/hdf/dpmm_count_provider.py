@@ -7,16 +7,16 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import box
 
-from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import (
+from roveranalyzer.analysis.hdf.groups import HdfGroups
+from roveranalyzer.analysis.hdf.operator import Operation
+from roveranalyzer.analysis.hdf.provider import (
     IHdfProvider,
     ProviderVersion,
     VersionDict,
 )
-from roveranalyzer.analysis.hdfprovider.Operation import Operation
 
 
-class CountMapKey:
+class DpmmCountKey:
     ID = "ID"
     SIMTIME = "simtime"
     X = "x"
@@ -51,7 +51,7 @@ class CountMapKey:
     )
 
 
-class DcdMapCount(IHdfProvider):
+class DpmmCount(IHdfProvider):
     def __init__(self, hdf_path, version: str | None = None):
         super().__init__(hdf_path, version)
 
@@ -59,13 +59,13 @@ class DcdMapCount(IHdfProvider):
         return HdfGroups.COUNT_MAP
 
     def index_order(self) -> Dict:
-        return CountMapKey.index_order[self.version]
+        return DpmmCountKey.index_order[self.version]
 
     def columns(self) -> List[str]:
-        return CountMapKey.columns[self.version]
+        return DpmmCountKey.columns[self.version]
 
     def default_index_key(self) -> str:
-        return CountMapKey.SIMTIME
+        return DpmmCountKey.SIMTIME
 
     #########################
     # Exact value functions #
@@ -74,7 +74,7 @@ class DcdMapCount(IHdfProvider):
         self, value: int, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.ID, value=value, operation=operation
+            key=DpmmCountKey.ID, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -82,7 +82,7 @@ class DcdMapCount(IHdfProvider):
         self, value: int, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.SIMTIME, value=value, operation=operation
+            key=DpmmCountKey.SIMTIME, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -90,7 +90,7 @@ class DcdMapCount(IHdfProvider):
         self, value: float, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.X, value=value, operation=operation
+            key=DpmmCountKey.X, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -98,7 +98,7 @@ class DcdMapCount(IHdfProvider):
         self, value: float, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.Y, value=value, operation=operation
+            key=DpmmCountKey.Y, value=value, operation=operation
         )
         return self._select_where(condition=condition)  # p[I[None,None,5,None]]
 
@@ -106,7 +106,7 @@ class DcdMapCount(IHdfProvider):
         self, value: float, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.COUNT, value=value, operation=operation
+            key=DpmmCountKey.COUNT, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -114,7 +114,7 @@ class DcdMapCount(IHdfProvider):
         self, value: float, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.ERR, value=value, operation=operation
+            key=DpmmCountKey.ERR, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -122,7 +122,7 @@ class DcdMapCount(IHdfProvider):
         self, value: float, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.OWNER_DIST, value=value, operation=operation
+            key=DpmmCountKey.OWNER_DIST, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -130,7 +130,7 @@ class DcdMapCount(IHdfProvider):
         self, value: float, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.SQERR, value=value, operation=operation
+            key=DpmmCountKey.SQERR, value=value, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -138,9 +138,9 @@ class DcdMapCount(IHdfProvider):
         self, simtime: int, node_id: int, operation: str = Operation.EQ
     ) -> pd.DataFrame:
         condition: List[str] = self._build_exact_condition(
-            key=CountMapKey.SIMTIME, value=simtime, operation=operation
+            key=DpmmCountKey.SIMTIME, value=simtime, operation=operation
         ) + self._build_exact_condition(
-            key=CountMapKey.ID, value=node_id, operation=operation
+            key=DpmmCountKey.ID, value=node_id, operation=operation
         )
         return self._select_where(condition=condition)
 
@@ -149,49 +149,49 @@ class DcdMapCount(IHdfProvider):
     #########################
     def select_id_range(self, _min: int, _max: int) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.ID, _min=_min, _max=_max
+            key=DpmmCountKey.ID, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_simtime_range(self, _min: int, _max: int) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.SIMTIME, _min=_min, _max=_max
+            key=DpmmCountKey.SIMTIME, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_x_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.X, _min=_min, _max=_max
+            key=DpmmCountKey.X, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_y_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.Y, _min=_min, _max=_max
+            key=DpmmCountKey.Y, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_count_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.COUNT, _min=_min, _max=_max
+            key=DpmmCountKey.COUNT, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_err_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.ERR, _min=_min, _max=_max
+            key=DpmmCountKey.ERR, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_owner_dist_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.OWNER_DIST, _min=_min, _max=_max
+            key=DpmmCountKey.OWNER_DIST, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 
     def select_sqerr_range(self, _min: float, _max: float) -> pd.DataFrame:
         condition: List[str] = self._build_range_condition(
-            key=CountMapKey.SQERR, _min=_min, _max=_max
+            key=DpmmCountKey.SQERR, _min=_min, _max=_max
         )
         return self._select_where(condition=condition)
 

@@ -6,25 +6,23 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapKey, DcdMapProvider
+from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.dpmm.tests.utils import (
     create_dcd_csv_dataframe,
     create_tmp_fs,
     make_dirs,
 )
-from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
+from roveranalyzer.analysis.hdf.groups import HdfGroups
+from roveranalyzer.analysis.hdf.provider import ProviderVersion
 
 
-class DcdMapProviderTest(unittest.TestCase):
+class DpmmProviderTest(unittest.TestCase):
     # create tmp fs. (use fs.root_path to access as normal path)
     fs: TempFS = create_tmp_fs("DcdMapCountProviderTest")
     test_out_dir: str = os.path.join(fs.root_path, "unittest")
     sample_file_dir: str = os.path.join(test_out_dir, "sample.hdf5")
-    provider: DcdMapProvider = DcdMapProvider(
-        sample_file_dir, version=ProviderVersion.V0_1
-    )
+    provider: DpmmProvider = DpmmProvider(sample_file_dir, version=ProviderVersion.V0_1)
 
     @classmethod
     def setUpClass(cls):
@@ -37,28 +35,28 @@ class DcdMapProviderTest(unittest.TestCase):
 
     def test_DcdMapProperties_v1(self):
         sample_grp_key = HdfGroups.DCD_MAP
-        sample_default_index = DcdMapKey.SIMTIME
+        sample_default_index = DpmmKey.SIMTIME
         sample_index_order = {
-            0: DcdMapKey.SIMTIME,
-            1: DcdMapKey.X,
-            2: DcdMapKey.Y,
-            3: DcdMapKey.SOURCE,
-            4: DcdMapKey.NODE,
+            0: DpmmKey.SIMTIME,
+            1: DpmmKey.X,
+            2: DpmmKey.Y,
+            3: DpmmKey.SOURCE,
+            4: DpmmKey.NODE,
         }
         sample_columns = [
-            DcdMapKey.COUNT,
-            DcdMapKey.MEASURE_TIME,
-            DcdMapKey.RECEIVED_TIME,
-            DcdMapKey.SELECTION,
-            DcdMapKey.OWN_CELL,
-            DcdMapKey.X_OWNER,
-            DcdMapKey.Y_OWNER,
-            DcdMapKey.OWNER_DIST,
-            DcdMapKey.DELAY,
-            DcdMapKey.MEASURE_AGE,
-            DcdMapKey.UPDATE_AGE,
+            DpmmKey.COUNT,
+            DpmmKey.MEASURE_TIME,
+            DpmmKey.RECEIVED_TIME,
+            DpmmKey.SELECTION,
+            DpmmKey.OWN_CELL,
+            DpmmKey.X_OWNER,
+            DpmmKey.Y_OWNER,
+            DpmmKey.OWNER_DIST,
+            DpmmKey.DELAY,
+            DpmmKey.MEASURE_AGE,
+            DpmmKey.UPDATE_AGE,
         ]
-        p: DcdMapProvider = DcdMapProvider(
+        p: DpmmProvider = DpmmProvider(
             self.sample_file_dir, version=ProviderVersion.V0_1
         )
         result_grp_key = p.group_key()
@@ -73,32 +71,32 @@ class DcdMapProviderTest(unittest.TestCase):
 
     def test_DcdMapProperties_v2(self):
         sample_grp_key = HdfGroups.DCD_MAP
-        sample_default_index = DcdMapKey.SIMTIME
+        sample_default_index = DpmmKey.SIMTIME
         sample_index_order = {
-            0: DcdMapKey.SIMTIME,
-            1: DcdMapKey.X,
-            2: DcdMapKey.Y,
-            3: DcdMapKey.SOURCE,
-            4: DcdMapKey.NODE,
+            0: DpmmKey.SIMTIME,
+            1: DpmmKey.X,
+            2: DpmmKey.Y,
+            3: DpmmKey.SOURCE,
+            4: DpmmKey.NODE,
         }
         sample_columns = [
-            DcdMapKey.COUNT,
-            DcdMapKey.MEASURE_TIME,
-            DcdMapKey.RECEIVED_TIME,
-            DcdMapKey.SELECTION,
-            DcdMapKey.OWN_CELL,
-            DcdMapKey.SOURCE_HOST,
-            DcdMapKey.SOURCE_ENTRY,
-            DcdMapKey.HOST_ENTRY,
-            DcdMapKey.SELECTION_RANK,
-            DcdMapKey.X_OWNER,
-            DcdMapKey.Y_OWNER,
-            DcdMapKey.OWNER_DIST,
-            DcdMapKey.DELAY,
-            DcdMapKey.MEASURE_AGE,
-            DcdMapKey.UPDATE_AGE,
+            DpmmKey.COUNT,
+            DpmmKey.MEASURE_TIME,
+            DpmmKey.RECEIVED_TIME,
+            DpmmKey.SELECTION,
+            DpmmKey.OWN_CELL,
+            DpmmKey.SOURCE_HOST,
+            DpmmKey.SOURCE_ENTRY,
+            DpmmKey.HOST_ENTRY,
+            DpmmKey.SELECTION_RANK,
+            DpmmKey.X_OWNER,
+            DpmmKey.Y_OWNER,
+            DpmmKey.OWNER_DIST,
+            DpmmKey.DELAY,
+            DpmmKey.MEASURE_AGE,
+            DpmmKey.UPDATE_AGE,
         ]
-        p: DcdMapProvider = DcdMapProvider(
+        p: DpmmProvider = DpmmProvider(
             self.sample_file_dir, version=ProviderVersion.V0_2
         )
         result_grp_key = p.group_key()
@@ -112,13 +110,13 @@ class DcdMapProviderTest(unittest.TestCase):
         self.assertEqual(result_columns, sample_columns)
 
     @patch(
-        "roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.build_dcd_dataframe"
+        "roveranalyzer.analysis.dpmm.hdf.dpmm_provider.DpmmProvider.build_dcd_dataframe"
     )
     @patch(
-        "roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.set_selection_mapping_attribute"
+        "roveranalyzer.analysis.dpmm.hdf.dpmm_provider.DpmmProvider.set_selection_mapping_attribute"
     )
     @patch(
-        "roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.set_used_selection_attribute"
+        "roveranalyzer.analysis.dpmm.hdf.dpmm_provider.DpmmProvider.set_used_selection_attribute"
     )
     @patch("pandas.HDFStore")
     def test_create_from_csv(
@@ -176,9 +174,9 @@ class DcdMapProviderTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.provider.parse_node_id(wrong_path)
 
-    @patch("roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.parse_node_id")
+    @patch("roveranalyzer.analysis.dpmm.hdf.dpmm_provider.DpmmProvider.parse_node_id")
     @patch("roveranalyzer.utils.dataframe.LazyDataFrame.read_meta_data")
-    @patch("roveranalyzer.analysis.dpmm.DcdMapProvider.DcdUtil.read_csv")
+    @patch("roveranalyzer.analysis.dpmm.hdf.dpmm_provider.read_csv")
     def test_build_dcd_dataframe(
         self,
         mock_read_csv: MagicMock,
@@ -197,18 +195,18 @@ class DcdMapProviderTest(unittest.TestCase):
         result = self.provider.build_dcd_dataframe(csv_path)
         self.assertEqual(
             [
-                DcdMapKey.SIMTIME,
-                DcdMapKey.X,
-                DcdMapKey.Y,
-                DcdMapKey.SOURCE,
-                DcdMapKey.NODE,
+                DpmmKey.SIMTIME,
+                DpmmKey.X,
+                DpmmKey.Y,
+                DpmmKey.SOURCE,
+                DpmmKey.NODE,
             ],
             result.index.names,
         )
         self.assertTrue(
             result["selection"].isin(self.provider.selection_mapping.values()).all()
         )
-        self.assertTrue(result.reset_index()[DcdMapKey.NODE].isin([own_node_id]).all())
+        self.assertTrue(result.reset_index()[DpmmKey.NODE].isin([own_node_id]).all())
 
     def test_get_dcd_file_paths(self):
         with mock.patch("os.walk") as mockwalk:
@@ -235,12 +233,12 @@ class DcdMapProviderTest(unittest.TestCase):
             )
             self.assertEqual(len(result), 2)
 
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.get_attribute")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.get_attribute")
     def test_get_selection_mapping_attribute(self, mock_get_attribute: MagicMock):
         self.provider.get_selection_mapping_attribute()
         mock_get_attribute.assert_called_once_with("selection_mapping")
 
-    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.set_attribute")
+    @patch("roveranalyzer.analysis.hdf.provider.IHdfProvider.set_attribute")
     def test_set_selection_mapping_attribute(self, mock_set_attribute: MagicMock):
         self.provider.set_selection_mapping_attribute()
         mock_set_attribute.assert_called_once_with(

@@ -9,7 +9,6 @@ import pandas as pd
 import pandas.testing as pdt
 
 import roveranalyzer.analysis.dpmm.csv_loader as DcdUtil
-from roveranalyzer.analysis.dpmm.builder import DcdBuilder, PickleState
 from roveranalyzer.analysis.dpmm.dpmm import DpmMap
 from roveranalyzer.analysis.dpmm.metadata import DpmmMetaData
 from roveranalyzer.analysis.dpmm.plot.interactive import InteractiveAreaPlot
@@ -134,49 +133,3 @@ def plot_wrap(func, _self, *args, **kwargs):
         kwargs.setdefault("ax", ax)
     ret = func(_self, *args, **kwargs)
     return ret
-
-
-@unittest.skipIf(
-    "ROVER_LOCAL" not in os.environ,
-    "Local test.  Set ROVER_LOCAL to run test. (Do not run on CI)",
-)
-class HdfTest(unittest.TestCase):
-    def setUp(self) -> None:
-        pass
-
-    def test_foo1(self):
-        path = PathHelper(_glb_config["data_dir"])
-
-        global_map_path = path.glob("global.csv", recursive=False, expect=1)
-        node_map_paths = path.glob("dcdMap_*.csv")
-        scenario_path = path.glob("vadere.d/*.scenario", expect=1)
-        p_name = "dcdMap_full.p"
-        _b = (
-            DcdBuilder()
-            .use_real_coords(True)
-            .all()
-            .clear_single_filter()
-            .plotter(scenario_path)
-            .csv_paths(global_map_path, node_map_paths)
-            .data_base_path(path.get_base())
-            .pickle_name(p_name)
-            .pickle_as(PickleState.FULL)
-            # .pickle_as(PickleState.MERGED)
-        )
-        # strip not selected values to speed up
-        _b.add_single_filter([DcdUtil.remove_not_selected_cells])
-        dcd = _b.build()
-
-        # data = df.count_map_provider.select_id_exact(2)
-        # print(type(data))
-        time = 2
-        id = 0
-        fig, ax = dcd.plot_area(
-            time_step=time,
-            node_id=id,
-            value="count",
-            pcolormesh_dict=pcolormesh_dict(vmin=0, vmax=4),
-            title="",
-        )
-        i = InteractiveAreaPlot(dcd, ax, value="count")
-        i.show()

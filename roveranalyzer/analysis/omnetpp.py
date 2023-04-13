@@ -22,7 +22,7 @@ from roveranalyzer.analysis.common import (
     SimulationGroup,
 )
 from roveranalyzer.analysis.dpmm.dpmm import percentile
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
+from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql, SqlEmptyResult, SqlOp
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,

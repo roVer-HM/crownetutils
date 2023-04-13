@@ -18,8 +18,8 @@ from flask_caching import Cache
 
 import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.analysis.density_map import DensityMap
-from roveranalyzer.analysis.dpmm.builder import DcdHdfBuilder
-from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
+from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
+from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
 from roveranalyzer.utils.misc import Project
@@ -73,10 +73,10 @@ class Ctx:
 
 class OppModel:
     def __init__(
-        self, data_root: str, builder: DcdHdfBuilder, sql: OMNeT.CrownetSql
+        self, data_root: str, builder: DpmmHdfBuilder, sql: OMNeT.CrownetSql
     ) -> None:
         self.data_root: str = data_root
-        self.builder: DcdHdfBuilder = builder
+        self.builder: DpmmHdfBuilder = builder
         self.sql: OMNeT.CrownetSql = sql
         self.ctx: Ctx = Ctx()
         self.load()

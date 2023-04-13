@@ -17,8 +17,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from roveranalyzer.analysis.dpmm.csv_loader import DpmmMetaData
-from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
+from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
+from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,
@@ -114,9 +114,9 @@ class DpmMap(BaseDpmMap):
         global_df: pd.DataFrame,
         map_df: Union[pd.DataFrame, None],
         position_df: pd.DataFrame,
-        count_p: DcdMapCount = None,
+        count_p: DpmmCount = None,
         count_slice: pd.IndexSlice = None,
-        map_p: DcdMapProvider = None,
+        map_p: DpmmProvider = None,
         map_slice: pd.IndexSlice = None,
         plotter=None,
         **kwargs,
@@ -128,7 +128,7 @@ class DpmMap(BaseDpmMap):
         self._count_p = count_p
         self._count_slice = count_slice
 
-        self._map_p: DcdMapProvider = map_p
+        self._map_p: DpmmProvider = map_p
         self._map_slice = map_slice
 
     def iter_nodes_d2d(self, first_node_id=0):

@@ -5,14 +5,14 @@ import pandas as pd
 from fs.tempfs import TempFS
 from pandas import IndexSlice as _I
 
-from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from roveranalyzer.analysis.dpmm.tests.utils import (
     create_count_map_dataframe,
     create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
-from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdf.groups import HdfGroups
 
 
 class IHDFProviderGoldenSampleTest(unittest.TestCase):
@@ -34,7 +34,7 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         cls.fs.close()
 
     def test_exact_methods(self):
-        provider = DcdMapCount(self.sample_file_dir)
+        provider = DpmmCount(self.sample_file_dir)
         simtime: int = 1
         x: float = 2.0
         y: float = 3.0
@@ -91,7 +91,7 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         )
 
     def test_range_methods(self):
-        provider = DcdMapCount(self.sample_file_dir)
+        provider = DpmmCount(self.sample_file_dir)
         _range: int = 5
         simtime: int = 1
         x: float = 2.0
@@ -153,7 +153,7 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         )
 
     def test_index_slicer(self):
-        provider = DcdMapCount(self.sample_file_dir)
+        provider = DpmmCount(self.sample_file_dir)
         case_1 = provider[42]  # ['simtime=42']
         case_1_pd = provider[_I[42]]  # ['simtime=42']
         sample_1 = self.sample_dataframe.iloc[[42, 43, 44, 45, 46, 47, 48, 49]]
@@ -233,7 +233,7 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         self.assertTrue(case_10_pd.equals(sample_10))
 
     def test_index_slicer_with_columns(self):
-        provider = DcdMapCount(self.sample_file_dir)
+        provider = DpmmCount(self.sample_file_dir)
         case_1 = provider[42, "err"]  # ['simtime=42']['err']
         case_1_pd = provider[_I[42], _I["err"]]  # ['simtime=42']['err']
         sample_1 = self.sample_dataframe.iloc[[42, 43, 44, 45, 46, 47, 48, 49]][["err"]]
