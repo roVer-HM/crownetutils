@@ -415,25 +415,27 @@ class RunMap(dict):
 
 class RunContext:
     class _dummy_runner:
-        def run_simulation_omnet(self, *args, **kwargs):
+        def run_simulation_omnet(self) -> int:
             raise NotImplementedError
 
-        def run_simulation_omnet_sumo(self, *args, **kwargs):
+        def run_simulation_omnet_sumo(self) -> int:
             raise NotImplementedError
 
-        def run_vadere(self, *args, **kwargs):
+        def run_vadere(self) -> int:
             raise NotImplementedError
 
-        def run_simulation_vadere_ctl(self, *args, **kwargs):
+        def run_simulation_vadere_ctl(self) -> int:
             raise NotImplementedError
 
-        def run_simulation_omnet_vadere(self, *args, **kwargs):
+        def run_simulation_omnet_vadere(
+            self,
+        ) -> int:
             raise NotImplementedError
 
-        def run_simulation_vadere_omnet_ctl(self, *args, **kwargs):
+        def run_simulation_vadere_omnet_ctl(self) -> int:
             raise NotImplementedError
 
-        def run_post_only(self, *args, **kwargs):
+        def run_postprocessing_only(self) -> int:
             raise NotImplementedError
 
     @classmethod

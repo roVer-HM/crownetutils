@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import contextlib
 import os
+import re
 import subprocess
 import threading
 import warnings
@@ -10,6 +11,7 @@ from enum import Enum
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
+import numpy as np
 import pandas as pd
 import tables
 from geopandas.geodataframe import GeoDataFrame
@@ -215,6 +217,52 @@ class ProviderVersion(Enum):
         else:
             return list(cls.__members__.values())[::-1]
 
+    @classmethod
+    def from_str(cls, str_val) -> ProviderVersion:
+        # python object-bytes workaround due to refactoring
+        if isinstance(str_val, np.bytes_):
+            try:
+                logger.warn(
+                    "Deprecation warning. Found byte array as value in hdf metadata. "
+                    + "The HDF file was most likely created with an old tool. "
+                    + f"Try guessing version from decoded bytes..."
+                )
+                val_decoded = str_val.decode("utf-8")
+                g = re.match(".*V(\d+\.\d+)", val_decoded.replace("\n", ""))
+                if g is not None:
+                    ret = cls.from_str(g.groups()[0])
+                else:
+                    raise ValueError("unable to parse version from bytes.")
+            except Exception as e:
+                logger.error(e)
+                ret = None
+
+            if ret is not None:
+                return ret
+            else:
+                if "CROWNETUTILS_ASSUME_HDF_VERSION" in os.environ:
+                    _v = os.environ["CROWNETUTILS_ASSUME_HDF_VERSION"]
+                    logger.warn(
+                        "Deprecation warning. Found byte array as value in hdf metadata. "
+                        + "I did not found a version match in byte. Using provided version from "
+                        + f"environment 'CROWNETUTILS_ASSUME_HDF_VERSION={_v}'"
+                    )
+                    ret = cls.from_str(_v.replace(""))
+                else:
+                    msg = "Found deprecated pickled object in HDF metadata. I tried to guess the version from \
+                    the provided bytes but did not found any matching version string of the for 'V(\d+.\d+)'. \
+                    To set a version for this case, source the the environment variable 'CROWNETUTILS_ASSUME_HDF_VERSION' \
+                    with the  the appropriate version."
+                    raise ValueError(msg)
+
+        for _, _val in cls.__members__.items():
+            if _val.value == str_val:
+                return _val
+        raise ValueError(f"No Version found for string {str_val}")
+
+    def as_string(self):
+        return str(self.value)
+
 
 class VersionDict:
     """Provide a simple versioned dictionary with a fallback to 'highest'
@@ -268,7 +316,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
                 "version", default=ProviderVersion.current()
             )
             if not isinstance(self._version, ProviderVersion):
-                self._version = ProviderVersion(self._version)
+                self._version = ProviderVersion.from_str(self._version)
         else:
             if self.hdf_file_exists and version != self.get_attribute("version"):
                 raise ValueError(

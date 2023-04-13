@@ -13,8 +13,8 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from dash_extensions.javascript import Namespace
 
-from roveranalyzer.analysis.dashapp import DashUtil, OppModel, dash_app
-from roveranalyzer.analysis.density_map import DensityMap
+from roveranalyzer.crownet_dash.dashapp import DashUtil, OppModel, dash_app
+from roveranalyzer.crownet_dash.density_map import DensityMap
 from roveranalyzer.utils.logging import timing
 
 

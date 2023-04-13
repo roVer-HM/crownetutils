@@ -15,10 +15,10 @@ import pandas as pd
 from dash import Dash, dash_table, dcc, html
 from dash_extensions.javascript import Namespace, arrow_function
 
-from roveranalyzer.analysis.density_map import DensityMap
 from roveranalyzer.analysis.dpmm.builder import DpmmHdfBuilder
 from roveranalyzer.analysis.hdf.provider import BaseHdfProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
+from roveranalyzer.crownet_dash.density_map import DensityMap
 from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.misc import Project
 from roveranalyzer.vadere.scenario import Scenario

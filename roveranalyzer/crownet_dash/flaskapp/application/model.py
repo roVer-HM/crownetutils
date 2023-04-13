@@ -13,7 +13,7 @@ from omnetinireader.config_parser import ObjectValue
 from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
-from roveranalyzer.analysis.flaskapp.application.utils import threaded_lru
+from roveranalyzer.crownet_dash.flaskapp.application.utils import threaded_lru
 from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.dataframe import LazyDataFrame
 from roveranalyzer.utils.logging import timing

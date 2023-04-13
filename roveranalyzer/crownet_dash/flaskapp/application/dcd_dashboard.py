@@ -9,10 +9,13 @@ from dash import Dash, callback_context, html
 from dash.exceptions import PreventUpdate
 from flask import Flask
 
-import roveranalyzer.analysis.flaskapp.application.model as m
+import roveranalyzer.crownet_dash.flaskapp.application.model as m
 from roveranalyzer.analysis.common import Simulation
-from roveranalyzer.analysis.dashapp import DashUtil
-from roveranalyzer.analysis.flaskapp.application.layout import IdProvider, build_layout
+from roveranalyzer.crownet_dash.dashapp import DashUtil
+from roveranalyzer.crownet_dash.flaskapp.application.layout import (
+    IdProvider,
+    build_layout,
+)
 from roveranalyzer.utils.logging import timing
 
 

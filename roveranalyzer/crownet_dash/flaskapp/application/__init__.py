@@ -4,7 +4,9 @@ from flask import Flask
 from flask_caching import Cache
 
 from roveranalyzer.analysis.common import Simulation
-from roveranalyzer.analysis.flaskapp.config import CacheConfig, FlaskConfigDbg
+from roveranalyzer.crownet_dash.flaskapp.config import CacheConfig, FlaskConfigDbg
+
+from . import dcd_dashboard as d
 
 # cache = Cache(config=CacheConfig)
 
@@ -20,7 +22,7 @@ def init_app(simulations: Dict[str, Simulation]):
     with app.app_context():
         # core Flask app...
         # dash application
-        from . import dcd_dashboard as d, routes
+        from . import routes
 
         app = d.create_dashboard(app, simulations)
 

@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from roveranalyzer import __version__
-from roveranalyzer.analysis.flaskapp.wsgi import run_app_ns
+from roveranalyzer.crownet_dash.flaskapp.wsgi import run_app_ns
 from roveranalyzer.entrypoint.suqc_rerun_parser import append_suqc_rerun_parser
 
 

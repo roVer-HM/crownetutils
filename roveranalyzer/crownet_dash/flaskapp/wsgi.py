@@ -2,7 +2,7 @@ import argparse
 from typing import Dict
 
 from roveranalyzer.analysis.common import RunMap, Simulation, SuqcStudy
-from roveranalyzer.analysis.flaskapp.application import init_app
+from roveranalyzer.crownet_dash.flaskapp.application import init_app
 
 
 def run_app_ns(ns: argparse.Namespace):
@@ -30,7 +30,7 @@ def run_app_ns(ns: argparse.Namespace):
                     runs.setdefault(f"{sim_g.lbl} ({rep})", sim)
     except Exception as e:
         print(
-            f"Cannot read {ns.suqc_dir} as suqc study directory. Try to read single simulation result."
+            f"\nCannot read {ns.suqc_dir} as suqc study directory (Error: {e}).\nTry to read single simulation result."
         )
         sim = Simulation.from_output_dir(ns.suqc_dir)
         runs = {sim.label: sim}

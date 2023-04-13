@@ -7,7 +7,7 @@ from dash import Dash, dash_table, dcc, html
 from dash.dependencies import Input, Output, State
 from dash_extensions.javascript import Namespace
 
-from roveranalyzer.analysis.dashapp import DashUtil
+from roveranalyzer.crownet_dash.dashapp import DashUtil
 
 
 class IdProvider:

@@ -319,7 +319,7 @@ class DpmmHdfBuilder(FrameConsumer):
             p.set_attribute("cell_bound", meta.bound)
             p.set_attribute("offset", meta.offset)
             p.set_attribute("epsg", self._epsg)
-            p.set_attribute("version", meta.version)
+            p.set_attribute("version", meta.version.as_string())
             p.set_attribute("data_type", meta.data_type)
             p.set_attribute(
                 "time_interval", [np.min(self._all_times), np.max(self._all_times)]
