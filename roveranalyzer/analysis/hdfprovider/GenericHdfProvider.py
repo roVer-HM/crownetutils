@@ -1,7 +1,7 @@
 from typing import Dict, List
 
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import IHdfProvider
 
 
 class GenericHdfProvider(IHdfProvider):

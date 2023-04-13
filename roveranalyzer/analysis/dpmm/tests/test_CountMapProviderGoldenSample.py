@@ -5,14 +5,14 @@ import pandas as pd
 from fs.tempfs import TempFS
 from pandas import IndexSlice as _I
 
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.analysis.dpmm.tests.utils import (
     create_count_map_dataframe,
     create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
 
 
 class IHDFProviderGoldenSampleTest(unittest.TestCase):

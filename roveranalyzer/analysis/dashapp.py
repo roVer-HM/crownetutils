@@ -18,9 +18,9 @@ from flask_caching import Cache
 
 import roveranalyzer.simulators.opp as OMNeT
 from roveranalyzer.analysis.density_map import DensityMap
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
 from roveranalyzer.simulators.crownet.dcd.dcd_builder import DcdHdfBuilder
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
 from roveranalyzer.utils.misc import Project
 

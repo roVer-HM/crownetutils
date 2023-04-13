@@ -6,10 +6,10 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, box
 
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import IHdfProvider
 from roveranalyzer.simulators.crownet.common import DcdMetaData
 from roveranalyzer.simulators.crownet.common.dcd_util import read_csv
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import IHdfProvider
 
 
 class DcdGlobalMapKey:

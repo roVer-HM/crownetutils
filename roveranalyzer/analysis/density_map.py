@@ -10,12 +10,12 @@ from geopandas import GeoDataFrame
 from pandas.core.frame import DataFrame
 
 import roveranalyzer.simulators.opp.scave as Scave
-from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
+from roveranalyzer.analysis.dpmm.DcDGlobalPosition import (
     DcdGlobalDensity,
     DcdGlobalPosition,
 )
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils.misc import Project
 
 

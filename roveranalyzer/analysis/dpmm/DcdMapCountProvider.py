@@ -7,13 +7,13 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import box
 
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import (
     IHdfProvider,
     ProviderVersion,
     VersionDict,
 )
-from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
+from roveranalyzer.analysis.hdfprovider.Operation import Operation
 
 
 class CountMapKey:

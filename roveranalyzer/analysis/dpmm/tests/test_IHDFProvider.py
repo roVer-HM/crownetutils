@@ -7,19 +7,16 @@ import pandas
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import (
-    CountMapKey,
-    DcdMapCount,
-)
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import UnsupportedOperation
-from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
-from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import CountMapKey, DcdMapCount
+from roveranalyzer.analysis.dpmm.tests.utils import (
     create_count_map_dataframe,
     create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import UnsupportedOperation
+from roveranalyzer.analysis.hdfprovider.Operation import Operation
 
 
 class IHDFProviderTest(unittest.TestCase):
@@ -79,7 +76,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_8, test_class)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
     def test_handle_primitive(self, mock_exact_condition: MagicMock):
         key = "any_key"
@@ -105,7 +102,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_columns, None)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
     def test_handle_slice(self, mock_range_condition: MagicMock):
         key = "any_key"
@@ -133,9 +130,7 @@ class IHDFProviderTest(unittest.TestCase):
             assert issubclass(w[-1].category, UserWarning)
             assert "Step size" in str(w[-1].message)
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.dispatch"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatch")
     def test_handle_index_tuple(self, mock_dispatch: MagicMock):
         # tuple to long
         try:
@@ -185,15 +180,11 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_2, [cond_1, cond_2])
         self.assertEqual(result_3, [cond_1, cond_4])
 
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatch")
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.dispatch"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._handle_index_tuple"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._handle_index_tuple"
-    )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.cast_to_set"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.cast_to_set")
     def test_handle_tuple(
         self,
         mock_cast_set: MagicMock,
@@ -227,9 +218,7 @@ class IHDFProviderTest(unittest.TestCase):
         self.assertEqual(result_condition, expected_condition)
         self.assertEqual(result_columns, None)
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.dispatcher"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatcher")
     def test_dispatch(self, mock_dispatcher: MagicMock):
         expected_condition = ["condition"]
         expected_columns = ["columns"]
@@ -275,12 +264,8 @@ class IHDFProviderTest(unittest.TestCase):
             handle_tuple_name,
         )
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.dispatch"
-    )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.dispatch")
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_get_item(
         self,
         mock_select_where: MagicMock,

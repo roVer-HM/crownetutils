@@ -16,9 +16,9 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.crownet.common.dcd_util import DcdMetaData
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,

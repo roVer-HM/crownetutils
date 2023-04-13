@@ -11,9 +11,9 @@ import pandas as pd
 from omnetinireader.config_parser import ObjectValue
 
 from roveranalyzer.analysis.common import Simulation
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
 from roveranalyzer.analysis.flaskapp.application.utils import threaded_lru
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.simulators.vadere.plots.scenario import Scenario
 from roveranalyzer.utils.dataframe import LazyDataFrame

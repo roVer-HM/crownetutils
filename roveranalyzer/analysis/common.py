@@ -37,10 +37,10 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 
 import roveranalyzer.simulators.crownet.dcd as Dcd
 from roveranalyzer.analysis.base import AnalysisBase
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
 from roveranalyzer.dockerrunner.run_argparser import read_sim_run_context
 from roveranalyzer.entrypoint.parser import ArgList
 from roveranalyzer.simulators.crownet.dcd.dcd_map import DcdMap2D
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.simulators.opp.scave import CrownetSql
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import Project, apply_str_filter

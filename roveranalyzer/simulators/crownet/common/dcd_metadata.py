@@ -6,7 +6,7 @@ from geopandas import GeoDataFrame
 from pandas import IndexSlice as Idx
 from shapely.geometry import Point, box
 
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
 
 
 class DcdMetaData:

@@ -5,18 +5,15 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import (
-    CountMapKey,
-    DcdMapCount,
-)
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.Operation import Operation
-from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import CountMapKey, DcdMapCount
+from roveranalyzer.analysis.dpmm.tests.utils import (
     create_count_map_dataframe,
     create_tmp_fs,
     make_dirs,
     safe_dataframe_to_hdf,
 )
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.Operation import Operation
 
 
 class DcdMapCountProviderTest(unittest.TestCase):
@@ -75,11 +72,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         self.assertEqual(result_columns, sample_columns)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_id_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -92,11 +87,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_simtime_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -109,11 +102,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_x_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -126,11 +117,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_y_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -143,11 +132,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_count_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -160,11 +147,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_err_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -177,11 +162,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_owner_dist_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -194,11 +177,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_sqerr_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -211,11 +192,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_exact_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_exact_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_simtime_and_node_id_exact(
         self, mock_select_where: MagicMock, mock_build_exact_condition: MagicMock
     ):
@@ -235,11 +214,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_id_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -255,11 +232,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_simtime_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -279,11 +254,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_x_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -299,11 +272,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_y_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -319,11 +290,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_count_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -339,11 +308,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_err_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -359,11 +326,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_owner_dist_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):
@@ -381,11 +346,9 @@ class DcdMapCountProviderTest(unittest.TestCase):
         mock_select_where.assert_called_once_with(condition=condition)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._build_range_condition"
+        "roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._build_range_condition"
     )
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider._select_where"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider._select_where")
     def test_select_sqerr_range(
         self, mock_select_where: MagicMock, mock_build_range_condition: MagicMock
     ):

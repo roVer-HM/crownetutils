@@ -13,20 +13,20 @@ import pandas as pd
 from pandas import IndexSlice as Idx
 
 import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
+from roveranalyzer.analysis.dpmm.DcDGlobalPosition import (
+    DcdGlobalDensity,
+    DcdGlobalPosition,
+    pos_density_from_csv,
+)
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import DcdMapCount
+from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapProvider
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
 from roveranalyzer.simulators.crownet.common import DcdMetaData
 from roveranalyzer.simulators.crownet.dcd.dcd_map import (
     DcdMap2D,
     DcdMap2DMulti,
     MapType,
 )
-from roveranalyzer.simulators.opp.provider.hdf.DcDGlobalPosition import (
-    DcdGlobalDensity,
-    DcdGlobalPosition,
-    pos_density_from_csv,
-)
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import DcdMapCount
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapProvider
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
 from roveranalyzer.simulators.vadere.plots.scenario import VaderScenarioPlotHelper
 from roveranalyzer.utils.dataframe import (
     ArbitraryValueImputation,

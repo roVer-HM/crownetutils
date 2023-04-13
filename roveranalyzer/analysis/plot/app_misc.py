@@ -13,8 +13,8 @@ import roveranalyzer.simulators.opp.scave as Scave
 import roveranalyzer.utils.plot as p
 from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.flaskapp.application.layout import IdProvider
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import BaseHdfProvider
 from roveranalyzer.analysis.omnetpp import OppAnalysis
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import BaseHdfProvider
 from roveranalyzer.utils.logging import logger, timing
 from roveranalyzer.utils.plot import (
     FigureSaver,

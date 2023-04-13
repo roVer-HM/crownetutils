@@ -6,18 +6,15 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 from fs.tempfs import TempFS
 
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import (
-    DcdMapKey,
-    DcdMapProvider,
-)
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
-from roveranalyzer.simulators.opp.provider.hdf.tests.utils import (
+from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapKey, DcdMapProvider
+from roveranalyzer.analysis.dpmm.tests.utils import (
     create_dcd_csv_dataframe,
     create_tmp_fs,
     make_dirs,
 )
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 
 
 class DcdMapProviderTest(unittest.TestCase):
@@ -115,13 +112,13 @@ class DcdMapProviderTest(unittest.TestCase):
         self.assertEqual(result_columns, sample_columns)
 
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.build_dcd_dataframe"
+        "roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.build_dcd_dataframe"
     )
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.set_selection_mapping_attribute"
+        "roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.set_selection_mapping_attribute"
     )
     @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.set_used_selection_attribute"
+        "roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.set_used_selection_attribute"
     )
     @patch("pandas.HDFStore")
     def test_create_from_csv(
@@ -179,11 +176,9 @@ class DcdMapProviderTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.provider.parse_node_id(wrong_path)
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdMapProvider.parse_node_id"
-    )
+    @patch("roveranalyzer.analysis.dpmm.DcdMapProvider.DcdMapProvider.parse_node_id")
     @patch("roveranalyzer.utils.dataframe.LazyDataFrame.read_meta_data")
-    @patch("roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider.DcdUtil.read_csv")
+    @patch("roveranalyzer.analysis.dpmm.DcdMapProvider.DcdUtil.read_csv")
     def test_build_dcd_dataframe(
         self,
         mock_read_csv: MagicMock,
@@ -240,16 +235,12 @@ class DcdMapProviderTest(unittest.TestCase):
             )
             self.assertEqual(len(result), 2)
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.get_attribute"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.get_attribute")
     def test_get_selection_mapping_attribute(self, mock_get_attribute: MagicMock):
         self.provider.get_selection_mapping_attribute()
         mock_get_attribute.assert_called_once_with("selection_mapping")
 
-    @patch(
-        "roveranalyzer.simulators.opp.provider.hdf.IHdfProvider.IHdfProvider.set_attribute"
-    )
+    @patch("roveranalyzer.analysis.hdfprovider.IHdfProvider.IHdfProvider.set_attribute")
     def test_set_selection_mapping_attribute(self, mock_set_attribute: MagicMock):
         self.provider.set_selection_mapping_attribute()
         mock_set_attribute.assert_called_once_with(

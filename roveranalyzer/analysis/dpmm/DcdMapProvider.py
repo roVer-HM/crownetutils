@@ -11,13 +11,13 @@ from pandas.core.indexing import IndexSlice
 from shapely.geometry.geo import box
 
 import roveranalyzer.simulators.crownet.common.dcd_util as DcdUtil
-from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
-from roveranalyzer.simulators.opp.provider.hdf.HdfGroups import HdfGroups
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import (
+from roveranalyzer.analysis.hdfprovider.HdfGroups import HdfGroups
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import (
     IHdfProvider,
     ProviderVersion,
     VersionDict,
 )
+from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
 from roveranalyzer.utils.dataframe import FrameConsumer, LazyDataFrame
 from roveranalyzer.utils.logging import logger
 from roveranalyzer.utils.misc import ProgressCmd

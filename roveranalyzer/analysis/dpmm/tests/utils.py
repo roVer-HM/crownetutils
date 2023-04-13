@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 from fs.tempfs import TempFS
 
+from roveranalyzer.analysis.hdfprovider.IHdfProvider import ProviderVersion
 from roveranalyzer.simulators.crownet.common.dcd_metadata import DcdMetaData
-from roveranalyzer.simulators.opp.provider.hdf.IHdfProvider import ProviderVersion
 
 
 def create_tmp_fs(name, auto_clean=True) -> TempFS:
@@ -14,8 +14,8 @@ def create_tmp_fs(name, auto_clean=True) -> TempFS:
     return tmp_fs
 
 
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapCountProvider import CountMapKey
-from roveranalyzer.simulators.opp.provider.hdf.DcdMapProvider import DcdMapKey
+from roveranalyzer.analysis.dpmm.DcdMapCountProvider import CountMapKey
+from roveranalyzer.analysis.dpmm.DcdMapProvider import DcdMapKey
 
 
 def make_dirs(path: Any) -> None:
