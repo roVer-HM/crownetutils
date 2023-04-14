@@ -27,5 +27,5 @@ black_check:
   script:
     - source ./venv/bin/activate
     - black --version
-    - black ./roveranalyzer/ --fast --check --diff
+    - black ./crownetutils/ --fast --check --diff
   allow_failure: true

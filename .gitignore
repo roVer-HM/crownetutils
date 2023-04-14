@@ -7,8 +7,8 @@ tutorials/test_data.d
 .directory
 **/*.mp4
 analysis_loc
-roveranalyzer/analysis/assets/
-roveranalyzer/analysis/flaskapp/application/static/*
+crownetutils/analysis/assets/
+crownetutils/analysis/flaskapp/application/static/*
 **/cache-directory
 
 

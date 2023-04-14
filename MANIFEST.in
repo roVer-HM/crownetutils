@@ -1,7 +1,7 @@
 include README.md
 include requirements.txt
-include roveranalyzer/version.txt
+include crownetutils/version.txt
 include tutorial/README.md
-recursive-include roveranalyzer/tempaltes/ *.j2
-recursive-include roveranalyzer *.mplstyle
+recursive-include crownetutils/tempaltes/ *.j2
+recursive-include crownetutils *.mplstyle
 
