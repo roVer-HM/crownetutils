@@ -761,12 +761,6 @@ class Simulation:
         """Create path relative to Simulation object data_root directory"""
         return os.path.join(self.data_root, *args)
 
-    @property
-    def pos(self) -> BaseHdfProvider:
-        return BaseHdfProvider(
-            join(self.data_root, "trajectories.h5"), group="trajectories"
-        )
-
     def get_dcdMap(self) -> DpmMap:
         sel = self.builder.map_p.get_attribute("used_selection")
         if sel is None:

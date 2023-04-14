@@ -699,7 +699,7 @@ class CrownetSql(OppSql):
     def module_to_host_ids(self):
         return {v: k for k, v in self.host_ids().items()}
 
-    def host_position(
+    def node_position(
         self,
         module_name: Union[SqlOp, str, None] = None,
         ids: pd.DataFrame | None = None,
@@ -710,7 +710,7 @@ class CrownetSql(OppSql):
         cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
     ) -> pd.DataFrame | gpd.GeoDataFrame:
         """
-        Get host position data in cartesian coordinates.
+        Get node position data in cartesian coordinates.
 
         By default the columns vectorId1 and vectorId2 are dropped. They correspond
         to the x and y values respectively. If epsg_code is present the `geomentry`
@@ -738,14 +738,14 @@ class CrownetSql(OppSql):
         Examples:
         1) all host from all vectors (misc[*], pNode[*], vNode[*]) between 12.5s and 90.0s
 
-        df = host_pos(time_slice=slice(12.5, 90.0))      # defaults to all
+        df = node_pos(time_slice=slice(12.5, 90.0))      # defaults to all
 
         2) Only misc and pNodes with base UTM ZONE 32N (default for sumo based simulations),
            projected to the Pseydo mercartor projection used by Goolge and Open Streets Map.
            Use the 'or' operator to select both misc and pNode vectors. Ensure that the
            full path is correct.
 
-        gdf = host_pos(
+        gdf = node_pos(
             module_name=SqlOp.OR(["World.misc[%]", World.pNode[%]])
             epsg_code_base=32632, epsg_code_to="EPSG:3857"
         )
@@ -755,7 +755,7 @@ class CrownetSql(OppSql):
            x postion vectors and [9, 44, 18] are y position vectors for 3 host.
 
         ids = pd.DataFrame([[5,9],[12,44],[14, 18]], columns=["x", "y"])
-        df = host_pos(ids=ids)
+        df = node_pos(ids=ids)
 
         """
         module_name = self.module_names if module_name is None else module_name

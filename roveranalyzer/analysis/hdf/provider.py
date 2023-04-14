@@ -9,7 +9,18 @@ import threading
 import warnings
 from enum import Enum
 from tempfile import NamedTemporaryFile
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Protocol,
+    Set,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import pandas as pd
@@ -26,18 +37,35 @@ class UnsupportedOperation(RuntimeError):
         super().__init__(args, kwargs)
 
 
+class HdfGroupDataFactory(Protocol):
+    def __call__(self) -> pd.DataFrame:
+        """Callable that returns a data frame"""
+        ...
+
+
 class BaseHdfProvider:
-    def __init__(self, hdf_path: str, group: str = "root"):
+    def __init__(
+        self, hdf_path: str, group: str = "root", allow_lazy_loading: bool = False
+    ):
         self._lock = threading.Lock()
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
+        self.group_factory: Dict[str, HdfGroupDataFactory] = {}
+        self._lazy_loading = allow_lazy_loading
 
     # allow pickling of hdf providers
     def __getstate__(self):
         _state = self.__dict__.copy()
         del _state["_lock"]  # remove unpicklable entry
         return _state
+
+    @property
+    def lazy_loading(self) -> bool:
+        return self._lazy_loading
+
+    def add_group_factory(self, group: str, factory: HdfGroupDataFactory):
+        self.group_factory[group] = factory
 
     def __setstate__(self, state):
         self.__dict__.update(state)
@@ -49,9 +77,35 @@ class BaseHdfProvider:
         Warning: this may take some time and may cause memory problems
         """
         _key = self.group if group is None else group
+        self._check_lazy_load(_key)
+
         with self.ctx(mode="r") as store:
             df = store.get(key=_key)
         return pd.DataFrame(df)
+
+    def _check_lazy_load(self, group: str | None = None):
+        key = self.group if group is None else group
+        if not self.contains_group(key):
+            self._load_and_write_data(key)
+
+    def _load_and_write_data(self, group):
+        if self.contains_group(group):
+            raise ValueError(f"group: {group} already exists. Cannot override content.")
+        if not self.lazy_loading:
+            raise ValueError(
+                f"group: {group} not in HDF file but lazy loading deactivated off"
+            )
+        if group not in self.group_factory:
+            raise KeyError(
+                f"group: {group} not in HDF file and no factory available. (lazy loading on)"
+            )
+
+        logger.info(
+            f"execute group factory callback for group {group} for file {self._hdf_path}"
+        )
+        data = self.group_factory[group]()
+        logger.info(f"write group {group} to file {self._hdf_path}")
+        self.write_frame(group=group, frame=data, index=True, index_data_columns=True)
 
     def write_frame(self, group, frame, index=True, index_data_columns=True):
         with self.ctx() as store:
@@ -198,6 +252,45 @@ class BaseHdfProvider:
     @property
     def query(self) -> Iterator[pd.HDFStore]:
         return self.ctx(mode="r")
+
+    def select(
+        self,
+        key: str | None = None,
+        where=None,
+        start=None,
+        stop=None,
+        columns=None,
+        iterator=False,
+        chunksize=None,
+    ) -> pd.DataFrame:
+        """_summary_
+
+        Args:
+            key (str | None, optional): Object being retrieved from file. Defaults to set root group.
+            where (_type_, optional): List of Term (or convertible) objects, optional.
+            start (_type_, optional): Row number to start selection.
+            stop (_type_, optional): Row number to stop selection.
+            columns (_type_, optional): A list of columns that if not None, will limit the return columns.
+            iterator (bool, optional): Returns an iterator. Defaults to False.
+            chunksize (_type_, optional): Number or rows to include in iteration, return an iterator.
+
+        Returns:
+            pd.DataFrame
+        """
+        key = self.group if key is None else key
+        self._check_lazy_load(key)
+
+        with self.ctx(mode="r") as ctx:
+            ret = ctx.select(
+                key=key,
+                where=where,
+                start=start,
+                stop=stop,
+                columns=columns,
+                iterator=iterator,
+                chunksize=chunksize,
+            )
+        return ret
 
 
 class ProviderVersion(Enum):

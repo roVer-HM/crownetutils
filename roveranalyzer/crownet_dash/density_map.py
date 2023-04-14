@@ -68,7 +68,7 @@ class _DensityMap:
     ) -> folium.Map:
         i = pd.IndexSlice
         cells = global_p.geo(Project.OpenStreetMaps)[i[time, :, :]]
-        nodes = sql.host_position(
+        nodes = sql.node_position(
             epsg_code_base=epsg_code_base,
             epsg_code_to=epsg_code_to,
             time_slice=slice(time),

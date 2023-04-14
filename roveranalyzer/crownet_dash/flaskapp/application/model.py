@@ -13,6 +13,7 @@ from omnetinireader.config_parser import ObjectValue
 from roveranalyzer.analysis.common import Simulation
 from roveranalyzer.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from roveranalyzer.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
+from roveranalyzer.analysis.hdf_providers.node_position import NodePositionHdf
 from roveranalyzer.crownet_dash.flaskapp.application.utils import threaded_lru
 from roveranalyzer.omnetpp.scave import CrownetSql
 from roveranalyzer.utils.dataframe import LazyDataFrame
@@ -74,11 +75,11 @@ def get_topography_json(sim: Simulation):
 
 @threaded_lru(maxsize=64)
 def get_node_tile_geojson_for(sim: Simulation, time_value, node_value):
-    with sim.pos.query as ctx:
-        nodes = ctx.select(
-            "trajectories",
-            where=f"(time <= {time_value}) & (time > {time_value - 0.4})",
-        )
+
+    pos = NodePositionHdf.from_sim(sim)
+    nodes = pos.select(
+        where=f"(time <= {time_value}) & (time > {time_value - 0.4})",
+    )
     nodes = sim.sql.apply_geo_position(nodes, Project.UTM_32N, Project.WSG84_lat_lon)
     nodes["tooltip"] = nodes["hostId"].astype(str) + " " + nodes["host"]
     nodes["color"] = "#0000bb"

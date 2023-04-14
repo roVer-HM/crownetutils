@@ -56,7 +56,7 @@ class _hdf_Extractor(AnalysisBase):
     @classmethod
     def extract_trajectories(cls, hdf_file: str, sql: CrownetSql):
         _hdf = BaseHdfProvider(hdf_file, "trajectories")
-        pos = sql.host_position()
+        pos = sql.node_position()
         _hdf.write_frame(group="trajectories", frame=pos)
 
     @classmethod
@@ -1069,7 +1069,7 @@ class _OppAnalysis(AnalysisBase):
     ) -> pd.DataFrame:
         df = []
         for run_id, sim in sim_group.simulation_iter():
-            _pos = sim.sql.host_position(
+            _pos = sim.sql.node_position(
                 module_name="World.misc[%]", apply_offset=False, time_slice=time_slice
             )
             _pos["run_id"] = run_id
