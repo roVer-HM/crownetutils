@@ -7,7 +7,7 @@ def readme():
 
 
 def version():
-    with open("roveranalyzer/version.txt") as f:
+    with open("crownetutils/version.txt") as f:
         return f.readline().strip()
 
 
@@ -18,9 +18,9 @@ def requirements():
 
 
 setup(
-    name="roveranalyzer",
+    name="crownetutils",
     version=version(),
-    description="roVer results analysis tool",
+    description="Collection of CrowNet simulation and analysis tool",
     long_description=readme(),
     author="Stefan Schuhbäck",
     author_email="stefan.schuhbaeck@hm.edu",
