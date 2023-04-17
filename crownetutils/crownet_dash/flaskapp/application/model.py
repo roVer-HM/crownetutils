@@ -75,7 +75,6 @@ def get_topography_json(sim: Simulation):
 
 @threaded_lru(maxsize=64)
 def get_node_tile_geojson_for(sim: Simulation, time_value, node_value):
-
     pos = NodePositionHdf.from_sim(sim)
     nodes = pos.select(
         where=f"(time <= {time_value}) & (time > {time_value - 0.4})",
@@ -101,7 +100,6 @@ def get_cell_tile_geojson_for(sim: Simulation, time_value, node_id):
 @threaded_lru(maxsize=64)
 @timing
 def get_erroneous_cells(sim: Simulation):
-
     with sim.builder.count_p.query as ctx:
         erroneous_cells = ctx.select(
             key=sim.builder.count_p.group,
@@ -190,7 +188,6 @@ def get_node_ids_for_cell(sim: Simulation, cell_id):
 @threaded_lru(maxsize=16)
 @timing
 def get_beacon_df(sim: Simulation):
-
     df = LazyDataFrame.from_path(join(sim.data_root, "beacons.csv"))
     m = df.read_meta_data(default={})
     b = df.df()
@@ -208,7 +205,6 @@ def get_beacon_df(sim: Simulation):
 def _get_beacon_entry_exit_v0(
     b: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple
 ):
-
     c_size = sim.builder.count_p.get_attribute("cell_size")
     beacon_mask = (
         (b["table_owner"] == node_id)
@@ -343,7 +339,6 @@ def local_measure(sim: Simulation, node_id: int, cell: tuple | None):
 
 
 def _merge_with_map_local(bs: pd.DataFrame, sim: Simulation, node_id: int, cell: tuple):
-
     # index might be not unique due to ttl check before the 'own' beacon is processed
     bs = bs.set_index(["event_number"]).sort_index()
 
@@ -401,7 +396,6 @@ def _get_beacon_entry_exit_v3(
 @threaded_lru(maxsize=64)
 @timing
 def get_beacon_entry_exit(sim: Simulation, node_id: int, cell: tuple):
-
     b = get_beacon_df(sim)
     version = 0.0
     if hasattr(b, "user_version"):

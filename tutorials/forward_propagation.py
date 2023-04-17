@@ -39,7 +39,6 @@ def problem_definition():
 
 
 def get_sampling_df(nr_samples=160):
-
     # STEP 1: Create samples with Sobol sequence using SALib
     parameter = problem_definition()
 
@@ -74,7 +73,6 @@ def get_sampling_df(nr_samples=160):
 
 
 def get_sampling(nr_samples=2000, is_test=False):
-
     param_values = get_sampling_df(nr_samples=nr_samples)
 
     if is_test:
@@ -110,7 +108,6 @@ def get_sampling(nr_samples=2000, is_test=False):
 
 
 def path2ini():
-
     path2ini = os.path.join(
         os.environ["CROWNET_HOME"],
         "rover/simulations/simple_detoure_suqc_traffic/omnetpp.ini",
@@ -119,7 +116,6 @@ def path2ini():
 
 
 def save_results(par_var, data, output_folder_name="output_df"):
-
     summary = os.path.join(os.getcwd(), output_folder_name)
     if os.path.exists(summary):
         shutil.rmtree(summary)
@@ -136,7 +132,6 @@ def save_results(par_var, data, output_folder_name="output_df"):
 
 
 def run_rover_simulations(par_var, result_dir="output_df"):
-
     add_rover_env_var()
 
     setup = CoupledDictVariation(
@@ -161,7 +156,6 @@ def run_rover_simulations(par_var, result_dir="output_df"):
 
 
 def read_data(summary):
-
     # Check data
     parameter = pd.read_csv(
         os.path.join(summary, "metainfo.csv"), index_col=["id", "run_id"]
@@ -189,7 +183,6 @@ def read_data(summary):
 
 
 if __name__ == "__main__":
-
     # Forward propagation and sensitivity analysis
 
     ## Step 1: Generate parameter combinations

@@ -67,7 +67,6 @@ class Plots(Enum):
 
 
 def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
-
     selector_ids: IdProvider = app.selector_ids
     cell_err_ids: IdProvider = app.cell_err_ids
     scenario_ids: IdProvider = app.scenario_ids
@@ -160,7 +159,6 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
         prevent_initial_call=True,
     )
     def update_load_btn(click, signal):
-
         trigger = callback_context.triggered[0]["prop_id"]
         if "signal" in trigger:
             return {"background-color": "red", "width": "100%", "height": "100%"}
@@ -418,7 +416,6 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
         if node_id is not None:
             node_id = [node_id] if isinstance(node_id, int) else node_id
             for v in node_id:
-
                 _mask = _mask | (ca["ID"] == v)
 
         fig = px.scatter(

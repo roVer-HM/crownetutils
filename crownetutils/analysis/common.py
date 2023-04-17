@@ -611,7 +611,6 @@ class RunContext:
 
     @staticmethod
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
-
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
         print(f"run command:\n\t\t{cmd}")
         if args["log"]:
@@ -722,7 +721,6 @@ class Simulation:
         return self._sql
 
     def get_base_provider(self, group_name="root", path="data.h5") -> BaseHdfProvider:
-
         if not os.path.isabs(path):
             path = self.path(path)
 
@@ -1020,7 +1018,6 @@ class SuqcStudy:
             yield self.get_run_as_sim(k, id_offset=id_offset)
 
     def get_simulation_dict(self, lbl_key=False):
-
         ret = {k: self.get_run_as_sim(k) for k in self.runs.keys()}
 
         if lbl_key:

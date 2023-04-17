@@ -100,7 +100,6 @@ class VadereRunner(DockerRunner):
         return run_result
 
     def exec_vadere_only(self, scenario_file, output_path, run_args_override=None):
-
         cmd = [
             "java",
             "-jar",

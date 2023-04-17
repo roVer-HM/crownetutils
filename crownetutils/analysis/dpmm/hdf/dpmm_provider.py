@@ -162,7 +162,7 @@ class DpmmProvider(IHdfProvider):
                 store.append(
                     key=self.group,
                     value=dcd_df,
-                    index=False,
+                    index=True,
                     format="table",
                     data_columns=True,
                 )
@@ -170,18 +170,6 @@ class DpmmProvider(IHdfProvider):
             for consumer in frame_consumer:
                 consumer(dcd_df)
 
-        # create index
-        with self.ctx() as store:
-            columns_to_index = list(self.index_order().values())
-            if "selection" in self.columns():
-                columns_to_index.append("selection")
-            logger.info(f"create index for columns: {','.join(columns_to_index)}")
-            store.create_table_index(
-                key=self.group,
-                columns=columns_to_index,
-                optlevel=9,
-                kind="full",
-            )
         self.set_selection_mapping_attribute()
         self.set_used_selection_attribute()
 

@@ -75,7 +75,6 @@ class ControlRunner(DockerRunner):
         experiment_label="vadere_controlled_out",
         ctrl_args: ArgList = ArgList(),
     ):
-
         # if connection_mode == "client":
         #     if scenario is None:
         #         raise ("Scenario file must be provided in client mode.")
