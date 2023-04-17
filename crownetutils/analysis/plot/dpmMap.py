@@ -86,7 +86,6 @@ class _PlotDpmMap(PlotUtil_):
         frame_c: FrameConsumer = FrameConsumer.EMPTY,
         ax: plt.Axes | None = None,
     ):
-
         for sim in sims:
             dmap = sim.get_dcdMap()
             msce = dmap.cell_count_measure(columns=["cell_mse"])
@@ -116,7 +115,6 @@ class _PlotDpmMap(PlotUtil_):
     def create_plot_err_box_over_time(
         self, sim: Simulation, title: str, *, ax: plt.Axes | None = None
     ):
-
         s = Style()
         s.font_dict = {
             "title": {"fontsize": 14},
@@ -437,7 +435,6 @@ class _PlotDpmMap(PlotUtil_):
     def cmp_plot__map_count_diff(
         self, sims: List[Simulation], ax: plt.Axes | None = None
     ):
-
         for sim in sims:
             nodes = sim.get_dcdMap().map_count_measure()
             df = (

@@ -13,7 +13,6 @@ def tmpl_path(template):
 
 
 def read_tmpl_str(template):
-
     with open(tmpl_path(template), "r") as f:
         lines = f.readlines()
 

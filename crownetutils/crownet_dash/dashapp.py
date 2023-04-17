@@ -316,7 +316,6 @@ class OppModel:
         return bs
 
     def get_measurements(self, time, node_id, cell_id, alpha=0.5):
-
         x, y = self.cells[cell_id]
         df = self.builder.map_p[
             pd.IndexSlice[float(time), float(x), float(y), :, node_id], :
@@ -337,7 +336,6 @@ class OppModel:
         return df
 
     def cell_ymfD_value(self, df: pd.DataFrame, alpha=0.5):
-
         sum_df: pd.DataFrame = (
             df[["measurement_age", "sourceEntry"]]
             .groupby(by=["simtime"])
@@ -556,7 +554,6 @@ class _DashUtil:
 
     @classmethod
     def build_node_layer(cls, ns: Namespace, id_builder):
-
         clb = ns(ns.add(cls._node_point_to_layer, name="node_point_to_layer"))
 
         nodes = dl.GeoJSON(
@@ -601,7 +598,6 @@ class _DashUtil:
 
     @classmethod
     def build_cell_layer(cls, ns: Namespace, id_builder):
-
         # colorbar
         classes, colorscale, colorbar, style = DashUtil.get_colorbar(
             id=id_builder("map-colorbar")
@@ -704,7 +700,6 @@ class _DashUtil:
 
     @classmethod
     def id_dropdown(cls, id, m: OppModel, **kwargs):
-
         return dcc.Dropdown(
             id=id,
             options=[
@@ -719,7 +714,6 @@ class _DashUtil:
 
     @classmethod
     def data_dropdown(cls, id, m: OppModel, opt):
-
         return dcc.Dropdown(
             id=id,
             options=opt,

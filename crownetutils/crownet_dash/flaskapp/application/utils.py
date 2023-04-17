@@ -5,7 +5,6 @@ from typing import Any
 
 
 class threaded_lru:
-
     cache_store = {}
 
     def __init__(self, maxsize=128, typed=False):
@@ -14,7 +13,6 @@ class threaded_lru:
         self.lock_dict = defaultdict(threading.Lock)
 
     def __call__(self, func):
-
         self.func = lru_cache(self.maxsize, self.typed)(func)
 
         def thread_lru(*args, **kwds):

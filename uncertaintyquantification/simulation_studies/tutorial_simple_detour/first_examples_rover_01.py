@@ -17,7 +17,6 @@ run_local = True
 
 
 if __name__ == "__main__":
-
     output_folder = os.path.join(os.getcwd(), "first_examples_rover_01")
 
     ## Define the simulation to be used

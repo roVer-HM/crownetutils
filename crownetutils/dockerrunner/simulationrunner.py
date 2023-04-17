@@ -91,7 +91,6 @@ class BaseSimulationRunner:
         return ret_str, ret_int
 
     def sort_processing(self, ptype, method_list):
-
         map = self.f_map.get(ptype, [])
         method_list = [
             os.path.splitext(qoi)[0].replace("-", "_").lower() for qoi in method_list[0]
@@ -196,7 +195,6 @@ class BaseSimulationRunner:
         self.exec_control_runner(mode="server")
 
     def build_and_start_vadere_runner(self, port=None, output_dir=None):
-
         if port is None:
             port = self.ns["v_traci_port"]
 
@@ -230,7 +228,6 @@ class BaseSimulationRunner:
         )
 
     def build_control_runner(self, detach=False):
-
         run_name = self.ns["run_name"]
         self.control_runner = ControlRunner(
             docker_client=self.docker_client,
@@ -248,9 +245,7 @@ class BaseSimulationRunner:
             )
 
     def exec_control_runner(self, mode):
-
         if mode == "client":
-
             host_name = f"vadere_{self.ns['run_name']}"
             experiment_label = (
                 f"{ControlRunner.OUTPUT_DEFAULT}_{self.ns['experiment_label']}"
@@ -275,7 +270,6 @@ class BaseSimulationRunner:
                 experiment_label=experiment_label,
             )
         else:
-
             client_name = f"control_{self.ns['run_name']}"
 
             return self.control_runner.start_controller(
@@ -332,7 +326,6 @@ class BaseSimulationRunner:
         return 0
 
     def run_vadere(self) -> int:
-
         ret = 255
         logger.info("Run vadere in container")
 
@@ -494,7 +487,6 @@ class BaseSimulationRunner:
         return ret
 
     def run_simulation_vadere_omnet_ctl(self) -> int:
-
         logger.info(
             "Control vadere with omnetpp. Client 1: omnet, server 1: vadere, port: 9998, Client 2: omnet, server 2: controller, port: 9997"
         )
@@ -561,7 +553,6 @@ class BaseSimulationRunner:
         return ret
 
     def run_simulation_vadere_ctl(self) -> int:
-
         ret = 255
         logger.info(
             "Control vadere without omnetpp. Client: controller, server: vadere, port: 9999"

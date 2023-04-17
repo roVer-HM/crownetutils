@@ -102,7 +102,6 @@ def numeric_formatter(
 def format_frame(
     df: pd.DataFrame, si_func=lambda x: f"\\num{{{x}}}", col_list=None
 ) -> pd.DataFrame:
-
     _df: pd.DataFrame = df.copy(deep=True)
     if isinstance(si_func, dict):
         for col, _func in si_func.items():
@@ -126,7 +125,6 @@ def save_as_tex_table(
     add_default_latex_format: bool = True,
     str_replace: Callable[[str], str] = lambda x: x,
 ):
-
     _df: pd.DataFrame = df.copy(deep=True)
     if rename is not None:
         _df = _df.rename(columns=rename)
