@@ -181,7 +181,6 @@ class BaseHdfProvider:
                 os.remove(old_path)
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
-
         _key = self.group if group is None else group
         with self.tables_file(self._hdf_path, "a") as hdf_file:
             # with tables.open_file(self._hdf_path, "a") as hdf_file:
@@ -190,7 +189,6 @@ class BaseHdfProvider:
             hdf_file.root[_key].table.attrs[attr_key] = value
 
     def get_attribute(self, attr_key: str, group=None, default: Any = None):
-
         if not self.hdf_file_exists:
             return default
 
@@ -294,7 +292,6 @@ class BaseHdfProvider:
 
 
 class ProviderVersion(Enum):
-
     V0_1 = "0.1"
     V0_2 = "0.2"
     V0_3 = "0.3"

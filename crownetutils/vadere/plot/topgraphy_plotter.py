@@ -31,7 +31,6 @@ class VadereTopographyPlotter:
         return self.add_patches(ax, {"obstacles": "#B3B3B3"})
 
     def add_patches(self, ax: plt.Axes, element_type_map: dict = None, bound=None):
-
         if element_type_map is None:
             element_type_map = self.default_colors
 

@@ -34,7 +34,6 @@ class _folium:
 
 
 class _DensityMap:
-
     folium = _folium()
 
     def get_annotated_global_map(
@@ -44,7 +43,6 @@ class _DensityMap:
         crs: str,
         slice_: slice = slice(None),
     ) -> GeoDataFrame:
-
         pos = DpmmGlobalPosition.as_geo(position, crs, slice_)
         pos = pos.reset_index().groupby(["simtime", "x", "y"])["node_id"].apply(list)
         pos = pos.rename("occupancy")

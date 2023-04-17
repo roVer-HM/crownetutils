@@ -483,7 +483,6 @@ class DpmMap(BaseDpmMap):
         value="err",
         agg_func="mean",
     ):
-
         if time_slice == slice(None):
             _ts = self.count_p.get_time_interval()
             time_slice = slice(_ts[0], _ts[1])
@@ -591,7 +590,6 @@ class DpmMap(BaseDpmMap):
         ax_prop: dict = None,
         **kwargs,
     ):
-
         f, ax = PlotUtil.check_ax(ax, **fig_dict if fig_dict is not None else {})
         df = self.update_error_over_distance(
             time_step, node_id, value, line=None, **kwargs
@@ -1050,7 +1048,6 @@ class DpmMap(BaseDpmMap):
     def count_diff(
         self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
     ) -> pd.DataFrame:
-
         if len(agg) == 0:
             agg = {
                 "count",
@@ -1160,7 +1157,6 @@ class DpmMap(BaseDpmMap):
     def plot_err_box_over_time(
         self, bin_width=10.0, xtick_sep=5, *, ax=None, **kwargs
     ) -> Tuple[Figure, Axes]:
-
         if "data_source" in kwargs:
             data, _cut = kwargs["data_source"](bin_width)
         else:

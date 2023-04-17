@@ -127,7 +127,7 @@ class FigureSaver:
 
     @staticmethod
     def FIG(obj: FigureSaver | None, default=None) -> FigureSaver:
-        """Provide default implementation if not set """
+        """Provide default implementation if not set"""
         if obj is None:
             if default is None:
                 return FigureSaverSimple()

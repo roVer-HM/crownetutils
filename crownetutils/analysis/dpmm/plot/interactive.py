@@ -406,7 +406,6 @@ class InteractiveTableTimeNodeSlider(Interactive):
         self.update_plot()
 
     def update_cursor(self, x_event, y_event):
-
         if all([e is not None for e in [x_event, y_event]]):
             self.x = (
                 np.floor(x_event / self.dcd.metadata.cell_size)

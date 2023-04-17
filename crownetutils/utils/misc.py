@@ -106,7 +106,6 @@ class ProgressCmd:
 
 
 class Timer:
-
     ACTIVE = True
 
     @classmethod
@@ -119,7 +118,6 @@ class Timer:
         self._start = time.time()
 
     def stop(self):
-
         if self.ACTIVE:
             print(
                 f"{self._label}::timer>> {time.time() - self._start:0.5f}s\t({self._name})"
@@ -201,7 +199,6 @@ class DataSource:
 
 
 class Project:
-
     EPSG4326 = "EPSG:4326"
     EPSG3857 = "EPSG:3857"
     EPSG32632 = "EPSG:32632"

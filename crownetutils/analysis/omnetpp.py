@@ -787,7 +787,6 @@ class _OppAnalysis(AnalysisBase):
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
     ) -> pd.DataFrame:
-
         logger.info("load packet loss data from *.vec")
 
         # statistic was renamed. Check old version fist.
@@ -832,7 +831,6 @@ class _OppAnalysis(AnalysisBase):
         sql: Scave.CrownetSql,
         module_name: Scave.SqlOp | str,
     ) -> pd.DataFrame:
-
         df = sql.vec_data(
             module_name=module_name,
             vector_name="packetReceived:vector(packetBytes)",
@@ -846,7 +844,6 @@ class _OppAnalysis(AnalysisBase):
         hdf: BaseHdfProvider | None = None,
         hdf_group: str = "tx_pkt_bytes",
     ) -> pd.DataFrame:
-
         if hdf is not None:
             if hdf.contains_group(hdf_group):
                 return hdf.get_dataframe(hdf_group)
@@ -878,7 +875,6 @@ class _OppAnalysis(AnalysisBase):
         hdf: BaseHdfProvider | None = None,
         hdf_group_base: str = "tx_throughput",
     ):
-
         hdf_group_diff = f"{hdf_group_base}_diff_{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group_diff):
             return hdf.get_dataframe(hdf_group_diff)
