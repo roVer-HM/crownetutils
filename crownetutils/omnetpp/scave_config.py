@@ -13,7 +13,6 @@ if "CROWNET_HOME" in os.environ:
         os.environ.get("CROWNET_HOME"), "scripts/omnetpp"
     )
 else:
-
     _default_crownet = os.path.join(str(Path.home().absolute()), "crownet")
     if not os.path.exists(_default_crownet):
         print(
@@ -42,7 +41,6 @@ class ScaveConfig:
     """
 
     def __init__(self, **kwargs):
-
         self.scave_tool_cmd = kwargs.get("scave_tool_cmd", _default_scavetool_cmd)
         self.use_docker_container = kwargs.get(
             "use_docker_container", _default_use_docker_container

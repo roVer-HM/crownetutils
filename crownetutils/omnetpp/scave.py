@@ -447,7 +447,6 @@ class OppSql:
         cols: set = ("paramId", "paramName", "paramValue"),
         runId=1,
     ) -> pd.DataFrame:
-
         cols = ", ".join([f"s.{c}" for c in cols])
 
         if module_name is not None and scalar_name is not None:
@@ -474,7 +473,6 @@ class OppSql:
         cols: set = ("scalarId", "scalarName", "scalarValue"),
         runId=1,
     ) -> pd.DataFrame:
-
         cols = ", ".join([f"s.{c}" for c in cols])
 
         if module_name is not None and scalar_name is not None:
@@ -590,7 +588,6 @@ class OppSql:
         drop: str | List[str] | None = None,
         **kwargs,
     ):
-
         if module_name is not None and vector_name is not None:
             _ids = self.vec_ids(module_name, vector_name)
         elif type(ids) == pd.DataFrame:
@@ -638,7 +635,6 @@ class OppSql:
 
 
 class CrownetSql(OppSql):
-
     v_app_receiving = OppSql.OR(
         [
             "rcvdPkLifetime:vector",

@@ -6,7 +6,6 @@ from crownetutils.crownet_dash.flaskapp.application import init_app
 
 
 def run_app_ns(ns: argparse.Namespace):
-
     runs = {}
     try:
         if ns.suqc_dir is not None:

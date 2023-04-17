@@ -20,7 +20,6 @@ class AnalysisBase:
         network_name="World",
         epsg_base=Project.UTM_32N,
     ) -> Tuple[str, DpmmHdfBuilder, CrownetSql]:
-
         # todo: try catch here?
         builder = DpmmHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
 
@@ -48,7 +47,6 @@ class AnalysisBase:
         network_name="World",
         epsg_base=Project.UTM_32N,
     ) -> Tuple[str, DpmmHdfBuilder, CrownetSql]:
-
         data_root = join(
             data_root, "simulation_runs/outputs", f"Sample_{parameter_id}_{run_id}", out
         )

@@ -239,7 +239,6 @@ class DockerRunner:
             return f'/bin/bash -c "cd {self.working_dir}; {cmd}"'
 
     def pull_images(self):
-
         try:
             self.client.images.get(self.image)
         except:

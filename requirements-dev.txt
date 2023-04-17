@@ -4,6 +4,7 @@ jupyter-client>=6.1.7
 jupyter-core>=4.7.0
 jupyterlab-pygments
 ipympl
+black==23.3.0
 mypy==0.750
 nbformat>=5.0.8
 nbsphinx>=0.8.0

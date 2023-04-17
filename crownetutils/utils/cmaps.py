@@ -4,7 +4,6 @@ custom color maps and color cycles for plotting
 
 
 class CMapBuilder:
-
     TRANSPARENT = 0.0
     OPAQUE = 1.0
 

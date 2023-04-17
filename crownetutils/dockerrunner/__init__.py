@@ -38,7 +38,6 @@ class SimulationDispatcher(Protocol):
 
 
 class _DockerCfg:
-
     VAR_OPP_TAG = "CROWNET_OPP_CONT_TAG"
     VAR_SUMO_TAG = "CROWNET_SUMO_CONT_TAG"
     VAR_VADERE_TAG = "CROWNET_VADERE_CONT_TAG"

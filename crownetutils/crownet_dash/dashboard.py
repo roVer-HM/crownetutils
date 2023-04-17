@@ -194,7 +194,6 @@ class CellErrorInsepctor(_DashApp):
         return df.to_dict("records"), cols
 
     def get_layout(self, ns: Namespace, with_container: bool = False):
-
         layout = html.Div(
             children=[
                 DashUtil.module_header(
@@ -266,7 +265,6 @@ class CellErrorInsepctor(_DashApp):
         if node_id is not None:
             node_id = [node_id] if isinstance(node_id, int) else node_id
             for v in node_id:
-
                 _mask = _mask | (ca["ID"] == v)
 
         fig = px.scatter(
@@ -617,7 +615,6 @@ class _MapView(_DashApp):
         return layout
 
     def _build_map_layout(self, ns: Namespace, id_builder):
-
         topo_overlays = DashUtil.build_topography_layer(ns, id_builder)
         cell_overlays = DashUtil.build_cell_layer(ns, id_builder)
         node_overlays = DashUtil.build_node_layer(ns, id_builder)
