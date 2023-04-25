@@ -209,6 +209,9 @@ class RunMap(dict):
         """Check if path relative to RunMap output_dir exists."""
         return os.path.exists(self.path(*args))
 
+    def get_hdf(self, rel_path, key) -> BaseHdfProvider:
+        return BaseHdfProvider(self.path(rel_path), group == key)
+
     def any(self, filter_f: SimGroupFilter) -> SimulationGroup:
         """Return first :class:`SimulationGroup` that adheres to filter function.
 
