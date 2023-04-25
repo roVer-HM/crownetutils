@@ -60,7 +60,10 @@ def percentile(n: int) -> Callable[[Any], Any]:
     """
 
     def percentile_(x):
-        return np.percentile(x, n)
+        if not x.empty:
+            return np.percentile(x, n)
+        else:
+            return np.nan
 
     percentile_.__name__ = f"p{n}"
     return percentile_
@@ -745,7 +748,7 @@ class PlotUtil_:
             data = data.reset_index().set_index([*_n, "bin"]).sort_index()
             if columns is not None:
                 data = data[columns]
-            data = data.groupby("bin").agg(agg)
+            data = data.groupby("bin").agg(agg).dropna()
             data = data.set_axis([f"{a}_{b}" for a, b in data.columns], axis=1)
             data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
             data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
