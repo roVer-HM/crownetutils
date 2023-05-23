@@ -13,6 +13,13 @@ class Scenario:
         with open(path, "r", encoding="utf-8") as f:
             self._scenario_json = j.load(f)
 
+    def save_copy(self, path):
+        with open(path, "w", encoding="utf-8") as fd:
+            j.dump(self._scenario_json, fd, sort_keys=False, indent=2)
+
+    def set_name(self, name):
+        self._scenario_json["name"] = name
+
     @property
     def scenario(self):
         return self._scenario_json["scenario"]
@@ -92,6 +99,20 @@ class Scenario:
     @property
     def bound(self):
         return self.topography["attributes"]["bounds"]
+
+    def create_obstacle(self, x, y, width, height, id=-1):
+        rect = {
+            "id": id,
+            "shape": {
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+                "type": "RECTANGLE",
+            },
+            "visible": True,
+        }
+        self.obstacles.append(rect)
 
     @staticmethod
     def shape_to_list(shape, to_shapely: bool = False):
