@@ -695,6 +695,34 @@ class CrownetSql(OppSql):
     def module_to_host_ids(self):
         return {v: k for k, v in self.host_ids().items()}
 
+    def create_bonnmotion_trace(
+        self,
+        module_name: Union[SqlOp, str, None] = None,
+        ids: pd.DataFrame | None = None,
+        time_slice: slice = slice(None),
+        path: str | None = None,
+    ) -> List[str] | None:
+        def _line_to_str(line):
+            return f"{line['time']} {line['x']} {line['y']}"
+
+        lines = []
+        pos = self.node_position(
+            module_name=module_name,
+            ids=ids,
+            time_slice=time_slice,
+            apply_offset=False,
+            bottom_left_origin=False,
+            cols=["time", "hostId", "x", "y"],
+        )
+        for host, _df in pos.groupby(["hostId"]):
+            lines.append(" ".join(_df.apply(_line_to_str, axis=1)))
+
+        if path is not None:
+            with open(path, "w", encoding="utf-8") as fd:
+                fd.writelines(lines)
+        else:
+            return lines
+
     def node_position(
         self,
         module_name: Union[SqlOp, str, None] = None,
@@ -703,6 +731,7 @@ class CrownetSql(OppSql):
         epsg_code_base: str | None = None,
         epsg_code_to: str | None = None,
         apply_offset: bool = True,
+        bottom_left_origin: bool = True,
         cols: tuple = ("time", "hostId", "host", "vecIdx", "x", "y"),
     ) -> pd.DataFrame | gpd.GeoDataFrame:
         """
@@ -793,7 +822,8 @@ class CrownetSql(OppSql):
         )["scalarValue"].to_numpy()
 
         # convert to bottom-left origin and remove offset used during the simulation
-        df["y"] = bound[1] - df["y"]  # move from top-left-orig to bottom-left-orig
+        if bottom_left_origin:
+            df["y"] = bound[1] - df["y"]  # move from top-left-orig to bottom-left-orig
         # nothing to do for x, only y-axis needs conversion
         if apply_offset:
             df["x"] = df["x"] - offset[0]
