@@ -768,6 +768,82 @@ class Simulation:
             raise ValueError("selection not set!")
         return self.builder.build_dcdMap(selection=list(sel)[0])
 
+    def _check_container_log_stats_file(self, log_stats_file_path):
+        if log_stats_file_path.endswith("stats.out") is False:
+            logger.error(
+                f"File name must be container_<image-name>_stats.out. Got f{log_stats_file_path}."
+            )
+
+        if os.path.isfile(log_stats_file_path) == False:
+            logger.error(
+                f=f"File {log_stats_file_path} does not exist."
+                f"Provide a path to a docker stats log file /path/to/logfile/container_<image-name>_stats.out"
+            )
+        self._check_if_file_docker_stats_log(log_stats_file_path)
+
+    def _check_if_file_docker_stats_log(self, log_stats_file_path):
+        with open(log_stats_file_path, "r", encoding="utf-8") as fd:
+            for line in fd.readlines()[:1]:
+                if (
+                    "Timestamp" in line
+                    and "DockerStatsCPUPerc" in line
+                    and "DockerStatsRamGByte" in line
+                ):
+                    logger.info("File content stems from container log stats.")
+                else:
+                    logger.error("File content does not stem from container log stats.")
+
+    def get_docker_stats(self, file_path) -> pd.DataFrame:
+        self._check_container_log_stats_file(file_path)
+        docker_stats = pd.read_csv(file_path)
+
+        docker_stats["Timestamp"] = pd.to_datetime(docker_stats["Timestamp"])
+
+        c = "unknown_simulator"
+        if os.path.basename(file_path) == "container_vadere_stats.out":
+            c = "vadere"
+        if os.path.basename(file_path) == "container_sumo_stats.out":
+            c = "sumo"
+        if os.path.basename(file_path) == "container_opp_stats.out":
+            c = "omnetpp"
+        if os.path.basename(file_path) == "container_control_stats.out":
+            c = "flowcontrol"
+
+        docker_stats["container"] = c
+        return docker_stats
+
+    def get_docker_stats_all(self, required: List = None):
+        """
+        Read docker stats from different container_*_stats.out files. Specify >required< to read
+        only docker stats from specific containers. Example:
+        get_docker_stats_all(self, required = ["container_vadere_stats.out", "container_opp_stats.out"]
+        return the docker stats for the vadere and omnetpp simulator.
+        Possible list items are:
+        - "container_vadere_stats.out"
+        - "container_opp_stats.out"
+        - "container_control_stats.out"
+        - "container_sumo_stats.out"
+        """
+        result_dir_path = os.path.abspath(self.path())
+        files = glob(f"{result_dir_path }/**/*_stats.out", recursive=True)
+        files_names = [os.path.basename(f) for f in files]
+
+        if required == None:
+            required = files_names
+            logger.info(f"Read docker stats from files: {files_names}")
+        else:
+            if set(required).issubset(files_names) is False:
+                logger.error(
+                    f"Required files {required} do not exist in {result_dir_path}"
+                )
+
+        df = pd.DataFrame()
+        for file in files:
+            if os.path.basename(file) in required:
+                df_ = self.get_docker_stats(file)
+                df = pd.concat([df, df_])
+        return df
+
     def get_run_description_0001(self):
         cfg = self.run_context.oppini
         map: ObjectValue = cfg["*.pNode[*].app[1].app.mapCfg"]

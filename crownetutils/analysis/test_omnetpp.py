@@ -10,7 +10,6 @@ from crownetutils.analysis.omnetpp import OppAnalysis
 
 
 class OmnetppTest(unittest.TestCase):
-
     def setUp(self):
         # Create a temporary directory
         self.test_dir = tempfile.mkdtemp()
@@ -32,7 +31,7 @@ class OmnetppTest(unittest.TestCase):
         <!> Simulation time limit reached -- at t=14s, event #344910 \n \
         Container terminated."
 
-        f = open(path.join(self.test_dir, 'container_opp.out'), 'w')
+        f = open(path.join(self.test_dir, "container_opp.out"), "w")
         f.write(omnetpp_container_log_content)
         f.close()
 
@@ -42,12 +41,16 @@ class OmnetppTest(unittest.TestCase):
 
     def test_get_sim_real_time_ratio(self):
         # compare values from temporary file in setUp
-        df_expected = pd.DataFrame(data={"sim_time": [0.000, 0.018, 10.002, 14.000],
-                                         "real_time": [0.000021, 43.239500, 45.324600, 46.769800],
-                                         "ratio_sim_real": [0.0000, 0.000416286, 4.7884, 2.76638]},
-                                   index=[0, 1, 2, 3])
+        df_expected = pd.DataFrame(
+            data={
+                "sim_time": [0.000, 0.018, 10.002, 14.000],
+                "real_time": [0.000021, 43.239500, 45.324600, 46.769800],
+                "ratio_sim_real": [0.0000, 0.000416286, 4.7884, 2.76638],
+            },
+            index=[0, 1, 2, 3],
+        )
 
-        file_path = os.path.join(self.test_dir, 'container_opp.out')
+        file_path = os.path.join(self.test_dir, "container_opp.out")
         df_actual = OppAnalysis.get_sim_real_time_ratio(omnetpp_log_file_path=file_path)
 
         pd.testing.assert_frame_equal(df_actual, df_expected)
