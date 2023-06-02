@@ -6,7 +6,11 @@ from typing import Any, List
 import docker
 from requests.exceptions import ReadTimeout
 
-from crownetutils.dockerrunner.dockerrunner import ContainerLogWriter, DockerClient
+from crownetutils.dockerrunner.dockerrunner import (
+    ContainerLogStatsWriter,
+    ContainerLogWriter,
+    DockerClient,
+)
 from crownetutils.dockerrunner.run_argparser import parse_run_script_arguments
 from crownetutils.dockerrunner.simulators.controllerrunner import ControlRunner
 from crownetutils.dockerrunner.simulators.omnetrunner import OppRunner
@@ -172,6 +176,13 @@ class BaseSimulationRunner:
                 ContainerLogWriter(f"{self.result_base_dir()}/container_opp.out")
             )
 
+        if self.ns["write_container_log_stats"]:
+            self.opp_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_opp_stats.out"
+                )
+            )
+
     def build_sumo_runner(self):
         run_name = self.ns["run_name"]
         self.sumo_runner = SumoRunner(
@@ -188,6 +199,12 @@ class BaseSimulationRunner:
         if self.ns["write_container_log"]:
             self.sumo_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_sumo.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.sumo_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_sumo_stats.out"
+                )
             )
 
     def build_and_start_control_runner(self):
@@ -213,6 +230,12 @@ class BaseSimulationRunner:
         if self.ns["write_container_log"]:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.vadere_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_vadere_stats.out"
+                )
             )
 
         logfile = os.devnull
@@ -242,6 +265,12 @@ class BaseSimulationRunner:
         if self.ns["write_container_log"]:
             self.control_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_control.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.control_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_control_stats.out"
+                )
             )
 
     def exec_control_runner(self, mode):
@@ -297,6 +326,12 @@ class BaseSimulationRunner:
         if self.ns["write_container_log"]:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.vadere_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_vadere_stats.out"
+                )
             )
 
         os.makedirs(self.result_base_dir(), exist_ok=True)

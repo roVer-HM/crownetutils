@@ -220,6 +220,16 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         action="store_true",
         help="If true save output of containers in result dir <result>/container_<name>.out ",
     )
+
+    parser.add_argument(
+        "--log-docker-stats",
+        dest="write_container_log_stats",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If true save docker stats for containers in result dir <result>/container_stats_<name>.out",
+    )
+
     parser.add_argument(
         "--experiment-label",
         dest="experiment_label",
