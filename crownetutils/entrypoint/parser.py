@@ -189,6 +189,16 @@ class ArgList:
     def key_index_startswith(self, key):
         return [idx for idx, _arg in enumerate(self.data) if _arg[0].startswith(key)]
 
+    def add_cmd(self, cmd, override=True):
+        if self.has_command:
+            if not override:
+                raise ValueError(
+                    "ArgList already has a command element and override is false"
+                )
+            return
+        else:
+            self.add(cmd, pos=0)
+
     def add(self, key, value=None, pos=-1):
         """
         add key. Raise error if key already exists. If pos is given add arg at this

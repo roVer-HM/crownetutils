@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import pprint
+import random
+import string
 import time
 from enum import Enum
 from pathlib import Path
@@ -22,10 +24,14 @@ class ContainerLogWriter:
         self.path = path
 
     def write(self, container_name, output: bytes, *args, **kwargs):
-        logger.info(f"write output of {container_name}  to {self.path}")
-        os.makedirs(os.path.split(self.path)[0], exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as log:
-            log.write(output.decode("utf-8"))
+        if isinstance(self.path, str):
+            logger.info(f"write output of {container_name}  to {self.path}")
+            os.makedirs(os.path.split(self.path)[0], exist_ok=True)
+            with open(self.path, "w", encoding="utf-8") as log:
+                print(output.decode("utf-8"), file=log)
+                # log.write(output.decode("utf-8"))
+        else:
+            print(output.decode("utf-8"), file=self.path)
 
 
 class DockerCleanup(Enum):
@@ -110,6 +116,16 @@ class DockerRunner:
                     type=LogConfig.types.JOURNALD, config={"tag": self.journal_tag}
                 )
             )
+
+    @staticmethod
+    def random_suffix(N: int = 6, seed=None):
+        if seed is None:
+            seed = time.time_ns()
+        suffix = [
+            random.choice([*string.ascii_lowercase, *string.ascii_uppercase])
+            for _ in range(N)
+        ]
+        return "".join(suffix)
 
     @property
     def container(self):
