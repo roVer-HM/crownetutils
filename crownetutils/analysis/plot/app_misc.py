@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import itertools
 import os
 from ast import List
 from typing import Tuple
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -259,6 +261,64 @@ class PlotAppMisc_(PlotUtil_):
         fig, _ = self.plot_tx_throughput(tx_rate, sim.sql)
         saver(fig, "System_tx_data_rate.pdf")
         plt.close(fig)
+
+    @with_axis
+    def plot_packet_source_distribution(
+        self,
+        data: pd.DataFrame,
+        hatch_patterns: List[str] = PlotUtil_._hatch_patterns,
+        ax: plt.Axes = None,
+        **kwargs,
+    ) -> plt.Axes:
+        """Plot packet source distribution
+
+        Args:
+            data (pd.DataFrame):     See OppAnalysis.get_packet_source_distribution(...)
+            ax (plt.Axes, optional): Axes to use. If missing a new axes will be injected by
+                                     PlotUtil.with_axis decorator.
+
+        Returns:
+            plt.Axes:
+        """
+        patterns = itertools.cycle(hatch_patterns)
+
+        ax = data.plot.barh(stacked=True, width=0.5, ax=ax)
+        ax.set_title("Packets received from")
+        ax.set_xlabel("percentage")
+        bars = [i for i in ax.containers if isinstance(i, mpl.container.BarContainer)]
+        for bar in bars:
+            _h = next(patterns)
+            for patch in bar:
+                patch.set_hatch(_h)
+        ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
+        return ax.get_figure(), ax
+
+    @with_axis
+    def plot_neighborhood_table_size_over_time(
+        self, tbl: pd.DataFrame, tbl_idx: np.ndarray, ax: plt.Axes = None
+    ) -> plt.Axes:
+        """Plot neighborhood table size for each node over time.
+        x-axis: time
+        y-axis: number of entries in neighborhood table
+
+        Args:
+            tbl (pd.DataFrame): Data see OppAnalysis.get_neighborhood_table_size_over_time()
+            tbl_idx (np.ndarray): see OppAnalysis.get_neighborhood_table_size_over_time()
+            ax (plt.Axes, optional): Axes to use. If missing a new axes will be injected by
+                                     PlotUtil.with_axis decorator.
+
+        Returns:
+            plt.Axes:
+        """
+        _c = self.color_lines(line_type=None)
+        for i in tbl_idx:
+            _df = tbl.loc[tbl["host"] == i]
+            ax.plot(_df["time"], _df["value"], next(_c), label=i)
+
+        ax.set_ylabel("Neighboor count")
+        ax.set_xlabel("time [s]")
+        ax.set_title("Size of neighborhood table over time for each node")
+        return ax.get_figure(), ax
 
     def plot_number_of_agents(
         self, sim: Simulation, *, saver: FigureSaver | None = None
