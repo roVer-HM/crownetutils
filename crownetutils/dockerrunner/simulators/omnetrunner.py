@@ -25,6 +25,7 @@ class OppRunner(DockerRunner):
         detach=False,
         journal_tag="",
         run_cmd="CROWNET",
+        network_name="rovernet",
     ):
         super().__init__(
             image=image,
@@ -35,6 +36,7 @@ class OppRunner(DockerRunner):
             reuse_policy=reuse_policy,
             detach=detach,
             journal_tag=journal_tag,
+            network_name=network_name,
         )
         if len(os.path.split(run_cmd)[0]) == 0 and "CROWNET" in run_cmd:
             # run_cmd only contains executable without path. Assume default location

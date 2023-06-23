@@ -285,3 +285,10 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         default=0,
         help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
     )
+    parser.add_argument(
+        "--network_name",
+        dest="network_name",
+        default="rovernet",
+        required=False,
+        help="Name of the docker bridge network that will be created",
+    )

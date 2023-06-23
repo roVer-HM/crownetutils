@@ -102,8 +102,6 @@ class DockerClient:
 
 
 class DockerRunner:
-    NET = "rovernet"
-
     def __init__(
         self,
         image,
@@ -114,6 +112,7 @@ class DockerRunner:
         reuse_policy=DockerReuse.NEW_ONLY,
         detach=False,
         journal_tag="",
+        network_name="rovernet",
     ):
         if docker_client is None:
             self.client: docker.DockerClient = DockerClient.get()
@@ -135,6 +134,7 @@ class DockerRunner:
         self._container = None
         self._log_clb: Union[ContainerLogWriter, None] = None
         self._log_stats_clb: Union[ContainerLogStatsWriter, None] = None
+        self._network_name = network_name
         # callback to handle logoutput of container
 
         # last call in init.
@@ -238,9 +238,10 @@ class DockerRunner:
 
     def check_create_network(self):
         existing_networks = [n.name for n in self.client.networks.list()]
-        if self.NET not in existing_networks:
-            self.client.networks.create(self.NET)
-        return self.NET
+        if self._network_name not in existing_networks:
+            # TODO do not call multiple run_scripts in parrallel -> raise Condition
+            self.client.networks.create(self._network_name)
+        return self._network_name
 
     def set_run_args(self, run_args=None):
         """
@@ -451,7 +452,7 @@ class DockerRunner:
     def get_ip(self):
         return self.client.containers.get(self.name).attrs["NetworkSettings"][
             "Networks"
-        ][self.NET]["IPAddress"]
+        ][self._network_name]["IPAddress"]
 
     def wait_for_log(
         self, log_string: str | bytes, time_to_wait: int = 30, retry_timeout: int = 3

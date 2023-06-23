@@ -78,7 +78,7 @@ class BaseSimulationRunner:
         logger.info("execute simulation")
         ret = self.dispatch_run()
         if ret != 0:
-            raise RuntimeError("Error in Simulation")
+            raise RuntimeError(f"Error in Simulation. Error code = {ret}")
         logger.info("execute post hooks")
         self.post()
         logger.info("done")
@@ -168,6 +168,7 @@ class BaseSimulationRunner:
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
             run_cmd=opp_exec,
+            network_name=self.ns["network_name"],
         )
         self.opp_runner.apply_reuse_policy()
         self.opp_runner.set_working_dir(self.working_dir)
@@ -193,6 +194,7 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=True,  # we do not wait for this container (see OMNeT container)
             journal_tag=f"sumo_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.sumo_runner.apply_reuse_policy()
         self.sumo_runner.set_working_dir(self.working_dir)
@@ -224,6 +226,7 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=True,  # detach at first and wait vadere container after opp container is done
             journal_tag=f"vadere_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
@@ -260,6 +263,7 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=detach,  # do not detach --> wait on control container
             journal_tag=f"control_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.control_runner.apply_reuse_policy()
         if self.ns["write_container_log"]:
@@ -320,6 +324,7 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=False,  # detach at first and wait vadere container after opp container is done
             journal_tag=f"vadere_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
