@@ -220,6 +220,16 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         action="store_true",
         help="If true save output of containers in result dir <result>/container_<name>.out ",
     )
+
+    parser.add_argument(
+        "--log-docker-stats",
+        dest="write_container_log_stats",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If true save docker stats for containers in result dir <result>/container_stats_<name>.out",
+    )
+
     parser.add_argument(
         "--experiment-label",
         dest="experiment_label",
@@ -274,4 +284,11 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         action="count",
         default=0,
         help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
+    )
+    parser.add_argument(
+        "--network_name",
+        dest="network_name",
+        default="rovernet",
+        required=False,
+        help="Name of the docker bridge network that will be created",
     )

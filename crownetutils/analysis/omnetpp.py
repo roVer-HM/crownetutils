@@ -158,6 +158,76 @@ class _OppAnalysis(AnalysisBase):
     def __init__(self) -> None:
         pass
 
+    def get_sim_real_time_ratio(
+        self, omnetpp_log_file_path: str | os.path = None
+    ) -> pd.DataFrame:
+        """
+        Get ratio of simulation time and real time to measure performance
+        Packet age: (time x received packet i) - (time packet i created)
+                | sim_time        |  real_time   |  ratio_sim_real |
+            0   |  0.000          |  0.000021    | 0.000000        |
+            1   |  0.018          |  43.239500   | 0.000416        |
+            ... |  10.002         |  45.324600   | 4.788400        |
+        """
+
+        df = pd.DataFrame(data={"sim_time": [], "real_time": [], "ratio_sim_real": []})
+
+        self._check_omnetpp_container_log_file(omnetpp_log_file_path)
+
+        with open(omnetpp_log_file_path, "r", encoding="utf-8") as fd:
+            line_before = ""
+            for line in fd.readlines():
+                if "Speed:" in line and "Elapsed:" in line_before:
+                    # split strings and read values
+                    ratio = line.split("Speed:")[1]
+                    ratio_sim_real = float(
+                        ratio.split("simsec/sec=")[1].split("ev/simsec")[0]
+                    )
+                    sim_time = line_before.split("Elapsed:")[0]
+                    sim_time = float(sim_time.split("t=")[-1])
+                    real_time = line_before.split("Elapsed:")[1]
+                    real_time = float(real_time.split("s")[0])
+
+                    df_ = pd.DataFrame(
+                        data={
+                            "sim_time": [sim_time],
+                            "real_time": [real_time],
+                            "ratio_sim_real": [ratio_sim_real],
+                        }
+                    )
+                    df = pd.concat([df, df_])
+                line_before = line
+
+        df.reset_index(drop=True, inplace=True)
+        if len(df) == 0:
+            logger.warn(
+                f"Could not extract any simulation time information from {omnetpp_log_file_path}"
+            )
+
+        return df
+
+    def _check_omnetpp_container_log_file(self, omnetpp_log_file_path):
+        if os.path.basename(omnetpp_log_file_path) != "container_opp.out":
+            logger.error(
+                f"File name must be container_opp.out. Got f{omnetpp_log_file_path}."
+            )
+        if os.path.isfile(omnetpp_log_file_path) == False:
+            logger.error(
+                f=f"File {omnetpp_log_file_path} does not exist."
+                f"Provide a path to a omnetpp log file /path/to/logfile/container_opp.out<"
+            )
+        self._check_if_file_contains_omnetpp_log(omnetpp_log_file_path)
+
+    def _check_if_file_contains_omnetpp_log(self, omnetpp_log_file_path):
+        with open(omnetpp_log_file_path, "r", encoding="utf-8") as fd:
+            for line in fd.readlines()[:1]:
+                if "Welcome to the CrowNet OMNeT++ Docker Container" in line:
+                    logger.info("File content stems from omnetpp container log.")
+                else:
+                    logger.error(
+                        "File content does not stem from omnetpp container log."
+                    )
+
     def get_packet_age(
         self,
         sql: Scave.CrownetSql,

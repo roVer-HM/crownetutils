@@ -36,6 +36,7 @@ class ControlRunner(DockerRunner):
         reuse_policy=DockerReuse.REMOVE_STOPPED,
         detach=False,
         journal_tag="",
+        network_name="rovernet",
     ):
         super().__init__(
             image,
@@ -46,6 +47,7 @@ class ControlRunner(DockerRunner):
             reuse_policy=reuse_policy,
             detach=detach,
             journal_tag=journal_tag,
+            network_name=network_name,
         )
 
     def _apply_default_volumes(self):

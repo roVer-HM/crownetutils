@@ -6,7 +6,11 @@ from typing import Any, List
 import docker
 from requests.exceptions import ReadTimeout
 
-from crownetutils.dockerrunner.dockerrunner import ContainerLogWriter, DockerClient
+from crownetutils.dockerrunner.dockerrunner import (
+    ContainerLogStatsWriter,
+    ContainerLogWriter,
+    DockerClient,
+)
 from crownetutils.dockerrunner.run_argparser import parse_run_script_arguments
 from crownetutils.dockerrunner.simulators.controllerrunner import ControlRunner
 from crownetutils.dockerrunner.simulators.omnetrunner import OppRunner
@@ -74,7 +78,7 @@ class BaseSimulationRunner:
         logger.info("execute simulation")
         ret = self.dispatch_run()
         if ret != 0:
-            raise RuntimeError("Error in Simulation")
+            raise RuntimeError(f"Error in Simulation. Error code = {ret}")
         logger.info("execute post hooks")
         self.post()
         logger.info("done")
@@ -164,12 +168,20 @@ class BaseSimulationRunner:
             detach=False,  # do not detach --> wait on opp container
             journal_tag=f"omnetpp_{run_name}",
             run_cmd=opp_exec,
+            network_name=self.ns["network_name"],
         )
         self.opp_runner.apply_reuse_policy()
         self.opp_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.opp_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_opp.out")
+            )
+
+        if self.ns["write_container_log_stats"]:
+            self.opp_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_opp_stats.out"
+                )
             )
 
     def build_sumo_runner(self):
@@ -182,12 +194,19 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=True,  # we do not wait for this container (see OMNeT container)
             journal_tag=f"sumo_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.sumo_runner.apply_reuse_policy()
         self.sumo_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.sumo_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_sumo.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.sumo_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_sumo_stats.out"
+                )
             )
 
     def build_and_start_control_runner(self):
@@ -207,12 +226,19 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=True,  # detach at first and wait vadere container after opp container is done
             journal_tag=f"vadere_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.vadere_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_vadere_stats.out"
+                )
             )
 
         logfile = os.devnull
@@ -237,11 +263,18 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=detach,  # do not detach --> wait on control container
             journal_tag=f"control_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.control_runner.apply_reuse_policy()
         if self.ns["write_container_log"]:
             self.control_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_control.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.control_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_control_stats.out"
+                )
             )
 
     def exec_control_runner(self, mode):
@@ -291,12 +324,19 @@ class BaseSimulationRunner:
             reuse_policy=self.ns["reuse_policy"],
             detach=False,  # detach at first and wait vadere container after opp container is done
             journal_tag=f"vadere_{run_name}",
+            network_name=self.ns["network_name"],
         )
         self.vadere_runner.apply_reuse_policy()
         self.vadere_runner.set_working_dir(self.working_dir)
         if self.ns["write_container_log"]:
             self.vadere_runner.set_log_callback(
                 ContainerLogWriter(f"{self.result_base_dir()}/container_vadere.out")
+            )
+        if self.ns["write_container_log_stats"]:
+            self.vadere_runner.set_log_stats_callback(
+                ContainerLogStatsWriter(
+                    f"{self.result_base_dir()}/container_vadere_stats.out"
+                )
             )
 
         os.makedirs(self.result_base_dir(), exist_ok=True)

@@ -5,15 +5,17 @@ import pprint
 import random
 import string
 import time
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from threading import Event, Thread
 from typing import Union
 
 import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 from docker.types import LogConfig
-from requests import ReadTimeout
+from requests import ReadTimeout  # TODO check
 
 from crownetutils.dockerrunner import DockerCfg
 from crownetutils.utils.logging import logger
@@ -32,6 +34,41 @@ class ContainerLogWriter:
                 # log.write(output.decode("utf-8"))
         else:
             print(output.decode("utf-8"), file=self.path)
+
+
+class ContainerLogStatsWriter:
+    def __init__(self, path):
+        self.path = path
+        self.log_content = ""
+        self.header = f"Timestamp,DockerStatsCPUPerc,DockerStatsRamGByte\n"
+
+    def _compute_ram_GByte(self, stats):
+        return stats["memory_stats"]["usage"] / 10**9
+
+    def _compute_cpu_percentage(self, stats):
+        # https://stackoverflow.com/questions/30271942/get-docker-container-cpu-usage-as-percentage
+        # https://github.com/docker/cli/blob/6c12a82f330675d4e2cfff4f8b89a353bcb1fecd/cli/command/container/stats_helpers.go#L180
+        cpuDelta = (
+            stats["cpu_stats"]["cpu_usage"]["total_usage"]
+            - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+        )
+        systemDelta = (
+            stats["cpu_stats"]["system_cpu_usage"]
+            - stats["precpu_stats"]["system_cpu_usage"]
+        )
+        cpu = cpuDelta / systemDelta * stats["cpu_stats"]["online_cpus"] * 100
+        return cpu
+
+    def log(self, time, stats):
+        cpu = self._compute_cpu_percentage(stats)
+        ram = self._compute_ram_GByte(stats)
+        self.log_content += f"{time},{cpu},{ram}\n"
+
+    def write(self, container_name):
+        logger.info(f"write output of {container_name}  to {self.path}")
+        with open(self.path, "w", encoding="utf-8") as log:
+            log.write(self.header)
+            log.write(self.log_content)
 
 
 class DockerCleanup(Enum):
@@ -71,8 +108,6 @@ class DockerClient:
 
 
 class DockerRunner:
-    NET = "rovernet"
-
     def __init__(
         self,
         image,
@@ -83,6 +118,7 @@ class DockerRunner:
         reuse_policy=DockerReuse.NEW_ONLY,
         detach=False,
         journal_tag="",
+        network_name="rovernet",
     ):
         if docker_client is None:
             self.client: docker.DockerClient = DockerClient.get()
@@ -102,9 +138,10 @@ class DockerRunner:
         self.reuse_policy = reuse_policy
         self.run_args = {}
         self._container = None
-        self._log_clb: Union[
-            ContainerLogWriter, None
-        ] = None  # callback to handle logoutput of container
+        self._log_clb: Union[ContainerLogWriter, None] = None
+        self._log_stats_clb: Union[ContainerLogStatsWriter, None] = None
+        self._network_name = network_name
+        # callback to handle logoutput of container
 
         # last call in init.
         self._apply_default_volumes()
@@ -207,6 +244,9 @@ class DockerRunner:
     def set_log_callback(self, clb: ContainerLogWriter):
         self._log_clb = clb
 
+    def set_log_stats_callback(self, clb: ContainerLogStatsWriter):
+        self._log_stats_clb = clb
+
     def _apply_default_environment(self):
         self.environment: dict = {}
         if "DISPLAY" in os.environ:
@@ -214,9 +254,10 @@ class DockerRunner:
 
     def check_create_network(self):
         existing_networks = [n.name for n in self.client.networks.list()]
-        if self.NET not in existing_networks:
-            self.client.networks.create(self.NET)
-        return self.NET
+        if self._network_name not in existing_networks:
+            # TODO do not call multiple run_scripts in parrallel -> raise Condition
+            self.client.networks.create(self._network_name)
+        return self._network_name
 
     def set_run_args(self, run_args=None):
         """
@@ -272,6 +313,50 @@ class DockerRunner:
             else:
                 self._log_clb.write(self.name, self._container.logs())
 
+        if self._log_stats_clb is not None:
+            self._log_stats_clb.write(self.name)
+
+    def log_docker_stats(self):
+        """
+        this method is executed in a seperate Thread for monitoring docker stats: ram and cpuPer. Use CLI 'docker stats'
+        """
+        time_between_two_evaluations = (
+            0.0  # evaluation takes approx. 1-2s, no additional waiting time required
+        )
+        while True:
+            if self._event.is_set():
+                break
+
+            time.sleep(time_between_two_evaluations)
+            time_current = datetime.now().ctime()
+            try:
+                stats = self._container.stats(decode=None, stream=False)
+                self._log_stats_clb.log(time_current, stats)
+            except KeyError:
+                logger.warn(
+                    f"{time_current} Docker stats not available for container={self._container.name}. Skip timestamp."
+                )
+                time.sleep(2.0)  # wait that the container is stopped
+
+        self._log_stats_clb.write(self._container.name)
+
+    def start_log_stats(self):
+        """
+        start monitoring docker stats: ram and cpuPer. Use CLI 'docker stats'
+        """
+        if self._log_stats_clb is not None:
+            self._event = Event()
+            self._monitor_dockerstats_thread = Thread(target=self.log_docker_stats)
+            self._monitor_dockerstats_thread.start()
+
+    def stop_log_stats(self):
+        """
+        stop monitoring docker stats: ram and cpuPer.
+        """
+        if self._log_stats_clb is not None:
+            self._event.set()
+            self._monitor_dockerstats_thread.join()
+
     def create_container(self, cmd="/init.sh", **run_args) -> Container:
         """
         run container. If no command is given execute the default entry point '/init.sh'
@@ -323,6 +408,7 @@ class DockerRunner:
                 f" remove: {self.cleanupPolicy}, journal_tag: {self.journal_tag}}}"
             )
             self._container.start()
+            self.start_log_stats()
             if not self.detach:
                 ret = self.wait()
             else:
@@ -355,6 +441,7 @@ class DockerRunner:
         """
         stop and remove based on cleanupPolicy.
         """
+        self.stop_log_stats()
         if self._container is None:
             return  # do nothing
 
@@ -372,6 +459,7 @@ class DockerRunner:
         """
         stop and remove and ignore cleanupPolicy.
         """
+        self.stop_log_stats()
         if self._container is not None:
             self._container.stop()
             self._container.remove()
@@ -380,7 +468,7 @@ class DockerRunner:
     def get_ip(self):
         return self.client.containers.get(self.name).attrs["NetworkSettings"][
             "Networks"
-        ][self.NET]["IPAddress"]
+        ][self._network_name]["IPAddress"]
 
     def wait_for_log(
         self, log_string: str | bytes, time_to_wait: int = 30, retry_timeout: int = 3
