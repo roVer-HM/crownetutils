@@ -1,6 +1,6 @@
 from importlib.resources import read_text
 
-__version__ = read_text("crownetutils", "version.txt")
+__version__ = read_text("crownetutils", "version.txt").strip()
 import matplotlib
 
 from crownetutils.utils.colors import _register_cmap

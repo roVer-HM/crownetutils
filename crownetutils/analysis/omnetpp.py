@@ -23,8 +23,8 @@ from crownetutils.analysis.common import (
     SimulationGroup,
 )
 from crownetutils.analysis.dpmm.dpmm import percentile
-from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.analysis.hdf_providers.node_position import (
+    BaseHdfProvider,
     EnbPositionHdf,
     NodePositionHdf,
 )
