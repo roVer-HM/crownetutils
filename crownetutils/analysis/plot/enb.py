@@ -6,6 +6,8 @@ from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib import colors
+from matplotlib.collections import LineCollection
 
 import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.omnetpp import OppAnalysis, Simulation
@@ -81,22 +83,22 @@ class _PlotEnb(PlotUtil_):
         for n in range(num_enb):
             data = OppAnalysis.get_avgServedBlocksUl(sql, enb_index=n)
             fig, ax = self.plot_ts_enb_served_rb(data, time_bucket_length=1.0)
-            self.append_title(ax, prefix="Enb-{n}:")
+            self.append_title(ax, prefix=f"Enb-{n}:")
             saver(fig, os.path.join(data_root, f"rb_utilization_ts_{n}.pdf"))
             fig, ax = self.plot_hist_enb_served_rb(data, bins, n)
-            self.append_title(ax, prefix="Enb-{n}:")
+            self.append_title(ax, prefix=f"Enb-{n}:")
             saver(fig, os.path.join(data_root, f"rb_utilization_hist_{n}.pdf"))
             fig, ax = self.plot_ecdf_enb_served_rb(data, bins, n)
-            self.append_title(ax, prefix="Enb-{n}:")
+            self.append_title(ax, prefix=f"Enb-{n}:")
             saver(fig, os.path.join(data_root, f"rb_utilization_ecdf_{n}.pdf"))
             fig, ax = self.plot_tbl_enb_serverd_rb_count(data)
-            self.append_title(ax, prefix="Enb-{n}:")
+            self.append_title(ax, prefix=f"Enb-{n}:")
             saver(fig, os.path.join(data_root, f"rb_count_{n}.pdf"))
-            fig, ax = self.df_to_table(
+            fig, ax, _ = self.df_to_table(
                 data.describe().applymap("{:1.4f}".format).reset_index(),
                 title="Served UL blocks",
             )
-            self.append_title(ax, prefix="Enb-{n}:")
+            self.append_title(ax, prefix=f"Enb-{n}:")
             saver(fig, os.path.join(data_root, f"rb_stat_{n}.pdf"))
 
     @with_axis
@@ -172,9 +174,107 @@ class _PlotEnb(PlotUtil_):
         df.columns = [int(c) for c in df.columns]
         df.columns.name = "RB"
         df = df.applymap("{:1_.0f}".format).reset_index()
-        fig, ax = self.df_to_table(df)
+        fig, ax, _ = self.df_to_table(df)
         ax.set_title("UL scheduling RB's count ")
         return fig, ax
+
+    @with_axis
+    def plot_node_enb_association_ts(
+        self,
+        data: pd.DataFrame | Scave.CrownetSql,
+        time_resolution: float = 1.0,
+        start_time: float = 0.0,
+        ax: plt.Axes = None,
+        **kwargs,
+    ):
+        if isinstance(data, Scave.CrownetSql):
+            data = OppAnalysis.get_serving_enb_interval(sql=data, **kwargs)
+
+        node_ids = data.index.get_level_values("hostId").unique()
+        min_time = start_time
+        max_time = data["end"].max()
+        time_index = pd.Index(
+            np.arange(min_time, max_time, step=time_resolution), name="time"
+        )
+        index = pd.MultiIndex.from_product((node_ids, time_index))
+        enb = pd.DataFrame(-1, columns=["interval"], index=index)
+        for host_id, df in enb.groupby("hostId"):
+            iindex = pd.IntervalIndex(data.loc[host_id].index)
+            bins = pd.cut(time_index, bins=iindex)
+            enb.loc[host_id, ["interval"]] = bins
+        enb = enb.reset_index().merge(
+            data["servingEnb"],
+            how="left",
+            left_on=["hostId", "interval"],
+            right_on=["hostId", "interval"],
+        )
+        enb = enb.drop(columns=["interval"]).sort_values(["hostId", "time"])
+
+        # create 2d-matrix for imshow
+        enb_grid = (
+            enb.set_index(["hostId", "time"])
+            .unstack(["time"])
+            .fillna(-1)
+            .to_numpy()
+            .astype(int)
+        )
+
+        # colormap
+        max_enb = int(enb["servingEnb"].max())
+        # ensure colors are not to faint, thus 1.5*....
+        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * max_enb)))
+        cmap = colors.ListedColormap(["white", "black", *enb_c[-max_enb:]])
+
+        img = ax.imshow(
+            enb_grid, interpolation="nearest", origin="lower", cmap=cmap, aspect="equal"
+        )
+        ax.set_ylabel("Node indices")
+        ax.set_xlabel("Time in seconds")
+        ax.set_title(
+            "Serving cell for nodes over time. \n (Black: NOT associated to any!)"
+        )
+
+        plt.colorbar(img, cmap=cmap, ticks=[-1, 0, max_enb])
+        ax.get_figure().tight_layout()
+
+        return ax.get_figure(), ax
+
+    @with_axis
+    def plot_node_enb_association_map(
+        self, ue_position: pd.DataFrame, enb_position: pd.DataFrame, ax: plt.Axes = None
+    ):
+        # colormap
+        max_enb = int(ue_position["servingEnb"].max())
+        # ensure colors are not to faint, thus 1.5*....
+        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * max_enb)))
+        cmap = colors.ListedColormap(
+            [
+                np.array([1.0, 1.0, 1.0, 1.0]),
+                np.array([0.0, 0.0, 0.0, 1.0]),
+                *enb_c[-max_enb:],
+            ]
+        )
+        color_ar = np.array(cmap.colors)
+
+        enb_color_index = ue_position["servingEnb"].to_numpy().astype(int) + 1
+
+        _colors = color_ar[enb_color_index]
+
+        ax.scatter(enb_position["x"], enb_position["y"], label="eNB", marker="s")
+        ax.legend()
+        lc = LineCollection(ue_position["segment"], cmap=cmap)
+        lc.set_array(enb_color_index)
+        line = ax.add_collection(lc)
+        ax.get_figure().colorbar(line, ax=ax)
+
+        for _host, pos in ue_position.groupby("hostId"):
+            ax.scatter(pos.iloc[-1]["x"], pos.iloc[-1]["y"], color="red", marker=".")
+
+        ax.set_title("Node traces by cell association (black: no association)")
+        ax.set_ylabel("North in meter")
+        ax.set_xlabel("East in meter")
+        ax.get_figure().tight_layout()
+        return ax.get_figure(), ax
 
 
 PlotEnb = _PlotEnb()

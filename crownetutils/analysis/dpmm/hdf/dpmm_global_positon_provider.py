@@ -112,12 +112,12 @@ class DpmmGlobalPosition(IHdfProvider):
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None
     ) -> gpd.GeoDataFrame:
-        offset = self.get_attribute("offset")
+        sim_bound = self.get_sim_bound()
         epsg_code = self.get_attribute("epsg")
         cell_size_half = 0.5 * self.get_attribute("cell_size")
 
-        df["x"] = df["x"] - offset[0]
-        df["y"] = df["y"] - offset[1]
+        df["x"] = df["x"] - sim_bound.offset[0] - sim_bound.sim_offset[0]
+        df["y"] = df["y"] - sim_bound.offset[1] - sim_bound.sim_offset[1]
 
         g = [
             Point(x + cell_size_half, y + cell_size_half)
@@ -171,14 +171,15 @@ class DpmmGlobal(IHdfProvider):
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None
     ) -> gpd.GeoDataFrame:
-        offset = self.get_attribute("offset")
+        sim_bound = self.get_sim_bound()
+
         epsg_code = self.get_attribute("epsg")
         cell_size = self.get_attribute("cell_size")
 
         _index = df.index.to_frame().reset_index(drop=True)
 
-        _index["x"] = _index["x"] - offset[0]
-        _index["y"] = _index["y"] - offset[1]
+        _index["x"] = _index["x"] - sim_bound.offset[0] - sim_bound.sim_offset[0]
+        _index["y"] = _index["y"] - sim_bound.offset[1] - sim_bound.sim_offset[1]
         df.index = pd.MultiIndex.from_frame(_index)
 
         g = [

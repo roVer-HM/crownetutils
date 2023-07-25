@@ -16,12 +16,14 @@ import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import RunMap, Simulation
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.omnetpp import OppAnalysis
+from crownetutils.omnetpp.scave import CrownetSql
 from crownetutils.utils.dataframe import FrameConsumer
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
 from crownetutils.utils.plot import (
     FigureSaver,
     FigureSaverPdfPages,
+    FigureSaverSimple,
     PlotUtil_,
     Style,
     savefigure,
@@ -41,17 +43,19 @@ class _PlotDpmMap(PlotUtil_):
         builder: DpmmHdfBuilder,
         sql: Scave.CrownetSql,
         selection: str | None = None,
+        saver: FigureSaver | None = None,
     ):
-        out_dir = os.path.join(data_root, "common_output.pdf")
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
+
         selection = builder.get_selected_alg() if selection is None else selection
         dmap = builder.build_dcdMap(selection=selection)
-        with PdfPages(out_dir) as pdf:
-            dmap.plot_map_count_diff(savefig=pdf)
-            msce = dmap.cell_count_measure(columns=["cell_mse"]).reset_index()
-            # msce time series
-            self.plot_msce_ts(msce, savefig=pdf)
-            # msce ecdf
-            self.plot_msce_ecdf(msce["cell_mse"], savefig=pdf)
+
+        dmap.plot_map_count_diff(savefig=saver.with_name("dpmm"))
+        msce = dmap.cell_count_measure(columns=["cell_mse"]).reset_index()
+        # msce time series
+        self.plot_msce_ts(msce, savefig=saver.with_name("msce_ts"))
+        # msce ecdf
+        self.plot_msce_ecdf(msce["cell_mse"], savefig=saver.with_name("msce_ecdf"))
 
     @with_axis
     @savefigure
@@ -108,6 +112,27 @@ class _PlotDpmMap(PlotUtil_):
         ax.set_xlabel("MSCE")
         ax.legend()
         return ax.get_figure(), ax
+
+    @timing
+    def plot_map_pkt_count_all(
+        self,
+        data_root: str,
+        sql: CrownetSql,
+        saver: FigureSaver | None = None,
+    ):
+        saver = FigureSaver.FIG(saver)
+        data = self.get_map_pkt_count_ts(sql)
+        fig, ax = plt.subplots()
+        self.df_to_table(data.describe().applymap("{:1.4f}".format).reset_index(), ax)
+        ax.set_title(f"Descriptive statistics for map application")
+        saver(fig, os.path.join(data_root, f"tx_MapPkt_stat.pdf"))
+
+        fig, ax = self.check_ax()
+        ax.scatter("time", "pkt_count", data=data.reset_index())
+        ax.set_title("Packet count over time")
+        ax.set_ylabel("Number of packets")
+        ax.set_xlabel("Simulation time in seconds")
+        saver(fig, os.path.join(data_root, f"txMapPktCount_ts.pdf"))
 
     @timing
     @with_axis

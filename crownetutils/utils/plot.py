@@ -152,6 +152,17 @@ class FigureSaver:
         raise NotImplementedError()
 
 
+class NullSaver(FigureSaver):
+    def __call__(self, figure, *args: Any, **kwargs):
+        return
+
+    def __enter__(self, *arg, **kwargs):
+        return self
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        return
+
+
 class FigureSaverSimple(FigureSaver):
     def __init__(
         self, override_base_path: str | None = None, figure_type: str | None = None

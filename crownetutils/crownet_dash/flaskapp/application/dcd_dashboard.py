@@ -4,6 +4,7 @@ from os.path import join
 from typing import Dict
 
 import dash_bootstrap_components as dbc
+import pandas as pd
 import plotly.express as px
 from dash import Dash, callback_context, html
 from dash.exceptions import PreventUpdate
@@ -49,7 +50,7 @@ def register(enum):
 
 
 class Plots(Enum):
-    Count_diff = "Count-Diff"
+    MapCountTs = "Count count time series"
     Delay = "Delay"
 
     @classmethod
@@ -77,54 +78,86 @@ def init_callbacks(app: Dash, sims: Dict[str, Simulation]):
             raise ValueError("Sim not set")
         return sims[signal["sim"]]
 
-    @app.callback(misc_ids.out_("plot-dropdown", "options"), selector_ids.sig_in)
+    @app.callback(
+        misc_ids.out_("plot-dropdown", "options"),
+        misc_ids.out_("node-dropdown", "value"),
+        misc_ids.out_("node-dropdown", "options"),
+        selector_ids.sig_in,
+    )
     def update_plots_dropdown(signal):
-        opt = [e.value for e in Plots]
-        print(opt)
-        return opt
+        opt_plot = [e.value for e in Plots]
+        sim = get_sim(signal)
+        host_ids = m.get_host_ids(sim)
+        opt_nodes = [{"value": k, "label": f"{k} - {v}"} for k, v in host_ids.items()]
+        return opt_plot, opt_nodes[0]["value"], opt_nodes
 
     @app.callback(
-        misc_ids.out_("plot-wrapper", "children"),
+        misc_ids.out_("misc-graph", "figure"),
         misc_ids.in_("plot-dropdown", "value"),
         misc_ids.in_("node-dropdown", "value"),
         selector_ids.sig_in,
         prevent_initial_call=True,
     )
-    def update_plots_clb(plot: str, node_id, signal):
+    def misc_update_plots_clb(plot: str, node_id, signal):
         if plot is None:
             raise PreventUpdate()
         sim: Simulation = get_sim(signal)
         return Plots(plot)(plot, sim, node_id)
 
-    @register(Plots.Count_diff)
-    def count_diff(e, sim: Simulation, node_id):
-        df = m.get_count_diff(sim, node_id if node_id is not None else -1)
-        df2 = (
-            df.reset_index()[["simtime", "glb_count", "count_mean"]]
-            .set_index(["simtime"])
-            .stack()
-            .to_frame()
-            .copy(deep=True)
-        )
-        # simtime, level_1, count
+    @register(Plots.MapCountTs)
+    def plot_count_diff(e, sim: Simulation, node_id):
+        gt = m.get_map_count_ts(sim, 0)
+        data = m.get_map_count_ts(sim, node_id)
+        data["type"] = f"node {node_id}"
+        gt["type"] = "ground truth"
+        data = pd.concat([gt, data], axis=0)
+
         fig = px.line(
-            df.reset_index(),
+            data.reset_index(),
             x="simtime",
-            y="cumulated_count",
+            y="count",
             color="type",
             markers=".",
-            line_shape="hv",
-            title=f"Cell occupancy based on beacons from node {node_id} for cell {cell}",
-            custom_data=[df["source_node"], df["received_at_time"], df["sent_time"]],
+            # line_shape="hv",
+            title=f"Map count over time for {node_id}",
         )
         time_index = m.get_time_index(sim)
         fig.update_xaxes(range=[time_index.min(), time_index.max()])
         fig.update_layout(hovermode="x unified")
         fig.update_traces(
             mode="markers+lines",
-            hovertemplate="value: %{y}</b> source: %{customdata[0]} </b> received_time: %{customdata[1]}</b> sent_time: %{customdata[2]}",
+            hovertemplate="value: %{y}</b> time: %{x}",
         )
         return fig
+
+    # def foo():
+    #     df = m.get_count_diff(sim, node_id if node_id is not None else -1)
+    #     df2 = (
+    #         df.reset_index()[["simtime", "glb_count", "count_mean"]]
+    #         .set_index(["simtime"])
+    #         .stack()
+    #         .to_frame()
+    #         .copy(deep=True)
+    #     )
+    #     # simtime, level_1, count
+    #     fig = px.line(
+    #         df.reset_index(),
+    #         x="simtime",
+    #         y="cumulated_count",
+    #         color="type",
+    #         markers=".",
+    #         line_shape="hv",
+    #         title=f"Cell occupancy based on beacons from node {node_id} for cell {cell}",
+    #         custom_data=[df["source_node"], df["received_at_time"], df["sent_time"]],
+    #     )
+    #     time_index = m.get_time_index(sim)
+    #     fig.update_xaxes(range=[time_index.min(), time_index.max()])
+    #     fig.update_layout(hovermode="x unified")
+    #     fig.update_traces(
+    #         mode="markers+lines",
+    #         hovertemplate="value: %{y}</b> source: %{customdata[0]} </b> received_time: %{customdata[1]}</b> sent_time: %{customdata[2]}",
+    #     )
+    #     return fig
 
     @register(Plots.Delay)
     def count_delay(e, sim: Simulation, node_id):

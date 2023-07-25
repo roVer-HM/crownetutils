@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import itertools
 import os
-from typing import List, Tuple
+from functools import partial
+from typing import Callable, List, Tuple
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection
 from pandas import IndexSlice as _i
+from pandas._typing import IntervalClosedType
 
-sns.set(font_scale=1.0, rc={"text.usetex": True})
 import crownetutils.omnetpp.scave as Scave
 import crownetutils.utils.plot as _Plot
 from crownetutils.analysis.base import AnalysisBase
@@ -23,17 +24,15 @@ from crownetutils.analysis.common import (
 )
 from crownetutils.analysis.dpmm.dpmm import percentile
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
-from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult, SqlOp
-from crownetutils.utils.dataframe import (
-    FrameConsumer,
-    append_index,
-    format_frame,
-    siunitx,
+from crownetutils.analysis.hdf_providers.node_position import (
+    EnbPositionHdf,
+    NodePositionHdf,
 )
+from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult, SqlOp
+from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_interval
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
 from crownetutils.utils.parallel import run_kwargs_map
-from crownetutils.utils.plot import PlotUtil, with_axis
 
 
 def make_run_series(
@@ -132,12 +131,27 @@ class _hdf_Extractor(AnalysisBase):
                     f"hdf store and groups: '{pkt_loss_g},{raw_g}' already exist skip."
                 )
             else:
-                pkt_loss, raw = OppAnalysis.get_received_packet_loss(sql, app)
+                pkt_loss = OppAnalysis.get_received_packet_loss(sql, app)
                 hdf_store.write_frame(pkt_loss_g, pkt_loss)
-                hdf_store.write_frame(raw_g, raw)
+                # hdf_store.write_frame(raw_g, raw)
         except SqlEmptyResult as e:
             logger.error("No packets found")
             logger.error(e)
+
+
+class ServingEnbHdf(BaseHdfProvider):
+    @classmethod
+    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> ServingEnbHdf:
+        obj = cls(hdf_path=hdf_path, group="enb_association", allow_lazy_loading=True)
+        obj.add_group_factory(
+            obj.group,
+            partial(OppAnalysis.get_serving_enb, sql=sim.sql, with_host_id=True),
+        )
+        return obj
+
+    @classmethod
+    def from_sim(cls, sim: Simulation, **kwargs) -> ServingEnbHdf:
+        return cls.get(sim.path("position.h5"), sim, **kwargs)
 
 
 class _OppAnalysis(AnalysisBase):
@@ -303,36 +317,6 @@ class _OppAnalysis(AnalysisBase):
             df_rcv /= _sum
         return df_rcv
 
-    @with_axis
-    def plot_packet_source_distribution(
-        self,
-        data: pd.DataFrame,
-        hatch_patterns: List[str] = PlotUtil._hatch_patterns,
-        ax: plt.Axes = None,
-        **kwargs,
-    ) -> plt.Axes:
-        """Plot packet source distribution
-
-        Args:
-            ax (plt.Axes, optional): Axes to use. If missing a new axes will be injected by
-                                     PlotUtil.with_axis decorator.
-
-        Returns:
-            plt.Axes:
-        """
-        patterns = itertools.cycle(hatch_patterns)
-
-        ax = data.plot.barh(stacked=True, width=0.5, ax=ax)
-        ax.set_title("Packets received from")
-        ax.set_xlabel("percentage")
-        bars = [i for i in ax.containers if isinstance(i, mpl.container.BarContainer)]
-        for bar in bars:
-            _h = next(patterns)
-            for patch in bar:
-                patch.set_hatch(_h)
-        ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
-        return ax.get_figure(), ax
-
     def get_neighborhood_table_size(
         self,
         sql: Scave.CrownetSql,
@@ -360,98 +344,6 @@ class _OppAnalysis(AnalysisBase):
         tbl_idx = tbl["hostId"].unique()
         tbl_idx.sort()
         return tbl, tbl_idx
-
-    @with_axis
-    def plot_neighborhood_table_size_over_time(
-        self, tbl: pd.DataFrame, tbl_idx: np.ndarray, ax: plt.Axes = None
-    ) -> plt.Axes:
-        """Plot neighborhood table size for each node over time.
-        x-axis: time
-        y-axis: number of entries in neighborhood table
-
-        Args:
-            tbl (pd.DataFrame): Data see get_neighborhood_table_size_over_time()
-            tbl_idx (np.ndarray): see get_neighborhood_table_size_over_time()
-            ax (plt.Axes, optional): Axes to use. If missing a new axes will be injected by
-                                     PlotUtil.with_axis decorator.
-
-        Returns:
-            plt.Axes:
-        """
-        _c = PlotUtil.color_lines(line_type=None)
-        for i in tbl_idx:
-            _df = tbl.loc[tbl["host"] == i]
-            ax.plot(_df["time"], _df["value"], next(_c), label=i)
-
-        ax.set_ylabel("Neighboor count")
-        ax.set_xlabel("time [s]")
-        ax.set_title("Size of neighborhood table over time for each node")
-        return ax.get_figure(), ax
-
-    @timing
-    def get_received_host_ids(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
-    ):
-        # add eventNumber to allow concat with rx host id data
-        columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
-        df = sql.vector_ids_to_host(
-            module_name,
-            "rcvdPkHostId:vector",
-            name_columns=["hostId"],
-            pull_data=True,
-            value_name="srcHostId",
-            columns=columns,
-            drop=["vectorId"],
-        )
-        df["srcHostId"] = df["srcHostId"].astype(int)
-        return df
-
-    def get_rcvd_generic_vec_data(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
-        vector_name: str,
-        value_name: str,
-        with_host_id: bool = False,
-        append_source_id: bool = False,
-        drop_self_message: bool = False,
-        drop_col: List[str] | None = ("vectorId",),
-    ) -> pd.DataFrame:
-        if drop_self_message:
-            logger.info(
-                f"drop data points where hostId (i.e. receiving node) and tx_host_id are equal."
-            )
-            # drop_self_message implies that these must be true!
-            append_source_id = True
-            with_host_id = True
-        if append_source_id:
-            columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
-        else:
-            columns = ["vectorId", "simtimeRaw", "value"]
-
-        if with_host_id or append_source_id:
-            df = sql.vector_ids_to_host(
-                module_name,
-                vector_name,
-                pull_data=True,
-                value_name=value_name,
-                name_columns=["hostId"],
-                columns=columns,
-                drop=drop_col if drop_col is None else list(drop_col),
-            )
-        else:
-            df = sql.vec_data(
-                module_name=module_name,
-                vector_name=vector_name,
-                value_name=value_name,
-                drop=drop_col if drop_col is None else list(drop_col),
-            )
-
-        if append_source_id:
-            df = self._merge_rx_host_id(df, sql, module_name, drop_self_message)
-        return df
 
     @timing
     def get_received_packet_jitter(
@@ -537,11 +429,31 @@ class _OppAnalysis(AnalysisBase):
             drop_col=drop_columns,
         )
 
+    @timing
+    def _get_received_host_ids(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+    ):
+        # add eventNumber to allow concat with rx host id data
+        columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
+        df = sql.vector_ids_to_host(
+            module_name,
+            "rcvdPkHostId:vector",
+            name_columns=["hostId"],
+            pull_data=True,
+            value_name="srcHostId",
+            columns=columns,
+            drop=["vectorId"],
+        )
+        df["srcHostId"] = df["srcHostId"].astype(int)
+        return df
+
     def _merge_rx_host_id(
         self, data: pd.DataFrame, sql, module_name, drop_self_msg: bool = False
     ):
         """Merge receiving host id with data from data vector."""
-        tx_host_ids = self.get_received_host_ids(sql, module_name)
+        tx_host_ids = self._get_received_host_ids(sql, module_name)
         data = data.set_index(["eventNumber", "time", "hostId"]).sort_index()
         tx_host_ids = tx_host_ids.set_index(
             ["eventNumber", "time", "hostId"]
@@ -559,6 +471,226 @@ class _OppAnalysis(AnalysisBase):
             ["hostId", "srcHostId", "eventNumber", "time"]
         ).sort_index()
         return data
+
+    def get_serving_enb(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str | None = None,
+        with_host_id: bool = False,
+        drop_col: List[str] | None = ("vectorId",),
+    ):
+        """Serving enb based on 'serveringCell:vector for physical layer of nodes.
+        The vector contains the time point at which a switch to a new eNB takes place.
+        The eNB id of zero indicates no connection
+
+        Args:
+            sql (Scave.CrownetSql): _description_
+            module_name (Scave.SqlOp | str | None, optional): _description_. Defaults to None.
+            with_host_id (bool, optional): _description_. Defaults to False.
+            drop_col (List[str] | None, optional): _description_. Defaults to ("vectorId",).
+
+        Returns:
+            pd.DataFrame: [hostId, time, servingEnb]
+        """
+        module_name = sql.m_phy() if module_name is None else module_name
+        if with_host_id:
+            df = sql.vector_ids_to_host(
+                module_name,
+                "servingCell:vector",
+                pull_data=True,
+                value_name="servingEnb",
+                name_columns=["hostId"],
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+        else:
+            df = sql.vec_data(
+                module_name=module_name,
+                vector_name="servingCell:vector",
+                value_name="servingEnb",
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+        df = df.loc[:, ["hostId", "time", "servingEnb"]].sort_values(["hostId", "time"])
+        return df
+
+    def get_serving_enb_interval(
+        self,
+        sim: Simulation,
+        end_time_provider: Callable[[pd.Series], pd.Series] | None = None,
+        interval_closed: IntervalClosedType = "right",
+    ) -> pd.DataFrame:
+        """Get interval indexed serving cells with start and stop intervals.
+
+        Args:
+            sql (Scave.CrownetSql): Sql object.
+            end_time_provider (Callable[[pd.Series], pd.Series]): Apply callable to determine the last 'end' time. Callable has access to row [hostId, start, stop, servingEnb]
+            module_name (Scave.SqlOp | str | None, optional): Modules path. Defaults to None.
+            interval_closed (str, optional) =  Interval closing type . Defaults to right.
+
+
+        Returns:
+            pd.DataFrame: Indexed dataframe (hostId, interval)[start, stop, servingEnb]
+        """
+
+        if end_time_provider is None:
+            ue = NodePositionHdf.from_sim(sim).get_dataframe()
+            max_time_dict = ue.groupby("hostId")["time"].max().to_dict()
+            max_time = ue["time"].max()
+
+            def _apply(s):
+                if np.isnan(s["end"]):
+                    i = int(s["hostId"])
+                    if i in max_time_dict:
+                        t = (
+                            max_time
+                            if s["start"] > max_time_dict[i]
+                            else max_time_dict[i]
+                        )
+                        s["end"] = t
+                return s
+
+            end_time_provider = _apply
+
+        serving = ServingEnbHdf.from_sim(sim).get_dataframe()
+
+        serving = serving.loc[:, ["hostId", "time", "servingEnb"]].sort_values(
+            ["hostId", "time"]
+        )
+
+        # shift time column to get end time step.
+        _end = serving.groupby("hostId").shift(-1)
+        serving["end"] = _end["time"]
+        serving = serving.rename(columns={"time": "start"})
+
+        # set removal time of node as last time step based on end_time_provider
+        serving = serving.apply(end_time_provider, axis=1).dropna()
+        serving["delta"] = serving["end"] - serving["start"]
+
+        serving["interval"] = [
+            pd.Interval(*row, closed=interval_closed)
+            for _, row in serving[["start", "end"]].iterrows()
+        ]
+        serving = serving.loc[:, ["hostId", "interval", "start", "end", "servingEnb"]]
+        serving = serving.set_index(["hostId", "interval"]).sort_index()
+        return serving
+
+    def get_node_serving_data(
+        self,
+        sim: Simulation,
+        enb_pos: EnbPositionHdf | pd.DataFrame,
+        ue_pos: NodePositionHdf | pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Create data for positional eNB association of each node.
+
+        Args:
+            sql (Scave.CrownetSql): _description_
+            enb_pos (EnbPositionHdf): _description_
+            ue_pos (NodePositionHdf): _description_
+            end_time_provider (Callable[[pd.Series], pd.Series]): _description_
+
+        Returns:
+           Tuple[pd.DataFrame, LineCollection]: data frame of the form [hostId, time, host, vecIdx, x, y, servingEnb, x1, x2, color, segment]
+           and a LineCollection containing all segments
+        """
+
+        enb = (
+            enb_pos.get_dataframe() if isinstance(enb_pos, EnbPositionHdf) else enb_pos
+        )
+        ue = ue_pos.get_dataframe() if isinstance(ue_pos, NodePositionHdf) else ue_pos
+
+        enb_int = self.get_serving_enb_interval(sim)
+
+        # append enb association data
+        ue = ue.set_index(["hostId", "time"]).sort_index()
+        ue = merge_on_interval(ue, enb_int, index="time").fillna(-1)
+        ue = ue.drop(columns=["interval", "start", "end"])
+
+        # add next position (x1, y1) to create line segment (start point, end point)
+        ue2 = ue.groupby("hostId")[["x", "y"]].shift(-1).set_axis(["x1", "y1"], axis=1)
+        ue = pd.concat([ue, ue2], axis=1).dropna()
+
+        # extract enb association with start and end point data as array
+        ue_arr = (
+            ue.set_index(["hostId", "time"])
+            .sort_index()
+            .loc[:, ["servingEnb", "x", "y", "x1", "y1"]]
+            .to_numpy()
+        )
+
+        # use enb association as color index (will be used as array index )
+        enb_color_index = ue_arr[:, 0].astype(int) + 1
+
+        # create list of line segments. Each line segment consits of only two points. (start end end of line)
+        line_col = ue_arr[:, 1:].reshape(
+            -1, 2, 2
+        )  # [ [[x, y], [x1, y1]], [[.],[.]], ... ]
+
+        # create color array containg all enb's plus one for no connection and one for not in the simulation
+        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * enb.shape[0])))
+        enb_colors = enb_c[-(2 + enb.shape[0]) :]
+        enb_colors[0] = [
+            1,
+            1,
+            1,
+            1,
+        ]  # white: not in simulation (enb index -1) --> enb_color_index 0 (see above)
+        enb_colors[1] = [
+            0,
+            0,
+            0,
+            1,
+        ]  # black: not conneceted to any eNB (enb index 0) --> enb_color_index 1 (see above)
+
+        # match enb_color_index with actual color
+        enb_color_index = enb_colors[enb_color_index]  # replace color index with colors
+        # ue["color"] = enb_color_index.tolist()
+        ue["segment"] = line_col.tolist()
+
+        return ue
+
+    def get_rcvd_generic_vec_data(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str,
+        vector_name: str,
+        value_name: str,
+        with_host_id: bool = False,
+        append_source_id: bool = False,
+        drop_self_message: bool = False,
+        drop_col: List[str] | None = ("vectorId",),
+    ) -> pd.DataFrame:
+        if drop_self_message:
+            logger.info(
+                f"drop data points where hostId (i.e. receiving node) and tx_host_id are equal."
+            )
+            # drop_self_message implies that these must be true!
+            append_source_id = True
+            with_host_id = True
+        if append_source_id:
+            columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
+        else:
+            columns = ["vectorId", "simtimeRaw", "value"]
+
+        if with_host_id or append_source_id:
+            df = sql.vector_ids_to_host(
+                module_name,
+                vector_name,
+                pull_data=True,
+                value_name=value_name,
+                name_columns=["hostId"],
+                columns=columns,
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+        else:
+            df = sql.vec_data(
+                module_name=module_name,
+                vector_name=vector_name,
+                value_name=value_name,
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+
+        if append_source_id:
+            df = self._merge_rx_host_id(df, sql, module_name, drop_self_message)
+        return df
 
     @timing
     def get_avgServedBlocksUl(
@@ -594,29 +726,6 @@ class _OppAnalysis(AnalysisBase):
             .set_axis(["pkt_count", "byte_count"], axis=1)
         )
         return df
-
-    @timing
-    def plot_map_pkt_count_all(
-        self,
-        data_root: str,
-        sql: Scave.CrownetSql,
-        saver: _Plot.FigureSaver | None = None,
-    ):
-        saver = _Plot.FigureSaver.FIG(saver)
-        data = self.get_map_pkt_count_ts(sql)
-        fig, ax = plt.subplots()
-        _Plot.PlotUtil.df_to_table(
-            data.describe().applymap("{:1.4f}".format).reset_index(), ax
-        )
-        ax.set_title(f"Descriptive statistics for map application")
-        saver(fig, os.path.join(data_root, f"tx_MapPkt_stat.pdf"))
-
-        fig, ax = PlotUtil.check_ax()
-        ax.scatter("time", "pkt_count", data=data.reset_index())
-        ax.set_title("Packet count over time")
-        ax.set_ylabel("Number of packets")
-        ax.set_xlabel("Simulation time in seconds")
-        saver(fig, os.path.join(data_root, f"txMapPktCount_ts.pdf"))
 
     def append_run_col(self, func, run: int, **kwargs) -> pd.DataFrame:
         print(f"run func for run {run}")
@@ -1891,149 +2000,6 @@ class _CellOccupancy:
             info = CellOccupancyInfo.concat(infos)
             info.to_hdf(run_map.path(hdf_path))
         return info
-
-    def plot_cell_occupation_info(
-        self, info: CellOccupancyInfo, run_map: RunMap, fig_path
-    ):
-        with run_map.pdf_page(fig_path) as pdf:
-            m_seeds = run_map.get_mobility_seed_set()
-            for seed in m_seeds:
-                with plt.rc_context(_Plot.plt_rc_same(size="xx-large")):
-                    sub_plt = "12;63;44;55"
-                    fig, axes = plt.subplot_mosaic(sub_plt, figsize=(16, 3 * 9))
-                    ahist = axes["1"]
-                    ahist2: plt.Axes = axes["6"]
-                    astat = axes["2"]
-                    astat2 = axes["3"]
-                    agrid = axes["4"]
-                    abox = axes["5"]
-                    # fig, (ahist, astat, abox) = plt.subplots(3, 1, figsize=(16, 3*9))
-                    # info.occup_sim_by_cell
-                    ahist.hist(info.occup_sim_by_cell)
-                    ahist.set_xlabel("cell occupancy (time) percentage")
-                    ahist.set_ylabel("count")
-                    ahist.set_title(
-                        "Percentage of time a cell is occupied by at least one agent"
-                    )
-
-                    zz = (
-                        info.occup_sim_by_cell_grid.loc[_i[:, :, seed]]
-                        .groupby(["x", "y"])
-                        .mean()
-                    )
-                    z = (
-                        # info.occup_sim_by_cell_grid.loc[_i[:, :, 0 ]]
-                        # .reset_index("data", drop=True)
-                        info.occup_sim_by_cell_grid.loc[_i[:, :, seed]]
-                        .groupby(["x", "y"])
-                        .mean()
-                        .unstack("y")
-                        .to_numpy()
-                        .T
-                    )
-                    y_min = zz.index.get_level_values("y").min()
-                    y_max = zz.index.get_level_values("y").max()
-                    x_min = zz.index.get_level_values("x").min()
-                    x_max = zz.index.get_level_values("x").max()
-                    extent = (x_min, x_max, y_min, y_max)
-                    im = agrid.imshow(z, origin="lower", extent=extent, cmap="Reds")
-                    agrid.set_title("Cell occupancy in percentage")
-                    agrid.set_ylabel("y in meter")
-                    agrid.set_xlabel("x in meter")
-                    cb = PlotUtil.add_colorbar(im, aspect=10, pad_fraction=0.5)
-
-                    box_df = (
-                        info.occup_interval_by_cell.loc[_i[:, :, :, seed]]
-                        .groupby(["x", "y", "bins"])
-                        .mean()
-                    )
-                    _ = (
-                        box_df.reset_index()
-                        .loc[:, ["bins", "occupation_time_delta"]]
-                        .boxplot(
-                            column=["occupation_time_delta"],
-                            by=["bins"],
-                            rot=90,
-                            meanline=True,
-                            showmeans=True,
-                            widths=0.25,
-                            ax=abox,
-                        )
-                    )
-                    abox.set_xlabel("Simulation time intervals in [s]")
-                    abox.set_ylabel("Cell (time) occupation in percentage")
-                    abox.set_title(
-                        "Interval grouped: Percentage of time a cell is occupied by at least one agent"
-                    )
-                    _d = box_df.groupby(["bins"]).mean()
-                    # _d = info.occup_interval_describe.loc[_i[:, :, "mean"]]
-                    abox.plot(
-                        np.arange(1, _d.shape[0] + 1, 1),
-                        _d,
-                        linewidth=2,
-                        label="mean occupation",
-                    )
-
-                    astat.axis("off")
-                    s = (
-                        info.occup_sim_by_cell.loc[_i[:, :, seed]]
-                        .groupby(["x", "y"])
-                        .mean()
-                        .describe()
-                        .reset_index()
-                    )
-                    s.columns = ["stat", "value"]
-                    s = format_frame(
-                        s, col_list=["value"], si_func=siunitx(precision=4)
-                    )
-                    # s = s.T
-                    tbl = astat.table(
-                        cellText=s.values, colLabels=s.columns, loc="center"
-                    )
-                    tbl.set_fontsize(14)
-                    tbl.scale(1, 2)
-                    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
-
-                    #
-                    ahist2.hist(
-                        info.occup_interval_length.loc[
-                            _i[:, :, False, seed], ["delta"]
-                        ],
-                        bins=100,
-                        label="Empty",
-                    )
-                    ahist2.set_xlabel("Interval length in second")
-                    ahist2.set_ylabel("count")
-                    ahist2.set_title("Interval length distribution for empty periods")
-
-                    astat2.axis("off")
-                    s = (
-                        info.occup_interval_length.loc[_i[:, :, :, seed]]
-                        .reset_index()
-                        .groupby(["cell_occupied"])["delta"]
-                        .describe()
-                        .T.reset_index()
-                        .rename(
-                            columns={"index": "stat", True: "Occupied", False: "Empty"}
-                        )
-                    )
-                    # s = info.occup_sim_describe.reset_index().iloc[:, [0, -1]]
-                    # s.columns = ["stat", "value"]
-                    # s = s.T
-                    s = format_frame(
-                        s, col_list=s.columns[1:], si_func=siunitx(precision=4)
-                    )
-                    tbl = astat2.table(
-                        cellText=s.values, colLabels=s.columns, loc="center"
-                    )
-                    tbl.set_fontsize(14)
-                    tbl.scale(1, 2)
-                    # fix super title
-                    fig.suptitle(f"Cell occupation info for mobility seed {seed}")
-                    print(f"create figure: {fig._suptitle.get_text()}")
-                    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
-                    pdf.savefig(fig)
-                    plt.close(fig)
 
 
 CellOccupancy = _CellOccupancy()

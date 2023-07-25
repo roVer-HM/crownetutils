@@ -4,6 +4,7 @@ from distutils.version import Version
 from typing import Dict, List, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import box
 
@@ -26,6 +27,8 @@ class DpmmCountKey:
     OWNER_DIST = "owner_dist"
     SQERR = "sqerr"
     MISSING_VAL = "missing_value"
+    # v 0.4
+    RSD_ID = "rsd_id"
 
     columns = VersionDict(
         {
@@ -36,6 +39,7 @@ class DpmmCountKey:
                 SQERR,
             ],
             ProviderVersion.V0_3: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL],
+            ProviderVersion.V0_4: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL, RSD_ID],
         }
     )
 
@@ -198,7 +202,7 @@ class DpmmCount(IHdfProvider):
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None
     ) -> gpd.GeoDataFrame:
-        offset = self.get_attribute("offset")
+        sim_bound = self.get_sim_bound()
         epsg_code = self.get_attribute("epsg")
         cell_size = self.get_attribute("cell_size")
 
@@ -208,8 +212,8 @@ class DpmmCount(IHdfProvider):
         df["cell_x"] = _index["x"]
         df["cell_y"] = _index["y"]
 
-        _index["x"] = _index["x"] - offset[0]
-        _index["y"] = _index["y"] - offset[1]
+        _index["x"] = _index["x"] - sim_bound.offset[0] - sim_bound.sim_offset[0]
+        _index["y"] = _index["y"] - sim_bound.offset[1] - sim_bound.sim_offset[1]
         df.index = pd.MultiIndex.from_frame(_index)
 
         g = [

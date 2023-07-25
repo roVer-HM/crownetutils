@@ -255,3 +255,7 @@ class Project:
             return [transform(self._project, g) for g in geom]
         else:
             return transform(self._project, geom)
+
+
+def is_subscribable(__obj: Any) -> bool:
+    return hasattr(__obj, "__getitem__")

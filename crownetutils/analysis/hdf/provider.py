@@ -29,6 +29,7 @@ from geopandas.geodataframe import GeoDataFrame
 
 from crownetutils.analysis.hdf.geo_provider import GeoProvider
 from crownetutils.analysis.hdf.operator import Operation
+from crownetutils.omnetpp.sim_bound import SimBound
 from crownetutils.utils.logging import logger
 
 
@@ -59,6 +60,18 @@ class BaseHdfProvider:
         _state = self.__dict__.copy()
         del _state["_lock"]  # remove unpicklable entry
         return _state
+
+    def clear_group(self, group: str | None = None, repack: bool = True):
+        group = self.group if group is None else group
+
+        if self.contains_group(group):
+            with self.ctx(mode="a") as store:
+                store: pd.HDFStore
+                store.remove(group)
+            if repack:
+                logger.info("repack hdf file to free space.")
+                self.repack_hdf(keep_old_file=False)
+        return self
 
     @property
     def lazy_loading(self) -> bool:
@@ -156,7 +169,7 @@ class BaseHdfProvider:
 
         try:
             fd = NamedTemporaryFile()
-            print(f"repack {self._hdf_path}. This might take some time...")
+            logger.info(f"repack {self._hdf_path}. This might take some time...")
             ret = subprocess.check_call(
                 args,
                 stdout=fd,
@@ -165,13 +178,13 @@ class BaseHdfProvider:
                 cwd=os.path.dirname(self._hdf_path),
             )
         except subprocess.CalledProcessError:
-            print(f"Error while repacking {self._hdf_path}\nargs:{args}")
+            logger.error(f"Error while repacking {self._hdf_path}\nargs:{args}")
             with open(fd.name, "r") as f:
                 print("\n".join(f.readlines()))
             return
 
         if ret != 0:
-            print(f"non zero return code from ptrepack: {ret}\nargs:{args}")
+            logger.info(f"non zero return code from ptrepack: {ret}\nargs:{args}")
             with open(fd.name, "r") as f:
                 print("\n".join(f.readlines()))
         else:
@@ -199,6 +212,22 @@ class BaseHdfProvider:
                 return hdf_file.root[_key].table.attrs[attr_key]
             else:
                 return default
+
+    def has_attribute(self, attr_key: str, group=None) -> bool:
+        return self.get_attribute(attr_key, group, default=None) is not None
+
+    def get_sim_bound(self):
+        offset_utm = self.get_attribute("offset")
+        if self.has_attribute("sim_bbox"):
+            sim_bbox = np.array(self.get_attribute("sim_bbox"))
+        else:
+            logger.warn(
+                f"HDF file does not have 'sim_box' attribute. Use `cell_bound` and assume zero offset -> [[0., 0., cell_bound[0], cell_bound[1]]"
+            )
+            bound = self.get_attribute("cell_bound")
+            sim_bbox = np.array([[0.0, 0.0], [bound[0], bound[1]]])
+
+        return SimBound(offset=offset_utm, sim_bbox=sim_bbox)
 
     @property
     def hdf_file_exists(self):
@@ -294,7 +323,8 @@ class BaseHdfProvider:
 class ProviderVersion(Enum):
     V0_1 = "0.1"
     V0_2 = "0.2"
-    V0_3 = "0.3"
+    V0_3 = "0.3"  # add measurement distance
+    V0_4 = "0.4"  # add resource sharing domain (RSD)
 
     @classmethod
     def current(cls):
@@ -350,8 +380,36 @@ class ProviderVersion(Enum):
                 return _val
         raise ValueError(f"No Version found for string {str_val}")
 
+    def __eq__(self, __value: object) -> bool:
+        if not isinstance(__value, self.__class__):
+            return False
+        return self.value_as_float() == __value.value_as_float()
+
+    def __lt__(self, __value: object) -> bool:
+        if not isinstance(__value, self.__class__):
+            return NotImplemented("Comparision between different types")
+        return self.value_as_float() < __value.value_as_float()
+
+    def __gt__(self, __value: object) -> bool:
+        return __value < self
+
+    def __ge__(self, __value: object) -> bool:
+        return self > __value or self == __value
+
+    def __le__(self, __value: object) -> bool:
+        return self < __value or self == __value
+
+    def is_(self, __value: object) -> bool:
+        return self == __value
+
+    def __hash__(self) -> int:
+        return self.as_string.__hash__()
+
     def as_string(self):
         return str(self.value)
+
+    def value_as_float(self):
+        return float(self.value)
 
 
 class VersionDict:

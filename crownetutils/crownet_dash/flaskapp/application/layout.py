@@ -68,7 +68,7 @@ def build_layout(dash_app: Dash):
             selector_layout,
             misc_layout,
             scenario_layout,
-            cell_error_layout,
+            # cell_error_layout,
         ]
     )
 
@@ -152,7 +152,7 @@ def misc_view(ns: Namespace, ids: IdProvider | None = None):
         DashUtil.module_header(ids("title")),
         lbl_dropdown("Select Plot:", 3, ids("plot-dropdown")),
         lbl_dropdown("Select Node:", 3, ids("node-dropdown")),
-        full_row(html.Div(id=ids("plot-wrapper"), children=["No plot selected"])),
+        full_graph(id=ids("misc-graph")),
     ]
 
     return ids.insert_layout_defaults(layout), ids

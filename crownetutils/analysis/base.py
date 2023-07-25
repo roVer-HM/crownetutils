@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from os.path import join
 from typing import Tuple
 
@@ -19,9 +20,12 @@ class AnalysisBase:
         sca_name="vars_rep_0.sca",
         network_name="World",
         epsg_base=Project.UTM_32N,
+        override_hdf: bool = False,
     ) -> Tuple[str, DpmmHdfBuilder, CrownetSql]:
         # todo: try catch here?
-        builder = DpmmHdfBuilder.get(hdf_file, data_root).epsg(epsg_base)
+        builder = DpmmHdfBuilder.get(
+            hdf_file, data_root, override_hdf=override_hdf
+        ).epsg(epsg_base)
 
         sql: CrownetSql = CrownetSql(
             vec_path=f"{data_root}/{vec_name}",

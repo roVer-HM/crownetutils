@@ -20,7 +20,7 @@ from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     DpmmGlobalPosition,
     pos_density_from_csv,
 )
-from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.hdf.provider import ProviderVersion
 from crownetutils.utils.dataframe import (
@@ -28,7 +28,7 @@ from crownetutils.utils.dataframe import (
     FrameConsumer,
     MissingValueImputationStrategy,
 )
-from crownetutils.utils.logging import logging
+from crownetutils.utils.logging import logger, logging
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 
@@ -92,10 +92,18 @@ class DpmmHdfBuilder(FrameConsumer):
 
     @classmethod
     def get(
-        cls, hdf_path, source_path, map_glob="dcdMap_*.csv", global_name="global.csv"
+        cls,
+        hdf_path,
+        source_path,
+        map_glob="dcdMap_*.csv",
+        global_name="global.csv",
+        override_hdf: bool = False,
     ):
         if not os.path.isabs(hdf_path):
             hdf_path = os.path.join(source_path, hdf_path)
+        if override_hdf and os.path.exists(hdf_path):
+            logger.info(f"found hdf file but override hdf is active. remove {hdf_path}")
+            os.remove(hdf_path)
         return cls(
             hdf_path=hdf_path,
             map_paths=glob.glob(os.path.join(source_path, map_glob)),
@@ -192,6 +200,7 @@ class DpmmHdfBuilder(FrameConsumer):
         if not self.hdf_exist or override_hdf:
             try:
                 os.remove(self.hdf_path)
+                pass
             except FileNotFoundError:
                 pass
             print(f"create HDF {self.hdf_path}")
@@ -298,7 +307,11 @@ class DpmmHdfBuilder(FrameConsumer):
         self.map_p.create_from_csv(
             self.map_paths,
             frame_consumer=[
-                partial(self.create_count_map, imputation_f=self._imputation_function)
+                partial(
+                    self.create_count_map,
+                    csv_version=self.map_p.version,
+                    imputation_f=self._imputation_function,
+                )
             ],
             global_position=self.position_df,
             global_metadata=meta,
@@ -319,6 +332,7 @@ class DpmmHdfBuilder(FrameConsumer):
             p.set_attribute("cell_size", meta.cell_size)
             p.set_attribute("cell_count", meta.cell_count)
             p.set_attribute("cell_bound", meta.bound)
+            p.set_attribute("sim_bbox", meta.sim_bbox)
             p.set_attribute("offset", meta.offset)
             p.set_attribute("epsg", self._epsg)
             p.set_attribute("version", meta.version.as_string())
@@ -382,6 +396,7 @@ class DpmmHdfBuilder(FrameConsumer):
     def create_count_map(
         self,
         df: pd.DataFrame,
+        csv_version: ProviderVersion = ProviderVersion.current(),
         imputation_f: MissingValueImputationStrategy = ArbitraryValueImputation(),
     ):
         """
@@ -411,12 +426,13 @@ class DpmmHdfBuilder(FrameConsumer):
         positions = positions[np.invert(positions.index.duplicated(keep="first"))]
 
         # get count and node position
-        _df = _df.loc[:, ["count", "x_owner", "y_owner"]].droplevel(["source", "ID"])
+        selected_columns = DpmmKey.count_map_creation_cols[csv_version]
+        _df = _df.loc[:, selected_columns].droplevel(["source", "ID"])
         # merge with global, rename columns and fill glb_count nan with '0'
         # fill only global. The index where this happens are values where
         # the global map does not have any values -> thus count=0
         _df = pd.concat([self.global_df, _df], axis=1)
-        _df.columns = ["glb_count", "count", "x_owner", "y_owner"]
+        _df.columns = ["glb_count", *selected_columns]
         # add marker column for which data imputation is used.
         missing_value_idx = _df[_df["count"].isna().values].index
         _df["missing_value"] = False
@@ -451,6 +467,13 @@ class DpmmHdfBuilder(FrameConsumer):
         _df = _df.set_index(["ID"], drop=True, append=True)
         # _df["count"] = _df["count"].astype(int)
         # _df["err"] = _df["err"].astype(int)
+        _df = _df.astype(
+            {
+                k: v
+                for k, v in DpmmKey.types_csv_columns[csv_version].items()
+                if k in _df.columns
+            }
+        )
         self.append_to_provider(self.count_p, _df)
 
     def append_global_count(self):
@@ -461,6 +484,8 @@ class DpmmHdfBuilder(FrameConsumer):
         _df["sqerr"] = 0.0
         _df["owner_dist"] = 0.0
         _df["missing_value"] = False
+        if self.global_p.version >= ProviderVersion.V0_4:
+            _df[DpmmKey.RSD_ID] = -1.0
         _df = _df.set_index(["ID"], drop=True, append=True)
         self.append_to_provider(self.count_p, _df)
 

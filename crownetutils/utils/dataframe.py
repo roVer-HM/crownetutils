@@ -4,6 +4,7 @@ from functools import partial
 from glob import escape
 from typing import Any, Callable, List, Protocol
 
+import numpy as np
 import pandas as pd
 from pandas.io.formats.style import Styler
 
@@ -258,6 +259,56 @@ def append_index(df: pd.DataFrame, col: str, val=None):
     _idx = [*df.index.names, col]
     df = df.reset_index().set_index(_idx)
     return df
+
+
+def index_or_col(df, name):
+    if isinstance(df.index, pd.MultiIndex):
+        if name in df.index.names:
+            return df.index.get_level_values(name)
+    elif df.index.name == name:
+        return df.index
+    elif name in df.columns:
+        return df[name]
+    else:
+        raise ValueError(f"name {name} not found in index or columns")
+
+
+def merge_on_interval(
+    data: pd.DataFrame,
+    df_interval,
+    index="time",
+    interval_col="interval",
+    merge: bool = True,
+    **merge_args,
+):
+    data = data.copy()
+    if isinstance(data.index, pd.MultiIndex):
+        group_by_index = list(data.index.names)
+        if index not in group_by_index:
+            raise ValueError(
+                f"Expected  index level {index} in dataframe. Got '{group_by_index}'"
+            )
+        group_by_index.remove(index)
+
+        data[interval_col] = np.nan
+        for _index, _df in data.groupby(group_by_index):
+            i_index = pd.IntervalIndex(
+                index_or_col(df_interval.loc[_index], interval_col)
+            )
+            data.loc[_index, [interval_col]] = pd.cut(
+                _df.index.get_level_values(index), bins=i_index
+            )
+    else:
+        i_index = pd.IntervalIndex(index_or_col(df_interval, interval_col))
+        data[interval_col] = pd.cut(data.index.get_level_values(0), bins=i_index)
+        group_by_index = []
+
+    merge_args.update(dict(on=[*group_by_index, interval_col], how="left"))
+
+    if merge:
+        data = data.reset_index().merge(df_interval.reset_index(), **merge_args)
+
+    return data
 
 
 def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.DataFrame:

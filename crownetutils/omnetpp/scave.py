@@ -18,6 +18,7 @@ import pandas as pd
 from shapely.geometry import Point, Polygon
 
 from crownetutils.omnetpp.scave_config import ScaveConfig
+from crownetutils.omnetpp.sim_bound import SimBound
 from crownetutils.utils.logging import logger, timing
 
 
@@ -634,6 +635,27 @@ class OppSql:
         return df
 
 
+class HostIdMap:
+    def __init__(self, id_map) -> None:
+        self.id_map: dict = id_map
+        self._next_dummy_id = -1
+
+    def __getitem__(self, key):
+        return self.id_map[key]
+
+    def get_dummy_id(self, key):
+        if key not in self.id_map:
+            logger.warn(
+                f"module '{key}' not found in id_map. Provide dummy id {self._next_dummy_id}"
+            )
+            self.id_map[key] = self._next_dummy_id
+            self._next_dummy_id -= 1
+        return self.id_map[key]
+
+    def __contains__(self, key):
+        return key in self.id_map
+
+
 class CrownetSql(OppSql):
     v_app_receiving = OppSql.OR(
         [
@@ -653,6 +675,7 @@ class CrownetSql(OppSql):
     _pos_y = "posy:vector"
 
     _module_vectors = ["misc", "pNode", "vNode"]
+    _all_modules = [*_module_vectors, "eNB", "gNB"]
 
     _vehicle = "%s.misc[%d]"
     _vehicle_app = "%s.misc[%d].app[%d]"
@@ -666,11 +689,12 @@ class CrownetSql(OppSql):
             [f"{self.network}.{i}[%]" for i in self._module_vectors]
         )
         self._host_id_regex = re.compile(
-            f"(?P<host>^{self.network}\.(?P<type>{'|'.join(self._module_vectors)})\[\d+\]).*"
+            f"(?P<host>^{self.network}\.(?P<type>{'|'.join(self._all_modules)})\[\d+\]).*"
         )
         self._host_index_regex = re.compile(
-            f"^{self.network}\.(?P<type>{'|'.join(self._module_vectors)})\[(?P<hostIdx>\d+)\].*"
+            f"^{self.network}\.(?P<type>{'|'.join(self._all_modules)})\[(?P<hostIdx>\d+)\].*"
         )
+        self._module_id_map: HostIdMap = None
 
     def host_ids(self, module_name: Union[None, str, SqlOp] = None):
         """
@@ -682,7 +706,39 @@ class CrownetSql(OppSql):
         _df = self.query_sca(sql_str=_sql)
         _df["scalarValue"] = pd.to_numeric(_df["scalarValue"], downcast="integer")
         _df = _df.reset_index(drop=True).set_index(keys="scalarValue")
-        return _df.to_dict()["moduleName"]
+        _df = _df.to_dict()["moduleName"]
+        return _df
+
+    def sim_bound(self):
+        # get simulation bound offset
+        offset = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simOffsetX:last", "simOffsetY:last"]),
+        )["scalarValue"].to_numpy()
+
+        # get simulation bound (width, height). Lower left point [0, 0] + offset
+        bound = self.sca_data(
+            module_name=f"{self.network}.coordConverter",
+            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
+        )["scalarValue"].to_numpy()
+
+        try:
+            bbox = (
+                self.vec_data(
+                    module_name=f"{self.network}.coordConverter",
+                    vector_name="simBBox:vector",
+                )["value"]
+                .to_numpy()
+                .reshape((2, 2))
+            )
+        except Exception:
+            logger.warn(
+                f"cannot access simBBox:vector. Assume zero sim_offset [[0,0],[{bound[0]},{bound[1]}]"
+            )
+            bbox = np.array([[0.0, 0.0], [bound[0], bound[1]]])
+
+        b = SimBound(offset=offset, sim_bbox=bbox)
+        return b
 
     @property
     def sim_time_limit(self):
@@ -693,7 +749,12 @@ class CrownetSql(OppSql):
         return self.get_run_config("vadereScenarioPath", full_match=False)
 
     def module_to_host_ids(self):
-        return {v: k for k, v in self.host_ids().items()}
+        if self._module_id_map is None:
+            m = self.OR([f"{self.network}.{i}[%]" for i in self._module_vectors])
+            self._module_id_map = HostIdMap(
+                {v: k for k, v in self.host_ids(module_name=m).items()}
+            )
+        return self._module_id_map
 
     def create_bonnmotion_trace(
         self,
@@ -722,6 +783,30 @@ class CrownetSql(OppSql):
                 fd.writelines(lines)
         else:
             return lines
+
+    def enb_position(
+        self,
+        module_name: Union[SqlOp, str, None] = None,
+        ids: pd.DataFrame | None = None,
+        time_slice: slice = slice(None),
+        epsg_code_base: str | None = None,
+        epsg_code_to: str | None = None,
+        apply_offset: bool = True,
+        bottom_left_origin: bool = True,
+        cols: tuple = ("time", "hostId", "host", "x", "y"),
+    ):
+        if module_name is None:
+            module_name = self.m_enb()
+        return self.node_position(
+            module_name=module_name,
+            ids=ids,
+            time_slice=time_slice,
+            epsg_code_base=epsg_code_base,
+            epsg_code_to=epsg_code_to,
+            apply_offset=apply_offset,
+            bottom_left_origin=bottom_left_origin,
+            cols=cols,
+        )
 
     def node_position(
         self,
@@ -809,25 +894,18 @@ class CrownetSql(OppSql):
         if df["x"].hasnans or df["y"].hasnans:
             print("warning: host positions are inconsistent")
 
-        # get simulation bound offset
-        offset = self.sca_data(
-            module_name=f"{self.network}.coordConverter",
-            scalar_name=self.OR(["simOffsetX:last", "simOffsetY:last"]),
-        )["scalarValue"].to_numpy()
-
-        # get simulation bound (width, height). Lower left point [0, 0] + offset
-        bound = self.sca_data(
-            module_name=f"{self.network}.coordConverter",
-            scalar_name=self.OR(["simBoundX:last", "simBoundY:last"]),
-        )["scalarValue"].to_numpy()
+        bound = self.sim_bound()
 
         # convert to bottom-left origin and remove offset used during the simulation
         if bottom_left_origin:
-            df["y"] = bound[1] - df["y"]  # move from top-left-orig to bottom-left-orig
+            df["y"] = (
+                bound.sim_bbox[1][1] - df["y"]
+            )  # move from top-left-orig to bottom-left-orig
+            df["x"] = df["x"] + bound.sim_bbox[0][0]
         # nothing to do for x, only y-axis needs conversion
         if apply_offset:
-            df["x"] = df["x"] - offset[0]
-            df["y"] = df["y"] - offset[1]
+            df["x"] = (df["x"] - bound.offset[0]) - bound.sim_offset[0]
+            df["y"] = (df["y"] - bound.offset[1]) - bound.sim_offset[1]
 
         if epsg_code_base is not None:
             if apply_offset is False:
@@ -933,8 +1011,10 @@ class CrownetSql(OppSql):
             if _m := self._host_id_regex.match(x):
                 if _m.groupdict()["host"] in module_map:
                     return module_map[_m.groupdict()["host"]]
+                elif _m.groupdict()["type"] in ["eNB", "gNB"]:
+                    return self._host_index_regex.match(x).groupdict()["hostIdx"]
                 else:
-                    ValueError(f"Module {_m} not found in module map")
+                    return module_map.get_dummy_id(_m.groupdict()["host"])
             raise ValueError(
                 f"given moduleName '{x}' does match module regex {self._host_id_regex}"
             )
@@ -1090,7 +1170,9 @@ class CrownetSql(OppSql):
             # fixme: typo in simulation setup...
             cfg = self.get_run_config("*.gloablDensityMap.typename", full_match=True)
         if cfg is None:
-            raise ValueError("Simulation does not contain a measurement map module.")
+            logger.warn("cannot determine map type. Assume count type")
+            return False
+            # raise ValueError("Simulation does not contain a measurement map module.")
         return "entropy" in cfg.lower()
 
     def is_count_map(self):
@@ -1104,9 +1186,9 @@ class CrownetSql(OppSql):
             [f"{self.network}.{i}[%].cellularNic.channelModel[0]" for i in _m]
         )
 
-    def m_phy(self, modules: List[str] | None = None) -> SqlOp:
+    def m_phy(self, modules: List[str] | None = None, idx: int | str = "%") -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[%].cellularNic.phy" for i in _m])
+        return self.OR([f"{self.network}.{i}[{idx}].cellularNic.phy" for i in _m])
 
     def m_app0(
         self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"

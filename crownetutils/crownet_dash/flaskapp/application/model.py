@@ -32,12 +32,14 @@ def get_count_index(sim: Simulation) -> pd.DataFrame:
     # return count_index.index.to_frame().reset_index(drop=True)
 
 
+@threaded_lru(maxsize=16)
 @timing
 def get_node_index(sim: Simulation):
     count_index = get_count_index(sim)
     return count_index.index.get_level_values("ID").unique().sort_values()
 
 
+@threaded_lru(maxsize=16)
 @timing
 def get_time_index(sim: Simulation):
     count_index = get_count_index(sim)
@@ -166,6 +168,14 @@ def get_cell_error_data(sim: Simulation, cell_id):
     ca = ca.reset_index()
     ca["id"] = ca["ID"].astype("str")
     return ca
+
+
+@threaded_lru(maxsize=64)
+@timing
+def get_map_count_ts(sim: Simulation, node_id: int):
+    df = sim.get_dcdMap().count_p[pd.IndexSlice[:, :, :, node_id], ["count"]]
+    df = df.groupby("simtime").sum()
+    return df
 
 
 @threaded_lru(maxsize=64)
