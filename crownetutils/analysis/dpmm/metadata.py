@@ -8,6 +8,7 @@ from shapely.geometry import Point, box
 
 from crownetutils.analysis.hdf.provider import ProviderVersion
 from crownetutils.utils.logging import logger
+from crownetutils.utils.misc import is_subscribable
 
 
 class DpmmMetaData:
@@ -67,7 +68,7 @@ class DpmmMetaData:
     ):
         self.cell_size = cell_size
         self.cell_count = cell_count
-        self.bound = bound
+        self.bound = bound if is_subscribable(bound) else [bound, bound]
         self.node_id = node_id
         self.offset = offset
         self.epsg = epsg
