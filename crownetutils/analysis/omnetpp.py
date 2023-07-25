@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import itertools
 import os
-from typing import List, Tuple
+from functools import partial
+from typing import Callable, List, Tuple
 
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection
 from pandas import IndexSlice as _i
+from pandas._typing import IntervalClosedType
 
 import crownetutils.omnetpp.scave as Scave
 import crownetutils.utils.plot as _Plot
@@ -20,8 +24,12 @@ from crownetutils.analysis.common import (
 )
 from crownetutils.analysis.dpmm.dpmm import percentile
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.hdf_providers.node_position import (
+    EnbPositionHdf,
+    NodePositionHdf,
+)
 from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult, SqlOp
-from crownetutils.utils.dataframe import FrameConsumer, append_index
+from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_interval
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
 from crownetutils.utils.parallel import run_kwargs_map
@@ -129,6 +137,21 @@ class _hdf_Extractor(AnalysisBase):
         except SqlEmptyResult as e:
             logger.error("No packets found")
             logger.error(e)
+
+
+class ServingEnbHdf(BaseHdfProvider):
+    @classmethod
+    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> ServingEnbHdf:
+        obj = cls(hdf_path=hdf_path, group="enb_association", allow_lazy_loading=True)
+        obj.add_group_factory(
+            obj.group,
+            partial(OppAnalysis.get_serving_enb, sql=sim.sql, with_host_id=True),
+        )
+        return obj
+
+    @classmethod
+    def from_sim(cls, sim: Simulation, **kwargs) -> ServingEnbHdf:
+        return cls.get(sim.path("position.h5"), sim, **kwargs)
 
 
 class _OppAnalysis(AnalysisBase):
@@ -378,6 +401,181 @@ class _OppAnalysis(AnalysisBase):
             ["hostId", "srcHostId", "eventNumber", "time"]
         ).sort_index()
         return data
+
+    def get_serving_enb(
+        self,
+        sql: Scave.CrownetSql,
+        module_name: Scave.SqlOp | str | None = None,
+        with_host_id: bool = False,
+        drop_col: List[str] | None = ("vectorId",),
+    ):
+        """Serving enb based on 'serveringCell:vector for physical layer of nodes.
+        The vector contains the time point at which a switch to a new eNB takes place.
+        The eNB id of zero indicates no connection
+
+        Args:
+            sql (Scave.CrownetSql): _description_
+            module_name (Scave.SqlOp | str | None, optional): _description_. Defaults to None.
+            with_host_id (bool, optional): _description_. Defaults to False.
+            drop_col (List[str] | None, optional): _description_. Defaults to ("vectorId",).
+
+        Returns:
+            pd.DataFrame: [hostId, time, servingEnb]
+        """
+        module_name = sql.m_phy() if module_name is None else module_name
+        if with_host_id:
+            df = sql.vector_ids_to_host(
+                module_name,
+                "servingCell:vector",
+                pull_data=True,
+                value_name="servingEnb",
+                name_columns=["hostId"],
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+        else:
+            df = sql.vec_data(
+                module_name=module_name,
+                vector_name="servingCell:vector",
+                value_name="servingEnb",
+                drop=drop_col if drop_col is None else list(drop_col),
+            )
+        df = df.loc[:, ["hostId", "time", "servingEnb"]].sort_values(["hostId", "time"])
+        return df
+
+    def get_serving_enb_interval(
+        self,
+        sim: Simulation,
+        end_time_provider: Callable[[pd.Series], pd.Series] | None = None,
+        interval_closed: IntervalClosedType = "right",
+    ) -> pd.DataFrame:
+        """Get interval indexed serving cells with start and stop intervals.
+
+        Args:
+            sql (Scave.CrownetSql): Sql object.
+            end_time_provider (Callable[[pd.Series], pd.Series]): Apply callable to determine the last 'end' time. Callable has access to row [hostId, start, stop, servingEnb]
+            module_name (Scave.SqlOp | str | None, optional): Modules path. Defaults to None.
+            interval_closed (str, optional) =  Interval closing type . Defaults to right.
+
+
+        Returns:
+            pd.DataFrame: Indexed dataframe (hostId, interval)[start, stop, servingEnb]
+        """
+
+        if end_time_provider is None:
+            ue = NodePositionHdf.from_sim(sim).get_dataframe()
+            max_time_dict = ue.groupby("hostId")["time"].max().to_dict()
+            max_time = ue["time"].max()
+
+            def _apply(s):
+                if np.isnan(s["end"]):
+                    i = int(s["hostId"])
+                    if i in max_time_dict:
+                        t = (
+                            max_time
+                            if s["start"] > max_time_dict[i]
+                            else max_time_dict[i]
+                        )
+                        s["end"] = t
+                return s
+
+            end_time_provider = _apply
+
+        serving = ServingEnbHdf.from_sim(sim).get_dataframe()
+
+        serving = serving.loc[:, ["hostId", "time", "servingEnb"]].sort_values(
+            ["hostId", "time"]
+        )
+
+        # shift time column to get end time step.
+        _end = serving.groupby("hostId").shift(-1)
+        serving["end"] = _end["time"]
+        serving = serving.rename(columns={"time": "start"})
+
+        # set removal time of node as last time step based on end_time_provider
+        serving = serving.apply(end_time_provider, axis=1).dropna()
+        serving["delta"] = serving["end"] - serving["start"]
+
+        serving["interval"] = [
+            pd.Interval(*row, closed=interval_closed)
+            for _, row in serving[["start", "end"]].iterrows()
+        ]
+        serving = serving.loc[:, ["hostId", "interval", "start", "end", "servingEnb"]]
+        serving = serving.set_index(["hostId", "interval"]).sort_index()
+        return serving
+
+    def get_node_serving_data(
+        self,
+        sim: Simulation,
+        enb_pos: EnbPositionHdf | pd.DataFrame,
+        ue_pos: NodePositionHdf | pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Create data for positional eNB association of each node.
+
+        Args:
+            sql (Scave.CrownetSql): _description_
+            enb_pos (EnbPositionHdf): _description_
+            ue_pos (NodePositionHdf): _description_
+            end_time_provider (Callable[[pd.Series], pd.Series]): _description_
+
+        Returns:
+           Tuple[pd.DataFrame, LineCollection]: data frame of the form [hostId, time, host, vecIdx, x, y, servingEnb, x1, x2, color, segment]
+           and a LineCollection containing all segments
+        """
+
+        enb = (
+            enb_pos.get_dataframe() if isinstance(enb_pos, EnbPositionHdf) else enb_pos
+        )
+        ue = ue_pos.get_dataframe() if isinstance(ue_pos, NodePositionHdf) else ue_pos
+
+        enb_int = self.get_serving_enb_interval(sim)
+
+        # append enb association data
+        ue = ue.set_index(["hostId", "time"]).sort_index()
+        ue = merge_on_interval(ue, enb_int, index="time").fillna(-1)
+        ue = ue.drop(columns=["interval", "start", "end"])
+
+        # add next position (x1, y1) to create line segment (start point, end point)
+        ue2 = ue.groupby("hostId")[["x", "y"]].shift(-1).set_axis(["x1", "y1"], axis=1)
+        ue = pd.concat([ue, ue2], axis=1).dropna()
+
+        # extract enb association with start and end point data as array
+        ue_arr = (
+            ue.set_index(["hostId", "time"])
+            .sort_index()
+            .loc[:, ["servingEnb", "x", "y", "x1", "y1"]]
+            .to_numpy()
+        )
+
+        # use enb association as color index (will be used as array index )
+        enb_color_index = ue_arr[:, 0].astype(int) + 1
+
+        # create list of line segments. Each line segment consits of only two points. (start end end of line)
+        line_col = ue_arr[:, 1:].reshape(
+            -1, 2, 2
+        )  # [ [[x, y], [x1, y1]], [[.],[.]], ... ]
+
+        # create color array containg all enb's plus one for no connection and one for not in the simulation
+        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * enb.shape[0])))
+        enb_colors = enb_c[-(2 + enb.shape[0]) :]
+        enb_colors[0] = [
+            1,
+            1,
+            1,
+            1,
+        ]  # white: not in simulation (enb index -1) --> enb_color_index 0 (see above)
+        enb_colors[1] = [
+            0,
+            0,
+            0,
+            1,
+        ]  # black: not conneceted to any eNB (enb index 0) --> enb_color_index 1 (see above)
+
+        # match enb_color_index with actual color
+        enb_color_index = enb_colors[enb_color_index]  # replace color index with colors
+        # ue["color"] = enb_color_index.tolist()
+        ue["segment"] = line_col.tolist()
+
+        return ue
 
     def get_rcvd_generic_vec_data(
         self,

@@ -8,6 +8,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from pandas.core.indexing import IndexSlice
+from pandas.errors import EmptyDataError
 from shapely.geometry.geo import box
 
 from crownetutils.analysis.dpmm.csv_loader import (
@@ -44,6 +45,8 @@ class DpmmKey:
     SOURCE_HOST = "sourceHost"
     SOURCE_ENTRY = "sourceEntry"
     HOST_ENTRY = "hostEntry"
+    # v 0.4
+    RSD_ID = "rsd_id"
     # feature
     X_OWNER = "x_owner"
     Y_OWNER = "y_owner"
@@ -92,8 +95,25 @@ class DpmmKey:
                 HOST_ENTRY: float,
                 SELECTION_RANK: float,
             },
+            ProviderVersion.V0_4: {
+                COUNT: float,
+                MEASURE_TIME: float,
+                RECEIVED_TIME: float,
+                SELECTION: str,
+                OWN_CELL: int,
+                SOURCE_HOST: float,
+                SOURCE_ENTRY: float,
+                HOST_ENTRY: float,
+                SELECTION_RANK: float,
+                RSD_ID: float,
+            },
         }
     )
+
+    count_map_creation_cols = {
+        ProviderVersion.V0_1: [COUNT, X_OWNER, Y_OWNER],
+        ProviderVersion.V0_4: [COUNT, X_OWNER, Y_OWNER, RSD_ID],
+    }
 
     types_features = {
         X_OWNER: float,
@@ -124,6 +144,7 @@ class DpmmProvider(IHdfProvider):
             "mean": 3,
             "median": 4,
             "ymfPlusDist": 5,
+            "ymfPlusDistStep": 6,
         }
         self.used_selection = set()
         self.node_regex = re.compile(r"dcdMap_(?P<node>\d+)\.csv")
@@ -155,7 +176,11 @@ class DpmmProvider(IHdfProvider):
         for file_path in csv_paths:
             progress.incr()
             # build data frame from csv
-            dcd_df = self.build_dcd_dataframe(file_path, **kwargs)
+            try:
+                dcd_df = self.build_dcd_dataframe(file_path, **kwargs)
+            except EmptyDataError as e:
+                logger.warning(f"Empty DPMM file. Skip {file_path}")
+                continue
 
             # append to table but do not index (will be done at the end)
             with self.ctx() as store:
@@ -265,7 +290,8 @@ class DpmmProvider(IHdfProvider):
     def _to_geo(
         self, df: pd.DataFrame, to_crs: Union[str, None] = None
     ) -> gpd.GeoDataFrame:
-        offset = self.get_attribute("offset")
+        sim_bound = self.get_sim_bound()
+
         epsg_code = self.get_attribute("epsg")
         cell_size = self.get_attribute("cell_size")
 
@@ -273,8 +299,9 @@ class DpmmProvider(IHdfProvider):
         df = df.reset_index(drop=True)
         df["cell_x"] = _index["x"]
         df["cell_y"] = _index["y"]
-        _index["x"] = _index["x"] - offset[0]
-        _index["y"] = _index["y"] - offset[1]
+
+        _index["x"] = _index["x"] - sim_bound.offset[0] - sim_bound.sim_offset[0]
+        _index["y"] = _index["y"] - sim_bound.offset[1] - sim_bound.sim_offset[1]
         df.index = pd.MultiIndex.from_frame(_index)
 
         g = [

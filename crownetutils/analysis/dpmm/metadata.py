@@ -7,6 +7,7 @@ from pandas import IndexSlice as Idx
 from shapely.geometry import Point, box
 
 from crownetutils.analysis.hdf.provider import ProviderVersion
+from crownetutils.utils.logging import logger
 
 
 class DpmmMetaData:
@@ -27,6 +28,14 @@ class DpmmMetaData:
         cell_size = float(meta["CELLSIZE"])
         cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
         node_id = meta["NODE_ID"]
+        if "SIM_BBOX" not in meta:
+            logger.warn(
+                f"key 'SIM_BBOX' missing  in metadata. Assume '0;0;XSIZE;YSIZE' "
+            )
+            meta["SIM_BBOX"] = f"0;0;{bound[0]};{bound[1]}"
+
+        sim_bbox = np.array(meta["SIM_BBOX"].split(";")).astype(float).reshape((2, 2))
+
         _meta = cls(
             cell_size,
             cell_count,
@@ -35,6 +44,7 @@ class DpmmMetaData:
             map_type=meta.get("MAP_TYPE", ""),
             version=meta.get("VERSION", "0.1"),
             data_type=meta.get("DATATYPE", "pedestrianCount"),
+            sim_bbox=sim_bbox,
         )
         if all([k in meta for k in ["XOFFSET", "YOFFSET"]]):
             _meta.offset = [float(meta["XOFFSET"]), float(meta["YOFFSET"])]
@@ -53,6 +63,7 @@ class DpmmMetaData:
         map_type="",
         version="0.1",
         data_type="pedestrianCount",
+        sim_bbox=None,
     ):
         self.cell_size = cell_size
         self.cell_count = cell_count
@@ -65,6 +76,10 @@ class DpmmMetaData:
         self.map_type = map_type
         self.version = ProviderVersion(version)
         self.data_type = data_type
+        if sim_bbox is None:
+            self.sim_bbox = np.array([[0.0, 0.0], [self.bound[0], self.bound[1]]])
+        else:
+            self.sim_bbox = sim_bbox
 
     def is_global(self):
         return self.node_id == "global" or self.node_id == -1

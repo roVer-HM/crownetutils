@@ -35,13 +35,15 @@ class PlotAppTxInterval_(PlotUtil_):
     ):
         saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
         data = OppAnalysis.get_txAppInterval(sql, app_type=app)
-        data = data.droplevel(["hostId", "host"]).sort_index()
+        data = data.droplevel("hostId").sort_index()
+        if "host" in data.columns:
+            data = data.drop(columns=["host"])
         if data.empty:
             logger.info(
                 "No tx interval vectors found. Did you choose the correct scheduler in the Simulation?"
             )
             return
-        fig, ax = self.df_to_table(
+        fig, ax, _ = self.df_to_table(
             data.describe().applymap("{:1.4f}".format).reset_index(),
             title=f"Descriptive statistics for application",
         )

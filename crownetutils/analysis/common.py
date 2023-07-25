@@ -762,6 +762,12 @@ class Simulation:
         """Create path relative to Simulation object data_root directory"""
         return os.path.join(self.data_root, *args)
 
+    def path_mk(self, *args):
+        """Create path (an parent folders) relative to Simulation object data_root directory"""
+        p = os.path.join(self.data_root, *args)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        return p
+
     def get_dcdMap(self) -> DpmMap:
         sel = self.builder.map_p.get_attribute("used_selection")
         if sel is None:

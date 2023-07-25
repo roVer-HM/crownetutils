@@ -1018,6 +1018,7 @@ class DpmMap(BaseDpmMap):
         cell_base: pd.DataFrame = cell_base.join(glb_map_sum, on="simtime")
         cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
         cell_base["glb_count"] = cell_base["glb_count"].fillna(value=0)
+        cell_base["num_Agents"] = cell_base["num_Agents"].fillna(value=0)
         if cell_base.isna().any().any():
             raise ValueError(
                 f"Found coulmns with nan values: {cell_base.isna().any(axis=0)}"

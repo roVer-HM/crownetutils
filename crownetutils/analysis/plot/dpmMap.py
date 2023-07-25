@@ -23,6 +23,7 @@ from crownetutils.utils.misc import DataSource
 from crownetutils.utils.plot import (
     FigureSaver,
     FigureSaverPdfPages,
+    FigureSaverSimple,
     PlotUtil_,
     Style,
     savefigure,
@@ -42,17 +43,19 @@ class _PlotDpmMap(PlotUtil_):
         builder: DpmmHdfBuilder,
         sql: Scave.CrownetSql,
         selection: str | None = None,
+        saver: FigureSaver | None = None,
     ):
-        out_dir = os.path.join(data_root, "common_output.pdf")
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
+
         selection = builder.get_selected_alg() if selection is None else selection
         dmap = builder.build_dcdMap(selection=selection)
-        with PdfPages(out_dir) as pdf:
-            dmap.plot_map_count_diff(savefig=pdf)
-            msce = dmap.cell_count_measure(columns=["cell_mse"]).reset_index()
-            # msce time series
-            self.plot_msce_ts(msce, savefig=pdf)
-            # msce ecdf
-            self.plot_msce_ecdf(msce["cell_mse"], savefig=pdf)
+
+        dmap.plot_map_count_diff(savefig=saver.with_name("dpmm"))
+        msce = dmap.cell_count_measure(columns=["cell_mse"]).reset_index()
+        # msce time series
+        self.plot_msce_ts(msce, savefig=saver.with_name("msce_ts"))
+        # msce ecdf
+        self.plot_msce_ecdf(msce["cell_mse"], savefig=saver.with_name("msce_ecdf"))
 
     @with_axis
     @savefigure
