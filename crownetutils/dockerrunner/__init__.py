@@ -43,6 +43,13 @@ class _DockerCfg:
     VAR_VADERE_TAG = "CROWNET_VADERE_CONT_TAG"
     VAR_CONTROL_TAG = "CROWNET_CONTROL_CONT_TAG"
 
+    CONTAINER_TAG_MAP = {
+        "vadere": VAR_VADERE_TAG,
+        "sumo": VAR_SUMO_TAG,
+        "omnetpp": VAR_OPP_TAG,
+        "control": VAR_CONTROL_TAG,
+    }
+
     def __init__(self) -> None:
         self.default_docker_registry_public = "ghcr.io/rover-hm"
         self.default_docker_registry_dev = "sam-dev.cs.hm.edu:5023/rover/crownet"
