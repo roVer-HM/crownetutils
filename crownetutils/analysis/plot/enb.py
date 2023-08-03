@@ -245,22 +245,26 @@ class _PlotEnb(PlotUtil_):
     ):
         # colormap
         max_enb = int(ue_position["servingEnb"].max())
-        # ensure colors are not to faint, thus 1.5*....
-        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * max_enb)))
+        enb_c = plt.get_cmap("tab20")(np.linspace(0, 1, int(max_enb)))
         cmap = colors.ListedColormap(
             [
-                np.array([1.0, 1.0, 1.0, 1.0]),
                 np.array([0.0, 0.0, 0.0, 1.0]),
-                *enb_c[-max_enb:],
+                *enb_c,
             ]
         )
         color_ar = np.array(cmap.colors)
-
+        # color_ar, cmap = self.get_voroni_colors_for_enbs(enb_position)
+        ue_position["servingEnb"] = ue_position["servingEnb"].apply(
+            lambda x: 0 if x < 0 else x
+        )
         enb_color_index = ue_position["servingEnb"].to_numpy().astype(int) + 1
 
-        _colors = color_ar[enb_color_index]
+        # _colors = color_ar[enb_color_index]
+        _colors_enb = color_ar[enb_position["hostId"].to_numpy().astype(int) + 1]
 
-        ax.scatter(enb_position["x"], enb_position["y"], label="eNB", marker="s")
+        ax.scatter(
+            enb_position["x"], enb_position["y"], c=_colors_enb, label="eNB", marker="s"
+        )
         ax.legend()
         lc = LineCollection(ue_position["segment"], cmap=cmap)
         lc.set_array(enb_color_index)
