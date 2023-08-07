@@ -15,6 +15,8 @@ import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import Simulation
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.analysis.omnetpp import OppAnalysis
+from crownetutils.omnetpp.sql import SqlOp
+from crownetutils.utils.dataframe import assert_frame_structure
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.plot import FigureSaver, FigureSaverSimple, PlotUtil_, with_axis
 
@@ -25,16 +27,45 @@ class PlotAppTxInterval_(PlotUtil_):
     def __init__(self) -> None:
         super().__init__()
 
+    def plot_txinterval_all_beacon(
+        self,
+        data_root: str,
+        sql: Scave.CrownetSql,
+        saver: FigureSaver | None = None,
+    ):
+        return self.plot_txinterval_all(
+            data_root=data_root,
+            sql=sql,
+            module_name=sql.m_beacon(path="scheduler"),
+            app_name="Beacon",
+            saver=saver,
+        )
+
+    def plot_txinterval_all_map(
+        self,
+        data_root: str,
+        sql: Scave.CrownetSql,
+        saver: FigureSaver | None = None,
+    ):
+        return self.plot_txinterval_all(
+            data_root=data_root,
+            sql=sql,
+            module_name=sql.m_map(path="scheduler"),
+            app_name="Map",
+            saver=saver,
+        )
+
     @timing
     def plot_txinterval_all(
         self,
         data_root: str,
         sql: Scave.CrownetSql,
-        app: str = "Beacon",
+        module_name: SqlOp,
+        app_name: str,
         saver: FigureSaver | None = None,
     ):
         saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
-        data = OppAnalysis.get_txAppInterval(sql, app_type=app)
+        data = OppAnalysis.get_txAppInterval(sql, module_name=module_name)
         data = data.droplevel("hostId").sort_index()
         if "host" in data.columns:
             data = data.drop(columns=["host"])
@@ -47,23 +78,25 @@ class PlotAppTxInterval_(PlotUtil_):
             data.describe().applymap("{:1.4f}".format).reset_index(),
             title=f"Descriptive statistics for application",
         )
-        self.append_title(ax, prefix=f"{app}: ")
-        saver(fig, f"{app}_tx_AppIntervall_stat.pdf")
+        self.append_title(ax, prefix=f"{app_name}: ")
+        saver(fig, f"{app_name}_tx_AppIntervall_stat.pdf")
         plt.close(fig)
 
-        fig, ax = self.plot_ts_txinterval(data, app_name=app, time_bucket_length=1.0)
-        self.append_title(ax, prefix=f"{app}: ")
-        saver(fig, f"{app}_txAppInterval_ts.pdf")
+        fig, ax = self.plot_ts_txinterval(
+            data, app_name=app_name, time_bucket_length=1.0
+        )
+        self.append_title(ax, prefix=f"{app_name}: ")
+        saver(fig, f"{app_name}_txAppInterval_ts.pdf")
         plt.close(fig)
 
         fig, ax = self.plot_hist_txinterval(data)
-        self.append_title(ax, prefix=f"{app}: ")
-        saver(fig, f"{app}_tx_AppInterval_hist_.pdf")
+        self.append_title(ax, prefix=f"{app_name}: ")
+        saver(fig, f"{app_name}_tx_AppInterval_hist_.pdf")
         plt.close(fig)
 
         fig, ax = self.plot_ecdf_txinterval(data)
-        self.append_title(ax, prefix=f"{app}: ")
-        saver(fig, f"{app}_tx_AppInterval_ecdf.pdf")
+        self.append_title(ax, prefix=f"{app_name}: ")
+        saver(fig, f"{app_name}_tx_AppInterval_ecdf.pdf")
         plt.close(fig)
 
     def plot_ts_txinterval(
@@ -164,7 +197,7 @@ class PlotAppMisc_(PlotUtil_):
             ax.scatter(data.index, data[c], marker=marker[i], label=c)
 
         map_max_bw = sql.get_run_parameter(
-            sql.m_map(app_mod="scheduler"), name="maxApplicationBandwidth"
+            sql.m_map(path="scheduler"), name="maxApplicationBandwidth"
         )
         if not map_max_bw.empty:
             val = map_max_bw["paramValue"].unique()[0]
@@ -179,7 +212,7 @@ class PlotAppMisc_(PlotUtil_):
                 )
 
         beacon_max_bw = sql.get_run_parameter(
-            sql.m_beacon(app_mod="scheduler"), name="maxApplicationBandwidth"
+            sql.m_beacon(path="scheduler"), name="maxApplicationBandwidth"
         )
         if not beacon_max_bw.empty:
             val = beacon_max_bw["paramValue"].unique()[0]

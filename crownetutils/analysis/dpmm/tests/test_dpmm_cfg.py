@@ -17,8 +17,8 @@ class DpmmCfgTest(unittest.TestCase):
         self.assertEqual(cfg.node_map_csv_glob, "dcdMap_*.csv")
         self.assertEqual(cfg.epsg_base, Project.UTM_32N)
         self.assertEqual(cfg.module_vectors, ["misc", "pNode", "vNode"])
-        self.assertEqual(cfg.beacon_app_sql_op, "app[0].app")
-        self.assertEqual(cfg.map_app_sql_op, "app[1].app")
+        self.assertEqual(cfg.beacon_app_path, "app[0]")
+        self.assertEqual(cfg.map_app_path, "app[1]")
 
         self.assertEqual(cfg.hdf_path(), "/tmp/foo/data.h5")
         self.assertEqual(cfg.vec_path(), "/tmp/foo/vars_rep_0.vec")
@@ -27,47 +27,82 @@ class DpmmCfgTest(unittest.TestCase):
     def test_single_module(self):
         cfg = DpmmCfg(base_dir="/tmp/foo", module_vectors=["bar"])
 
-        b1 = cfg.get_beacon_app_sql_op().info_str()
+        b1 = cfg.m_beacon().info_str()
         self.assertEqual(b1, "or[World.bar[%].app[0].app]")
-        b2 = cfg.get_beacon_app_sql_op(modules=["foo"]).info_str()
+        b2 = cfg.m_beacon(modules=["foo"]).info_str()
         self.assertEqual(b2, "or[World.foo[%].app[0].app]")
-        b3 = cfg.get_beacon_app_sql_op(node_index=13).info_str()
+        b3 = cfg.m_beacon(node_index=13).info_str()
         self.assertEqual(b3, "or[World.bar[13].app[0].app]")
 
-        b1 = cfg.get_map_app_sql_op().info_str()
+        b1 = cfg.m_map().info_str()
         self.assertEqual(b1, "or[World.bar[%].app[1].app]")
-        b2 = cfg.get_map_app_sql_op(modules=["foo"]).info_str()
+        b2 = cfg.m_map(modules=["foo"]).info_str()
         self.assertEqual(b2, "or[World.foo[%].app[1].app]")
-        b3 = cfg.get_map_app_sql_op(node_index=13).info_str()
+        b3 = cfg.m_map(node_index=13).info_str()
         self.assertEqual(b3, "or[World.bar[13].app[1].app]")
+
+    def test_paths(self):
+        cfg = DpmmCfg(
+            base_dir="/tmp/foo",
+            module_vectors=["bar"],
+            map_app_path="M",
+            beacon_app_path="B",
+        )
+
+        b1 = cfg.m_beacon(modules=["foo"], path="baz").info_str()
+        self.assertEqual(b1, "or[World.foo[%].B.baz]")
+
+        b2 = cfg.m_beacon(modules=["foo"], node_index=5, path="baz").info_str()
+        self.assertEqual(b2, "or[World.foo[5].B.baz]")
+
+    def test_paths(self):
+        cfg = DpmmCfg(
+            base_dir="/tmp/foo",
+            module_vectors=["bar"],
+            map_app_path="M",
+            beacon_app_path=None,
+        )
+        try:
+            cfg.m_beacon()
+            self.fail("no beacon defined. Should fail")
+        except Exception as e:
+            pass
 
     def test_multi_module(self):
         cfg = DpmmCfg(
             network_name="A",
             base_dir="/tmp/foo",
             module_vectors=["foo", "bar"],
-            beacon_app_sql_op="x[0].y",
+            beacon_app_path="x[0].y",
         )
 
-        b1 = cfg.get_beacon_app_sql_op()
-        self.assertEqual(b1.info_str(), "or[A.foo[%].x[0].y, A.bar[%].x[0].y]")
+        b1 = cfg.m_beacon()
+        self.assertEqual(b1.info_str(), "or[A.foo[%].x[0].y.app, A.bar[%].x[0].y.app]")
 
     def test_multi_module_dict_app(self):
         cfg = DpmmCfg(
             network_name="A",
             base_dir="/tmp/foo",
             module_vectors=["foo", "bar"],
-            map_app_sql_op={"foo": "x[0].y", "bar": "w[1].v"},
+            map_app_path={"foo": "x[0].y", "bar": "w[1].v"},
+            beacon_app_path="app[99]",
         )
 
-        b1 = cfg.get_map_app_sql_op()
-        self.assertEqual(b1.info_str(), "or[A.foo[%].x[0].y, A.bar[%].w[1].v]")
+        b1 = cfg.m_beacon()
+        self.assertEqual(
+            b1.info_str(), "or[A.foo[%].app[99].app, A.bar[%].app[99].app]"
+        )
 
-        b1 = cfg.get_map_app_sql_op(node_index="5..10")
-        self.assertEqual(b1.info_str(), "or[A.foo[5..10].x[0].y, A.bar[5..10].w[1].v]")
+        m1 = cfg.m_map(path="XXX")
+        self.assertEqual(m1.info_str(), "or[A.foo[%].x[0].y.XXX, A.bar[%].w[1].v.XXX]")
+
+        m2 = cfg.m_map(node_index="5..10")
+        self.assertEqual(
+            m2.info_str(), "or[A.foo[5..10].x[0].y.app, A.bar[5..10].w[1].v.app]"
+        )
 
         try:
-            b2 = cfg.get_map_app_sql_op(modules=["foo", "bazz"])
+            m3 = cfg.m_map(modules=["foo", "bazz"])
             self.fail("bazz should not exist")
         except KeyError:
             pass

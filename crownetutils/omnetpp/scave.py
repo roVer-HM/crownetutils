@@ -10,7 +10,7 @@ import signal
 import sqlite3 as sq
 import subprocess
 import time
-from typing import Any, List, Tuple, Union
+from typing import Any, Callable, List, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -1190,65 +1190,61 @@ class CrownetSql(OppSql):
         return self.OR([f"{self.network}.{i}[{idx}].cellularNic.phy" for i in _m])
 
     def m_app0(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[{idx}].app[0].{app_mod}" for i in _m])
+        path = path if path.startswith(".") else f".{path}"
+        return self.OR([f"{self.network}.{i}[{idx}].app[0]{path}" for i in _m])
 
     def m_app1(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[{idx}].app[1].{app_mod}" for i in _m])
+        path = path if path.startswith(".") else f".{path}"
+        return self.OR([f"{self.network}.{i}[{idx}].app[1]{path}" for i in _m])
 
     def m_beacon(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
+        """SqlOperation to select beacon application"""
+        _m = modules if modules is not None else self.module_vectors
         if self.dpmm_cfg is None:
-            _m = modules if modules is not None else self.module_vectors
-
-            """SqlOperation to select beacon application"""
-            _m = modules if modules is not None else self.module_vectors
             _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
             _t0 = self.parameter_data(_typename_0, "typename")
             if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
-                return self.m_app0(modules, app_mod=app_mod, idx=idx)
+                return self.m_app0(_m, path=path, idx=idx)
 
-            _typename_1 = self.OR(
-                [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
-            )
+            _typename_1 = self.OR([f"{self.network}.{i}[{idx}].app[1].app" for i in _m])
             _t1 = self.parameter_data(_typename_1, "typename")
             if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
-                return self.m_app1(modules, app_mod=app_mod, idx=idx)
+                return self.m_app1(_m, path=path, idx=idx)
 
             raise ValueError(
                 "Did not find beacon application at index app[0] or app[1]"
             )
         else:
-            return self.dpmm_cfg.get_beacon_app_sql_op(modules, idx)
+            return self.dpmm_cfg.m_beacon(_m, node_index=idx, path=path)
 
     def m_map(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
+        _m = modules if modules is not None else self.module_vectors
         if self.dpmm_cfg is None:
-            _m = modules if modules is not None else self.module_vectors
             _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
             _t0 = self.parameter_data(_typename_0, "typename")
             if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
-                return self.m_app0(modules, app_mod=app_mod, idx=idx)
+                return self.m_app0(_m, path=path, idx=idx)
 
             _typename_1 = self.OR(
                 [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
             )
             _t1 = self.parameter_data(_typename_1, "typename")
             if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
-                return self.m_app1(modules, app_mod=app_mod, idx=idx)
+                return self.m_app1(_m, path=path, idx=idx)
 
-            raise ValueError(
-                "Did not find beacon application at index app[0] or app[1]"
-            )
+            raise ValueError("Did not find map application at index app[0] or app[1]")
         else:
-            return self.dpmm_cfg.get_map_app_sql_op(modules, idx)
+            return self.dpmm_cfg.m_map(_m, node_index=idx, path=path)
 
     def m_enb(self, index: int = -1, module: str = "") -> str:
         if index < 0:
@@ -1270,10 +1266,6 @@ class CrownetSql(OppSql):
     def m_table(self, modules: List[str] | None = None) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
         return self.OR([f"{self.network}.{i}[%].nTable" for i in _m])
-
-
-def guess_map_type(sca_path):
-    pass
 
 
 class ScaveTool:

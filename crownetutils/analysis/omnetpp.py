@@ -739,7 +739,7 @@ class _OppAnalysis(AnalysisBase):
     def sg_get_txAppInterval(
         self,
         sg: SimulationGroup,
-        app_type: str = "beacon",
+        module_names_f: Callable[[CrownetSql], SqlOp],
         interval_type: str = "all",
         jobs: int = 5,
     ) -> pd.DataFrame:
@@ -749,18 +749,14 @@ class _OppAnalysis(AnalysisBase):
                 func=self.get_txAppInterval,
                 run=run_id,
                 sql=sim.sql,
-                app_type=app_type,
+                module_names_f=module_names_f(sim.sql),
                 interval_type=interval_type,
             )
             for run_id, sim in sg.simulation_iter()
         ]
-        df = run_kwargs_map(func=self.append_run_col, kwargs_iter=kw_list, pool_size=5)
-        # for run_id, sim in sg.simulation_iter():
-        #     print(f"read run {run_id}")
-        #     _df = self.get_txAppInterval(sim.sql, app_type, interval_type)
-        #     _df["run"] = run_id
-        #     _df = _df.reset_index()
-        #     df.append(_df)
+        df = run_kwargs_map(
+            func=self.append_run_col, kwargs_iter=kw_list, pool_size=jobs
+        )
         df = pd.concat(df, ignore_index=True, verify_integrity=False)
         return df
 
@@ -768,17 +764,12 @@ class _OppAnalysis(AnalysisBase):
     def get_txAppInterval(
         self,
         sql: Scave.CrownetSql,
-        app_type: str = "beacon",
+        module_name: SqlOp,
         interval_type: str = "all",
     ) -> pd.DataFrame:
-        if app_type.lower() == "beacon":
-            m = sql.m_beacon(app_mod="scheduler")
-        else:
-            m = sql.m_map(app_mod="scheduler")
-
         if interval_type in ["all", "real"]:
             df1 = sql.vector_ids_to_host(
-                module_name=m,
+                module_name=module_name,
                 vector_name="txInterval:vector",
                 name_columns=["hostId"],
                 pull_data=True,
@@ -787,7 +778,7 @@ class _OppAnalysis(AnalysisBase):
             ).drop(columns=["vectorId"])
         if interval_type in ["all", "det"]:
             df2 = sql.vector_ids_to_host(
-                module_name=m,
+                module_name=module_name,
                 vector_name="txDetInterval:vector",
                 name_columns=["host", "hostId"],
                 pull_data=True,
@@ -1024,6 +1015,11 @@ class _OppAnalysis(AnalysisBase):
         hdf: BaseHdfProvider | None = None,
         hdf_group: str = "tx_pkt_bytes",
     ) -> pd.DataFrame:
+        """Sent bytes per application and node.
+
+        Returns:
+            pd.DataFrame: (app, time)[value]
+        """
         if hdf is not None:
             if hdf.contains_group(hdf_group):
                 return hdf.get_dataframe(hdf_group)
@@ -1046,6 +1042,9 @@ class _OppAnalysis(AnalysisBase):
             print(f"write frame to hdf. group: {hdf_group}")
             hdf.write_frame(hdf_group, tx_pkt)
         return tx_pkt
+
+    def cached(self, **kwargs) -> _OppAnalysis:
+        return self
 
     def get_sent_packet_throughput_diff_by_app(
         self,

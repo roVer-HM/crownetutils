@@ -33,8 +33,25 @@ class DpmmCfg:
 
     module_vectors: List[str] = ("misc", "pNode", "vNode")
 
-    beacon_app_sql_op: str | Dict[str, str] | None = "app[0].app"
-    map_app_sql_op: str | Dict[str, str] | None = "app[1].app"
+    beacon_app_path: str | Dict[str, str] | None = "app[0]"
+    map_app_path: str | Dict[str, str] | None = "app[1]"
+
+    def path(self, *paths) -> str:
+        return os.path.join(self.base_dir, *paths)
+
+    def output_path(self, *paths) -> str:
+        _p = self.map_type.value
+        return os.path.join(self.base_dir, _p, *paths)
+
+    def makedirs(self, *paths, mode=0o777, exist_ok=False) -> str:
+        _p = self.path(*paths)
+        os.makedirs(_p, mode=mode, exist_ok=exist_ok)
+        return _p
+
+    def makedirs_output(self, *paths, mode=0o777, exist_ok=False) -> str:
+        _p = self.output_path(*paths)
+        os.makedirs(_p, mode=mode, exist_ok=exist_ok)
+        return _p
 
     def is_count_map(self):
         return self.map_type == MapType.DENSITY
@@ -48,15 +65,18 @@ class DpmmCfg:
     def get_csv_id_regex_pattern(self) -> re.Pattern:
         return re.compile(self.node_map_csv_id_regex)
 
-    def _create_sql_op(self, app: str | Dict[str, str], modules: List[str], node_index):
+    def _create_sql_op(
+        self, app: str | Dict[str, str], modules: List[str], node_index: int, path: str
+    ):
         _net = self.network_name
+        path = path if path.startswith(".") else f".{path}"
         if isinstance(app, str):
-            _or = [f"{_net}.{m}[{node_index}].{app}" for m in modules]
+            _or = [f"{_net}.{m}[{node_index}].{app}{path}" for m in modules]
         elif isinstance(app, dict):
             _or = []
             for m in modules:
                 app_str = app[m]
-                _or.append(f"{_net}.{m}[{node_index}].{app_str}")
+                _or.append(f"{_net}.{m}[{node_index}].{app_str}{path}")
         return SqlOp.OR(_or)
 
     def map_paths(self) -> str:
@@ -71,26 +91,34 @@ class DpmmCfg:
     def sca_path(self) -> str:
         return os.path.join(self.base_dir, self.sca_name)
 
-    def get_beacon_app_sql_op(
-        self, modules: List[str] | None = None, node_index: int | str = "%"
+    def m_beacon(
+        self,
+        modules: List[str] | None = None,
+        path: str = "app",
+        node_index: int | str = "%",
     ) -> SqlOp:
-        if self.beacon_app_sql_op is None:
+        if self.beacon_app_path is None:
             raise ValueError("Current config does not have a beacon application")
         return self._create_sql_op(
-            self.beacon_app_sql_op,
-            self.module_vectors if modules is None else modules,
-            node_index,
+            self.beacon_app_path,
+            modules=self.module_vectors if modules is None else modules,
+            node_index=node_index,
+            path=path,
         )
 
-    def get_map_app_sql_op(
-        self, modules: List[str] | None = None, node_index: int | str = "%"
+    def m_map(
+        self,
+        modules: List[str] | None = None,
+        path: str = "app",
+        node_index: int | str = "%",
     ) -> SqlOp:
-        if self.map_app_sql_op is None:
+        if self.map_app_path is None:
             raise ValueError("Current config does not have a map application")
         return self._create_sql_op(
-            self.map_app_sql_op,
-            self.module_vectors if modules is None else modules,
-            node_index,
+            self.map_app_path,
+            modules=self.module_vectors if modules is None else modules,
+            node_index=node_index,
+            path=path,
         )
 
     @classmethod
@@ -101,6 +129,6 @@ class DpmmCfg:
         return cls(
             base_dir=base_dir,
             map_type=MapType.DENSITY,
-            beacon_app_sql_op="app[0].app",
-            map_app_sql_op="app[1].app",
+            beacon_app_path="app[0]",
+            map_app_path="app[1]",
         )
