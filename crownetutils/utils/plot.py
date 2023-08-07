@@ -486,7 +486,7 @@ class PlotUtil_:
 
     def df_to_table(
         self, df: pd.DataFrame, ax: plt.Axes | None = None, title: str | None = None
-    ) -> Tuple[plt.Figuer, plt.Axes, plt.Table]:
+    ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
         """Save columns of dataframe as matplotlib table.
 
         Args:
