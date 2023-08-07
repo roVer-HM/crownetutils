@@ -137,14 +137,15 @@ class PlotAppMisc_(PlotUtil_):
     def plot_packet_size_ts(
         self, data: pd.DataFrame, *, ax: plt.Axes | None = None, **plot_args
     ):
+        assert_frame_structure(data, ["app", "time"], column_names=["value"])
         _i = pd.IndexSlice
         d = data.loc[_i["b", :], "value"]
         ax.scatter(
-            d.index.get_level_values(0), d, marker="x", label="Beacon", **plot_args
+            d.index.get_level_values(1), d, marker="x", label="Beacon", **plot_args
         )
 
         d = data.loc[_i["m", :], "value"]
-        ax.scatter(d.index.get_level_values(0), d, marker="+", label="Map", **plot_args)
+        ax.scatter(d.index.get_level_values(1), d, marker="+", label="Map", **plot_args)
 
         ax.set_ylabel("Packet size in bytes")
         ax.set_xlabel("Time in seconds")

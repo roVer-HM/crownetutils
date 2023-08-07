@@ -324,3 +324,34 @@ def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.Data
     df = df.loc[idx]
     df = df.reset_index().set_index(idx_old)
     return df
+
+
+class DataFrameStructureError(Exception):
+    pass
+
+
+def assert_frame_structure(
+    df: pd.DataFrame, index_names=None, column_names=None, shape=(-1, -1), msg: str = ""
+):
+    if index_names is not None:
+        if isinstance(index_names, str):
+            if df.index.name != index_names:
+                raise DataFrameStructureError(
+                    f"expected index name '{index_names}' got '{df.index.name}' msg: {msg}"
+                )
+        else:
+            if (len(df.index.names) != len(index_names)) or any(
+                [i1 != i2 for (i1, i2) in zip(df.index.names, index_names)]
+            ):
+                raise DataFrameStructureError(
+                    f"expected index  '{index_names}' got '{df.index.names}'"
+                )
+    if column_names is not None:
+        if isinstance(column_names, str):
+            column_names = [column_names]
+        if len(df.columns) != len(column_names) or any(
+            [i1 != i2 for (i1, i2) in zip(list(df.columns.values), column_names)]
+        ):
+            raise DataFrameStructureError(
+                f"expected columns '{column_names}' got '{list(df.columns.values)}' msg: {msg}"
+            )
