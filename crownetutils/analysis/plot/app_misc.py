@@ -138,12 +138,12 @@ class PlotAppMisc_(PlotUtil_):
         self, data: pd.DataFrame, *, ax: plt.Axes | None = None, **plot_args
     ):
         _i = pd.IndexSlice
-        d = data.loc[_i[:, "b"], "value"]
+        d = data.loc[_i["b", :], "value"]
         ax.scatter(
             d.index.get_level_values(0), d, marker="x", label="Beacon", **plot_args
         )
 
-        d = data.loc[_i[:, "m"], "value"]
+        d = data.loc[_i["m", :], "value"]
         ax.scatter(d.index.get_level_values(0), d, marker="+", label="Map", **plot_args)
 
         ax.set_ylabel("Packet size in bytes")
@@ -259,7 +259,9 @@ class PlotAppMisc_(PlotUtil_):
         saver(fig, "Packet_size_ts.pdf")
 
         # (2) throughput
-        tx_rate = OppAnalysis.get_sent_packet_throughput_by_app(sim.sql, cache=tx_pkt)
+        tx_rate = OppAnalysis.get_sent_packet_throughput_by_app(
+            sim.sql, tx_byte_data=tx_pkt
+        )
         fig, _ = self.plot_tx_throughput(tx_rate, sim.sql)
         saver(fig, "System_tx_data_rate.pdf")
         plt.close(fig)
@@ -495,7 +497,9 @@ class PlotAppMisc_(PlotUtil_):
         saver(fig, "Map_delay_and_jitter_ecdf.png")
         plt.close(fig)
 
-        fig, ax = self.df_to_table(df[["delay", "jitter"]].describe().reset_index())
+        fig, ax, tbl = self.df_to_table(
+            df[["delay", "jitter"]].describe().reset_index()
+        )
         saver(fig, "Map_delay_and_jitter_describe_tbl.png")
 
     def plot_pkt_loss(
