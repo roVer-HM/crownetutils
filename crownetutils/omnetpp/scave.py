@@ -17,8 +17,10 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Point, Polygon
 
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
 from crownetutils.omnetpp.scave_config import ScaveConfig
 from crownetutils.omnetpp.sim_bound import SimBound
+from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.logging import logger, timing
 
 
@@ -145,61 +147,6 @@ class ScaveFilter:
 
     def str(self):
         return " ".join(self._filter)
-
-
-class SqlOp:
-    """
-    Helper class to build `WHERE` clause for matching a
-    column against a single or multiple values which
-    may contain placeholder strings `%`.
-
-    Use classmethods `OR` or `AND` for the respective boolean operator
-    needed.
-    """
-
-    def __init__(self, operator, group):
-        self._operator = operator
-        self._group = group if isinstance(group, list) else [group]
-
-    @classmethod
-    def OR(cls, items):
-        return cls("or", items)
-
-    @classmethod
-    def AND(cls, items):
-        return cls("and", items)
-
-    def get_names(self):
-        return self._group
-
-    def apply(self, table, column):
-        ret = []
-        for i in self._group:
-            if "%" in i:
-                ret.append(f"{table}.{column} like '{i}'")
-            else:
-                ret.append(f"{table}.{column} = '{i}'")
-        if len(ret) == 1:
-            return ret[0]
-        else:
-            ret = f" {self._operator} ".join(ret)
-            return f"({ret})"
-
-    def append_suffix(self, suffix: str):
-        self._group = [f"{i}{suffix}" for i in self._group]
-
-    def info_str(self) -> str:
-        _items = ", ".join(self._group)
-        return f"{self._operator}[{_items}]"
-
-    def __iter__(self):
-        return iter(self._group)
-
-    def __repr__(self) -> str:
-        return self.info_str()
-
-    def __str__(self) -> str:
-        return self.apply("TABLE", "COLUMN")
 
 
 class OppSql:
@@ -680,13 +627,41 @@ class CrownetSql(OppSql):
     _vehicle = "%s.misc[%d]"
     _vehicle_app = "%s.misc[%d].app[%d]"
 
-    module_vectors = ["misc", "pNode", "vNode"]
+    @property
+    def module_vectors(self) -> List[str]:
+        if self.dpmm_cfg is None:
+            return self._module_vectors
+        else:
+            return self.dpmm_cfg.module_vectors
 
-    def __init__(self, vec_path=None, sca_path=None, network="World"):
+    @property
+    def network(self) -> str:
+        if self.dpmm_cfg is None:
+            return self._network
+        else:
+            return self.dpmm_cfg.network_name
+
+    @classmethod
+    def from_dpmm_cfg(cls, cfg: DpmmCfg):
+        return cls(
+            vec_path=cfg.vec_path(),
+            sca_path=cfg.sca_path(),
+            network=cfg.network_name,
+            dpmm_cfg=cfg,
+        )
+
+    def __init__(
+        self,
+        vec_path=None,
+        sca_path=None,
+        network="World",
+        dpmm_cfg: DpmmCfg | None = None,
+    ):
         super().__init__(vec_path=vec_path, sca_path=sca_path)
-        self.network = network
+        self.dpmm_cfg = dpmm_cfg
+        self._network = network
         self.module_names = self.OR(
-            [f"{self.network}.{i}[%]" for i in self._module_vectors]
+            [f"{self.network}.{i}[%]" for i in self.module_vectors]
         )
         self._host_id_regex = re.compile(
             f"(?P<host>^{self.network}\.(?P<type>{'|'.join(self._all_modules)})\[\d+\]).*"
@@ -750,7 +725,7 @@ class CrownetSql(OppSql):
 
     def module_to_host_ids(self):
         if self._module_id_map is None:
-            m = self.OR([f"{self.network}.{i}[%]" for i in self._module_vectors])
+            m = self.OR([f"{self.network}.{i}[%]" for i in self.module_vectors])
             self._module_id_map = HostIdMap(
                 {v: k for k, v in self.host_ids(module_name=m).items()}
             )
@@ -1165,18 +1140,42 @@ class CrownetSql(OppSql):
         return ret
 
     def is_entropy_map(self):
-        cfg = self.get_run_config("*.globalDensityMap.typename", full_match=True)
-        if cfg is None:
-            # fixme: typo in simulation setup...
-            cfg = self.get_run_config("*.gloablDensityMap.typename", full_match=True)
-        if cfg is None:
-            logger.warn("cannot determine map type. Assume count type")
-            return False
-            # raise ValueError("Simulation does not contain a measurement map module.")
-        return "entropy" in cfg.lower()
+        if self.dpmm_cfg is not None:
+            return self.dpmm_cfg.is_entropy_map()
+        else:
+            map_type, _ = self.guess_map_type()
+            return map_type == MapType.ENTROPY
 
     def is_count_map(self):
-        return not self.is_entropy_map()
+        if self.dpmm_cfg is not None:
+            return self.dpmm_cfg.is_count_map()
+        else:
+            map_type, _ = self.guess_map_type()
+            return map_type == MapType.DENSITY
+
+    def guess_map_type(self) -> Tuple[MapType, str]:
+        _paths = ["globalDensityMap", "gloablDensityMap", "globalMeasurementMap"]
+        logger.warning(
+            "Guessing map type is departed provide DpmmCfg object with concrete map type and where to find it."
+        )
+        out = []
+        for _path in _paths:
+            cfg = self.get_run_config(f"*.{_path}.typename", full_match=True)
+            if "entropy" in cfg.lower():
+                out.append(MapType.ENTROPY, _path)
+            else:
+                out.append(MapType.DENSITY, _path)
+
+        if len(out) == 0:
+            raise ValueError(
+                f"Cannot guess global map type based on he following paths {_paths} (No key found).  Provide a concrete MapType via a DpmmCfg object. Guessing map type is deprecated."
+            )
+        elif len(out) > 1:
+            raise ValueError(
+                f"Cannot guess global map type because multiple values found {out}.  Provide a concrete MapType via a DpmmCfg object. Guessing map type is deprecated."
+            )
+
+        return out[0]
 
     # some default module selectors based on the vector database
 
@@ -1205,39 +1204,51 @@ class CrownetSql(OppSql):
     def m_beacon(
         self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
     ) -> SqlOp:
-        """SqlOperation to select beacon application"""
-        _m = modules if modules is not None else self.module_vectors
-        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
-        _t0 = self.parameter_data(_typename_0, "typename")
-        if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
-            return self.m_app0(modules, app_mod=app_mod, idx=idx)
+        if self.dpmm_cfg is None:
+            _m = modules if modules is not None else self.module_vectors
 
-        _typename_1 = self.OR(
-            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
-        )
-        _t1 = self.parameter_data(_typename_1, "typename")
-        if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
-            return self.m_app1(modules, app_mod=app_mod, idx=idx)
+            """SqlOperation to select beacon application"""
+            _m = modules if modules is not None else self.module_vectors
+            _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+            _t0 = self.parameter_data(_typename_0, "typename")
+            if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
+                return self.m_app0(modules, app_mod=app_mod, idx=idx)
 
-        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+            _typename_1 = self.OR(
+                [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+            )
+            _t1 = self.parameter_data(_typename_1, "typename")
+            if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
+                return self.m_app1(modules, app_mod=app_mod, idx=idx)
+
+            raise ValueError(
+                "Did not find beacon application at index app[0] or app[1]"
+            )
+        else:
+            return self.dpmm_cfg.get_beacon_app_sql_op(modules, idx)
 
     def m_map(
         self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
     ) -> SqlOp:
-        _m = modules if modules is not None else self.module_vectors
-        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
-        _t0 = self.parameter_data(_typename_0, "typename")
-        if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
-            return self.m_app0(modules, app_mod=app_mod, idx=idx)
+        if self.dpmm_cfg is None:
+            _m = modules if modules is not None else self.module_vectors
+            _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+            _t0 = self.parameter_data(_typename_0, "typename")
+            if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
+                return self.m_app0(modules, app_mod=app_mod, idx=idx)
 
-        _typename_1 = self.OR(
-            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
-        )
-        _t1 = self.parameter_data(_typename_1, "typename")
-        if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
-            return self.m_app1(modules, app_mod=app_mod, idx=idx)
+            _typename_1 = self.OR(
+                [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+            )
+            _t1 = self.parameter_data(_typename_1, "typename")
+            if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
+                return self.m_app1(modules, app_mod=app_mod, idx=idx)
 
-        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+            raise ValueError(
+                "Did not find beacon application at index app[0] or app[1]"
+            )
+        else:
+            return self.dpmm_cfg.get_map_app_sql_op(modules, idx)
 
     def m_enb(self, index: int = -1, module: str = "") -> str:
         if index < 0:
@@ -1253,12 +1264,16 @@ class CrownetSql(OppSql):
         elif isinstance(modules, SqlOp):
             return modules.append_suffix(suffix)
         else:
-            _m = modules if modules is not None else self._module_vectors
+            _m = modules if modules is not None else self.module_vectors
             return self.OR([f"{self.network}.{i}[%]{suffix}" for i in _m])
 
     def m_table(self, modules: List[str] | None = None) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
         return self.OR([f"{self.network}.{i}[%].nTable" for i in _m])
+
+
+def guess_map_type(sca_path):
+    pass
 
 
 class ScaveTool:

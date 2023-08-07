@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, List, Union
+from typing import Callable, Dict, List, Union
 
 import geopandas as gpd
 import numpy as np
@@ -170,14 +170,19 @@ class DpmmProvider(IHdfProvider):
         return DpmmKey.SIMTIME
 
     def create_from_csv(
-        self, csv_paths: List[str], frame_consumer: List[FrameConsumer] = [], **kwargs
+        self,
+        csv_paths: List[str],
+        id_extractor: Callable[[str], str],
+        frame_consumer: List[FrameConsumer] = [],
+        **kwargs,
     ) -> None:
         progress = ProgressCmd(prefix="read csv: ", cycle_count=len(csv_paths))
         for file_path in csv_paths:
             progress.incr()
             # build data frame from csv
             try:
-                dcd_df = self.build_dcd_dataframe(file_path, **kwargs)
+                node_id = id_extractor(file_path)
+                dcd_df = self.build_dcd_dataframe(file_path, node_id=node_id, **kwargs)
             except EmptyDataError as e:
                 logger.warning(f"Empty DPMM file. Skip {file_path}")
                 continue
@@ -198,14 +203,7 @@ class DpmmProvider(IHdfProvider):
         self.set_selection_mapping_attribute()
         self.set_used_selection_attribute()
 
-    def parse_node_id(self, path: str) -> int:
-        grps = [m.groupdict() for m in self.node_regex.finditer(path)]
-        if not grps:
-            raise ValueError(f"No node id found in: {path}")
-        node_id = int(grps.pop()["node"])
-        return node_id
-
-    def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
+    def build_dcd_dataframe(self, path: str, node_id: int, **kwargs) -> pd.DataFrame:
         _df = LazyDataFrame.from_path(path)
         meta = _df.read_meta_data()
         meta = DpmmMetaData.from_dict(meta)
@@ -220,7 +218,7 @@ class DpmmProvider(IHdfProvider):
             df_filter=self.csv_filters,
         )
         # add own node id
-        df[DpmmKey.NODE] = self.parse_node_id(path)
+        df[DpmmKey.NODE] = node_id
         # set index
         df = df.reset_index()
         index = list(self.index_order().values())

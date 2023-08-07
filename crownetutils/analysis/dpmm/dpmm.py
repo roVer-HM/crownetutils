@@ -17,6 +17,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from crownetutils.analysis.dpmm.csv_loader import DpmmMetaData
+from crownetutils.analysis.dpmm.dpmm_cfg import MapType
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from crownetutils.utils.dataframe import (
@@ -27,11 +28,6 @@ from crownetutils.utils.dataframe import (
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import intersect
 from crownetutils.utils.plot import PlotUtil, Style, savefigure, with_axis
-
-
-class MapType(enum.Enum):
-    DENSITY = "density"
-    ENTROPY = "entropy"
 
 
 class BaseDpmMap:

@@ -28,7 +28,8 @@ from crownetutils.analysis.hdf_providers.node_position import (
     EnbPositionHdf,
     NodePositionHdf,
 )
-from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult, SqlOp
+from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult
+from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_interval
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
@@ -159,7 +160,7 @@ class _OppAnalysis(AnalysisBase):
         pass
 
     def get_sim_real_time_ratio(
-        self, omnetpp_log_file_path: str | os.path = None
+        self, omnetpp_log_file_path: str = None
     ) -> pd.DataFrame:
         """
         Get ratio of simulation time and real time to measure performance
@@ -320,7 +321,7 @@ class _OppAnalysis(AnalysisBase):
     def get_neighborhood_table_size(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str | None = None,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str | None = None,
         **kwargs,
     ) -> tuple[pd.DataFrame, np.ndarray]:
         """Extract neighborhood table size vectors from given module_name.
@@ -349,7 +350,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_jitter(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -370,7 +371,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_delay(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -391,7 +392,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_loss(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -412,7 +413,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_count_per_source(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -433,7 +434,7 @@ class _OppAnalysis(AnalysisBase):
     def _get_received_host_ids(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
     ):
         # add eventNumber to allow concat with rx host id data
         columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
@@ -475,7 +476,7 @@ class _OppAnalysis(AnalysisBase):
     def get_serving_enb(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str | None = None,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str | None = None,
         with_host_id: bool = False,
         drop_col: List[str] | None = ("vectorId",),
     ):
@@ -650,7 +651,7 @@ class _OppAnalysis(AnalysisBase):
     def get_rcvd_generic_vec_data(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
         vector_name: str,
         value_name: str,
         with_host_id: bool = False,
@@ -964,7 +965,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_loss2(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
     ) -> pd.DataFrame:
         logger.info("load packet loss data from *.vec")
 
@@ -1008,7 +1009,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_bytes(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: crownetutils.omnetpp.sql.SqlOp | str,
     ) -> pd.DataFrame:
         df = sql.vec_data(
             module_name=module_name,

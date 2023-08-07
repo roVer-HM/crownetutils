@@ -1,13 +1,15 @@
 import os
 import unittest
+from functools import partial
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
 from fs.tempfs import TempFS
 
+from crownetutils.analysis.dpmm.builder import parse_node_id
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
-from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.dpmm.tests.utils import (
     create_dcd_csv_dataframe,
     create_tmp_fs,
@@ -126,15 +128,21 @@ class DpmmProviderTest(unittest.TestCase):
         mock_set_attribute2: MagicMock,
         mock_build_dataframe: MagicMock,
     ):
-        dcd_path_1 = "any/path/dcdMap_42.csv"
-        dcd_path_2 = "any/path/dcdMap_43.csv"
+        cfg = DpmmCfg.default_density_beacon_map_cfg(os.devnull)
+        id_extractor = partial(parse_node_id, regex=cfg.get_csv_id_regex_pattern())
+        dcd_path_1 = "any/path/dcdMap_42.csv"  # default naming convention
+        dcd_path_2 = "any/path/dcdMap_43.csv"  # default naming convention
         ret_df_1 = pd.DataFrame(data=["a"])
         ret_df_2 = pd.DataFrame(data=["b"])
         mock_build_dataframe.side_effect = [ret_df_1, ret_df_2]
 
-        self.provider.create_from_csv([dcd_path_1, dcd_path_2])
+        self.provider.create_from_csv(
+            [dcd_path_1, dcd_path_2], id_extractor=id_extractor
+        )
 
-        mock_build_dataframe.assert_has_calls([call(dcd_path_1), call(dcd_path_2)])
+        mock_build_dataframe.assert_has_calls(
+            [call(dcd_path_1, node_id=42), call(dcd_path_2, node_id=43)]
+        )
         mock_store.return_value.append.assert_has_calls(
             [
                 call(
@@ -156,43 +164,22 @@ class DpmmProviderTest(unittest.TestCase):
         mock_set_attribute.assert_called_once()
         mock_set_attribute2.assert_called_once()
 
-    def test_parse_node_id(self):
-        node_id = 42
-        correct_string = f"any/path/dcdMap_{node_id}.csv"
-        result_correct = self.provider.parse_node_id(correct_string)
-        self.assertEqual(result_correct, node_id)
-
-        wrong_paths = [
-            "any/path/dcdMap361.csv",
-            "any/path/dcdMap_full.csv",
-            "any/path/dcdMap.csv",
-            "any/path/dcdMap_361",
-            "any/path/dcdMap_.csv",
-            "any/path/dcdMap.csv",
-        ]
-        for wrong_path in wrong_paths:
-            with self.assertRaises(ValueError):
-                self.provider.parse_node_id(wrong_path)
-
-    @patch("crownetutils.analysis.dpmm.hdf.dpmm_provider.DpmmProvider.parse_node_id")
     @patch("crownetutils.utils.dataframe.LazyDataFrame.read_meta_data")
     @patch("crownetutils.analysis.dpmm.hdf.dpmm_provider.read_csv")
     def test_build_dcd_dataframe(
         self,
         mock_read_csv: MagicMock,
         mock_meta: MagicMock,
-        mock_parse_node_id: MagicMock,
     ):
         own_node_id = 42
         csv_path = f"/any/path/dcdMap_{own_node_id}.csv"
-        mock_parse_node_id.return_value = own_node_id
         mock_read_csv.return_value = create_dcd_csv_dataframe(
             number_entries=50, node_id=45
         )
         mock_meta.return_value = dict(
             CELLSIZE=5.0, XSIZE=5, YSIZE=5, NODE_ID=0, version=ProviderVersion.V0_1
         )
-        result = self.provider.build_dcd_dataframe(csv_path)
+        result = self.provider.build_dcd_dataframe(csv_path, node_id=42)
         self.assertEqual(
             [
                 DpmmKey.SIMTIME,

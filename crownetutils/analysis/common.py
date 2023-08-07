@@ -38,6 +38,7 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 from crownetutils.analysis.base import AnalysisBase
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.dockerrunner.run_argparser import read_sim_run_context
 from crownetutils.entrypoint.parser import ArgList
@@ -670,37 +671,69 @@ class Simulation:
         return cls(ctx.resultdir, label=label, run_context=ctx, id_offset=id_offset)
 
     @classmethod
-    def from_suqc_result(cls, data_root, label="", id_offset: int = 0):
+    def from_suqc_result(
+        cls, data_root, label="", id_offset: int = 0, cfg: DpmmCfg = None
+    ):
         for i, p in enumerate(data_root.split(os.sep)[::-1]):
             if p.startswith("Sample"):
                 label = f"{p}_{label}"
                 runcontext = join(data_root, "../../../", p, "runContext.json")
                 runcontext = os.path.abspath(runcontext.replace("Sample_", "Sample__"))
-                o = cls(data_root, label, RunContext.from_path(runcontext), id_offset)
+                o = cls(
+                    data_root,
+                    label,
+                    RunContext.from_path(runcontext),
+                    id_offset,
+                    dpmm_cfg=cfg,
+                )
                 # o.run_context = RunContext.from_path(runcontext)
                 return o
         raise ValueError("data_root not an suq-controller output directory")
 
     @classmethod
-    def from_output_dir(cls, data_root, **kwds):
-        data_root, builder, sql = AnalysisBase.builder_from_output_folder(
-            data_root, **kwds
-        )
-        lbl = os.path.basename(data_root)
-        c = cls(data_root, lbl, run_context=None, id_offset=0)
-        c._builder = builder
-        c._sql = sql
+    def from_output_dir(cls, data_root, cfg: DpmmCfg = None, **kwds):
+        if cfg is None:
+            data_root, builder, sql = AnalysisBase.builder_from_output_folder(
+                data_root, **kwds
+            )
+            lbl = os.path.basename(data_root)
+            c = cls(data_root, lbl, run_context=None, id_offset=0, dpmm_cfg=cfg)
+            c._builder = builder
+            c._sql = sql
+        else:
+            if data_root != cfg.base_dir:
+                raise ValueError(
+                    f"provided data_root and base_dir of DpmmCfg object are not the same. {data_root} != {cfg.base_dir}"
+                )
+            lbl = os.path.basename(cfg.base_dir)
+            c = cls(cfg.base_dir, lbl, dpmm_cfg=cfg, **kwds)
         return c
 
+    @classmethod
+    def with_dpmm_cfg(cls, cfg: DpmmCfg, label: str | None = None):
+        label = os.path.basename(cfg.base_dir) if label is None else label
+        return cls(cfg.base_dir, label, dpmm_cfg=cfg)
+
     def __init__(
-        self, data_root, label, run_context: RunContext = None, id_offset: int = 0
+        self,
+        data_root,
+        label,
+        run_context: RunContext = None,
+        id_offset: int = 0,
+        dpmm_cfg: DpmmCfg = None,
     ):
-        self.label = label
-        self._builder = None
-        self._sql = None
         self.data_root = data_root
+        self.label = label
         self.run_context: RunContext = run_context
         self._id_offset = id_offset
+        self._builder = None
+        self._sql = None
+        self.dpmm_cfg = dpmm_cfg
+        if self.dpmm_cfg is None:
+            logger.info("dpmm_cfg not set. Assume defaults")
+            self.dpmm_cfg: DpmmCfg = DpmmCfg(
+                base_dir=data_root, hdf_file="data.h5", map_type=MapType.DENSITY
+            )
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} object at {hex(id(self))} {self.label} ({self.study_id()}[{self.global_id()}])>"
@@ -708,19 +741,13 @@ class Simulation:
     @property
     def builder(self) -> DpmmHdfBuilder:
         if self._builder is None:
-            self._builder = DpmmHdfBuilder.get("data.h5", self.data_root).epsg(
-                Project.UTM_32N
-            )
+            self._builder = DpmmHdfBuilder.get(self.dpmm_cfg)
         return self._builder
 
     @property
     def sql(self) -> CrownetSql:
         if self._sql is None:
-            self._sql = CrownetSql(
-                vec_path=f"{self.data_root}/vars_rep_0.vec",
-                sca_path=f"{self.data_root}/vars_rep_0.sca",
-                network="World",
-            )
+            self._sql = CrownetSql.from_dpmm_cfg(self.dpmm_cfg)
         return self._sql
 
     def get_base_provider(self, group_name="root", path="data.h5") -> BaseHdfProvider:

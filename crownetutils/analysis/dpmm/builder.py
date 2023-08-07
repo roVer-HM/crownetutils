@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 import pickle
+import re
 from functools import partial
 from typing import Union
 
@@ -13,7 +14,8 @@ import pandas as pd
 from pandas import IndexSlice as Idx
 
 import crownetutils.analysis.dpmm.csv_loader as DcdUtil
-from crownetutils.analysis.dpmm.dpmm import DpmMap, DpmMapMulti, MapType
+from crownetutils.analysis.dpmm.dpmm import DpmMap, DpmMapMulti
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     DpmmGlobal,
@@ -45,6 +47,14 @@ def _hdf_job(args):
         _builder.create_hdf_fast()
     else:
         print(f"{_builder.hdf_path} already exist and override_existing is false")
+
+
+def parse_node_id(path: str, regex: re.Pattern) -> int:
+    grps = [m.groupdict() for m in regex.finditer(path)]
+    if not grps:
+        raise ValueError(f"No node id found in: '{path}' using pattern: '{regex}'")
+    node_id = int(grps.pop()["node"])
+    return node_id
 
 
 class DpmmProviders:
@@ -93,22 +103,15 @@ class DpmmHdfBuilder(FrameConsumer):
     @classmethod
     def get(
         cls,
-        hdf_path,
-        source_path,
-        map_glob="dcdMap_*.csv",
-        global_name="global.csv",
+        cfg: DpmmCfg,
         override_hdf: bool = False,
     ):
-        if not os.path.isabs(hdf_path):
-            hdf_path = os.path.join(source_path, hdf_path)
-        if override_hdf and os.path.exists(hdf_path):
-            logger.info(f"found hdf file but override hdf is active. remove {hdf_path}")
-            os.remove(hdf_path)
-        return cls(
-            hdf_path=hdf_path,
-            map_paths=glob.glob(os.path.join(source_path, map_glob)),
-            global_path=os.path.join(source_path, global_name),
-        )
+        if override_hdf and os.path.exists(cfg.hdf_path()):
+            logger.info(
+                f"found hdf file but override hdf is active. remove {cfg.hdf_path()}"
+            )
+            os.remove(cfg.hdf_path())
+        return cls(cfg=cfg)
 
     @classmethod
     def create(
@@ -141,12 +144,14 @@ class DpmmHdfBuilder(FrameConsumer):
         job_list = [[*i, _filter, override_existing] for i in job_list]
         pool.map(_hdf_job, job_list)
 
-    def __init__(self, hdf_path, map_paths, global_path, epsg=""):
+    def __init__(self, cfg: DpmmCfg):  # hdf_path, map_paths, global_path, epsg=""):
         super().__init__()
+        self.cfg = cfg
         # paths
-        self.hdf_path = hdf_path
-        self.map_paths = map_paths
-        self.global_path = global_path
+        self.hdf_path = self.cfg.hdf_path()
+        self.map_paths = glob.glob(os.path.join(cfg.base_dir, cfg.node_map_csv_glob))
+        self.global_path = os.path.join(cfg.base_dir, cfg.global_map_csv_name)
+
         # providers
         self.count_p = DpmmCount(self.hdf_path)
         self.map_p = DpmmProvider(self.hdf_path)
@@ -156,9 +161,9 @@ class DpmmHdfBuilder(FrameConsumer):
         # filters used during csv processing
         self.single_df_filters = []
         self._only_selected_cells = True
-        self._epsg = epsg
+        self._epsg = cfg.epsg_base
         self._imputation_function = ArbitraryValueImputation(0.0)
-        self._map_type: MapType = MapType.DENSITY
+        self._map_type: MapType = cfg.map_type
 
         # set later on
         self.global_df = None
@@ -304,8 +309,12 @@ class DpmmHdfBuilder(FrameConsumer):
             .to_numpy()
         )
         # add self as frame_consumer to build count_map iteratively
+        id_extractor = partial(
+            parse_node_id, regex=re.compile(self.cfg.node_map_csv_id_regex)
+        )
         self.map_p.create_from_csv(
             self.map_paths,
+            id_extractor=id_extractor,
             frame_consumer=[
                 partial(
                     self.create_count_map,
