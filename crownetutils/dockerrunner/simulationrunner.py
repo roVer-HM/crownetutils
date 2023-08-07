@@ -1,6 +1,7 @@
 import os
 import signal
 import time
+import traceback
 from typing import Any, List
 
 import docker
@@ -134,7 +135,7 @@ class BaseSimulationRunner:
                 except Exception as e:
                     _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
                     logger.error(_err)
-                    logger.error(e.print_exc())
+                    logger.error(traceback.format_exc())
                     err.append(f"  {_err}")
                     break
 
