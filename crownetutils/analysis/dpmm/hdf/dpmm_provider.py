@@ -47,6 +47,7 @@ class DpmmKey:
     HOST_ENTRY = "hostEntry"
     # v 0.4
     RSD_ID = "rsd_id"
+    RSD_ID_OWNER = "owner_rsd_id"
     # feature
     X_OWNER = "x_owner"
     Y_OWNER = "y_owner"
@@ -105,14 +106,15 @@ class DpmmKey:
                 SOURCE_ENTRY: float,
                 HOST_ENTRY: float,
                 SELECTION_RANK: float,
-                RSD_ID: float,
+                RSD_ID: int,
+                RSD_ID_OWNER: int,
             },
         }
     )
 
     count_map_creation_cols = {
         ProviderVersion.V0_1: [COUNT, X_OWNER, Y_OWNER],
-        ProviderVersion.V0_4: [COUNT, X_OWNER, Y_OWNER, RSD_ID],
+        ProviderVersion.V0_4: [COUNT, X_OWNER, Y_OWNER, RSD_ID, RSD_ID_OWNER],
     }
 
     types_features = {
@@ -253,6 +255,11 @@ class DpmmProvider(IHdfProvider):
                 f"Number of rows were affected. actual: {df.shape[0]} expected: {num_rows} "
             )
 
+        return df
+
+    def get_rsd_ids(self) -> pd.Series:
+        with self.ctx(mode="r") as store:
+            df = store.get(key=DpmmKey.RSD_ID)
         return df
 
     def update_selection_map(self, keys):

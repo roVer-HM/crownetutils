@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import enum
-import os
 from itertools import combinations
 from typing import Callable, List, Tuple, Union
 
@@ -18,8 +16,8 @@ from pandas import IndexSlice as Idx
 
 from crownetutils.analysis.dpmm.csv_loader import DpmmMetaData
 from crownetutils.analysis.dpmm.dpmm_cfg import MapType
-from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
-from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
+from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount, DpmmCountKey
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.utils.dataframe import (
     FrameConsumer,
     FrameConsumerList,
@@ -731,27 +729,12 @@ class DpmMap(BaseDpmMap):
         ax.legend()
         return ax.get_figure(), ax
 
-    def map_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
-        """create map based error measure over time to indicate **total area count correctness**
-
-        Get map count measure that shows how good the number of agents are
-        represented by the density map irrespective of there positions. Meaning
-        this error measure only shows if no agents are left out or are 'produced' by
-        the density map. There positional information is lost in this measure.
-
-        Returns:
-            pd.DataFrame: [index](columns): [simtime](
-                glb_map_count, mean_map_count, median_map_count,
-                map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
-                )
-        """
-        if self._map_p.contains_group("map_measure") and load_cached_version:
-            return self._map_p.get_dataframe(group="map_measure")
-
+    def _map_count_measure(self, glb: pd.DataFrame, node_data: pd.DataFrame):
         _i = pd.IndexSlice
         nodes: pd.DataFrame = (
-            self.count_p[_i[:, :, :, 1:], ["count"]]  # all but ground truth
-            .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])  # ID|time
+            node_data.groupby(  # self.count_p[_i[:, :, :, 1:], ["count"]]  # all but ground truth
+                level=[self.tsc_id_idx_name, self.tsc_time_idx_name]
+            )  # ID|time
             .sum()
             .groupby(level="simtime")
             .agg(
@@ -776,11 +759,9 @@ class DpmMap(BaseDpmMap):
             }
         )
         nodes.columns = nodes.columns.droplevel(0)
-        glb = (
-            self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            .groupby(level=[self.tsc_time_idx_name])
-            .sum()
-        )
+        glb = glb.groupby(  # self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+            level=[self.tsc_time_idx_name]
+        ).sum()
         glb.columns = ["map_glb_count"]
 
         df = pd.concat([glb, nodes], axis=1)
@@ -790,6 +771,129 @@ class DpmMap(BaseDpmMap):
         df["map_median_sqerr"] = np.power(df["map_median_err"], 2)
 
         return df
+
+    @staticmethod
+    def create_full_time_index(
+        times: np.array, xy_index: pd.MultiIndex
+    ) -> pd.MultiIndex:
+        """Generate a 4 level index [time, x, y, ID] where each **xy pair!** is match
+        with each time index.
+
+        Args:
+            times (np.array): time index as index. Will be copied and checked for uniqueness.
+            xy_index (_type_): xy index added to time index. Will be copied and checked for uniqueness.
+            names (tuple, optional): Names of the final index. Defaults to ("simtime", "x", "y").
+        """
+        times = np.sort(np.unique(times))
+        idx_names = xy_index.names
+        for _name in idx_names:
+            if _name not in ["x", "y"]:
+                xy_index = xy_index.droplevel(_name)
+        xy_index: np.array = xy_index.unique().sort_values().to_frame().values
+
+        # tile: [a, b ,c]  --> [a, b, c, a, b c]
+        time_index_tiled = np.tile(times, reps=xy_index.shape[0])
+        # repeat (will flatten input beforehand if axis=None): [[A, B], [C, D]] -> [A A C C B B D D] such that
+        # [ all x values repeated | all y values repeated]
+        xy_repeated = np.repeat(xy_index.T, repeats=times.shape[0])
+
+        txy_index_full = np.append(
+            time_index_tiled, xy_repeated
+        )  # [times x-values y-values] shape(3*N,)
+        txy_index_full = np.append(
+            txy_index_full, np.zeros(int(txy_index_full.shape[0] / 3))
+        )  # [times x-values y-values id-values] shape(4*N,)
+
+        # input [times  x-values  y-values, id-values] -> [[times], [x-values], [y-values], [id-values]] shape(4,N)
+        txy_index_full = txy_index_full.reshape((4, -1))
+        txy_index_full = pd.MultiIndex.from_arrays(
+            txy_index_full, names=["simtime", "x", "y", "ID"]
+        )
+        return txy_index_full
+
+    def map_count_measure_by_rsd(self, load_cached_version: bool = True):
+        """create map based error measure over time to indicate **total area count correctness**
+
+        Get map count measure that shows how good the number of agents are
+        represented by the density map irrespective of there positions. Meaning
+        this error measure only shows if no agents are left out or are 'produced' by
+        the density map. There positional information is lost in this measure.
+
+        Returns:
+            pd.DataFrame: [index](columns): [simtime](
+                glb_map_count, mean_map_count, median_map_count,
+                map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
+                )
+        """
+
+        if self._map_p.contains_group("map_measure_by_rsd") and load_cached_version:
+            return self._map_p.get_dataframe(group="map_measure_by_rsd")
+
+        # get all ground truth data and extract the unique time index needed
+        # to filter global data based on selected rsd.
+        _i = pd.IndexSlice
+        glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+        time_index = glb.index.get_level_values("simtime").unique().to_numpy()
+
+        out = []
+        rsd_ids = self._map_p.get_rsd_ids()
+        for rsd in rsd_ids:
+            logger.debug(f"process rsd_id: {rsd}")
+
+            # `cell_measurements_for_rsd` contains measurements concerning the selected RSD
+            # *IRRESPECTIVE* of RSD the owner of the measurement is at the time of logging the measurement.
+            cell_measurements_for_rsd = self._map_p.select(
+                where=f"{DpmmKey.RSD_ID}={rsd}", columns=["count"]
+            )
+
+            # filter (all timestamped x, y cells present in `cell_measurements_for_rsd`)
+            txy_index_full = self.create_full_time_index(
+                time_index, cell_measurements_for_rsd.index
+            )
+            glb_txy_idx = glb.index.intersection(txy_index_full)
+
+            # apply intersected index.
+            glb_rsd = glb.loc[glb_txy_idx].copy(deep=True)
+
+            _out = self._map_count_measure(glb_rsd, cell_measurements_for_rsd)
+            _out["rsd_id"] = rsd
+            out.append(_out.reset_index())
+
+        out = pd.concat(out, axis=0, ignore_index=True)
+        out = out.set_index(["simtime", "rsd_id"]).sort_index()
+        _mask_nan = out.isna().any(axis=1)
+        if any(_mask_nan):
+            _nans = out[_mask_nan]
+            logger.info(
+                f"found {_nans.shape[0]} rows with nan values. Map application did not start yet. \nDropping rows:\n{_nans}"
+            )
+            out = out[~_mask_nan]
+        return out
+
+    def map_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
+        """create map based error measure over time to indicate **total area count correctness**
+
+        Get map count measure that shows how good the number of agents are
+        represented by the density map irrespective of there positions. Meaning
+        this error measure only shows if no agents are left out or are 'produced' by
+        the density map. There positional information is lost in this measure.
+
+        Returns:
+            pd.DataFrame: [index](columns): [simtime](
+                glb_map_count, mean_map_count, median_map_count,
+                map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
+                )
+        """
+        if self._map_p.contains_group("map_measure") and load_cached_version:
+            return self._map_p.get_dataframe(group="map_measure")
+
+        _i = pd.IndexSlice
+        nodes: pd.DataFrame = self.count_p[
+            _i[:, :, :, 1:], ["count"]
+        ]  # all but ground truth
+        glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+
+        return self._map_count_measure(glb, node_data=nodes)
 
     def remove_missing_values(self, df: pd.DataFrame, count_slice: slice):
         _i = pd.IndexSlice
@@ -904,6 +1008,133 @@ class DpmMap(BaseDpmMap):
         # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
         return fc(cell_base.loc[index_slice, columns])
 
+    def _cell_count_measure(self, glb: pd.DataFrame, nodes: pd.DataFrame):
+        glb = glb.droplevel("ID")
+        glb.columns = ["glb_count"]
+        glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count) aka. M
+        glb_map_sum.columns = ["num_Agents"]
+
+        # all (time, x, y, id) based count, err, squerr cell values
+        # without ground truth (see slice last slice `1:`)
+        # The measurements are summed over all nodes (this will drop the id index )
+
+        nodes["abserr"] = np.abs(nodes["err"])
+
+        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
+        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
+        cell_base: pd.DateFrame = nodes.groupby(
+            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
+        ).agg(
+            ["sum"]
+        )  # [time, x, y](...data-columns...)
+
+        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
+        # join total number of agents (aka. M) with cell based measures. See function description
+        cell_base: pd.DataFrame = cell_base.join(glb_map_sum, on="simtime")
+        cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
+        cell_base["glb_count"] = cell_base["glb_count"].fillna(value=0)
+        cell_base["num_Agents"] = cell_base["num_Agents"].fillna(value=0)
+        if cell_base.isna().any().any():
+            raise ValueError(
+                f"Found coulmns with nan values: {cell_base.isna().any(axis=0)}"
+            )
+
+        # divide by total number of nodes at each time to create mean measruements
+        cell_base["cell_mean_count_est"] = (
+            cell_base["count_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j (Y_ij) -> neee for metric II
+        cell_base["cell_mean_est_sqerr"] = np.power(
+            cell_base["cell_mean_count_est"] - cell_base["glb_count"], 2
+        )  # (1/M sum^M_j (Y_ij) - Y^_i)^2 -> needed for metric II
+
+        cell_base["cell_mse"] = (
+            cell_base["sqerr_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j (Y_ij - Y^_i)^2 -> needed for metric III
+        cell_base["cell_mean_err"] = (
+            cell_base["err_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j (Y_ij - Y^_i) -> optional
+        cell_base["cell_mean_abserr"] = (
+            cell_base["abserr_sum"] / cell_base["num_Agents"]
+        )  # 1/M sum^M_j |Y_ij - Y^_i| -> optional
+
+        return cell_base
+
+    def cell_count_measure_by_rsd(
+        self,
+        load_cached_version: bool = True,
+        index_slice: slice | Tuple(slice) = slice(None),
+        xy_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
+        fc: FrameConsumer = FrameConsumer.EMPTY,
+        columns: slice | List[str] = slice(None),
+        remove_missing_values: bool = False,
+    ) -> pd.DataFrame:
+        group_name = (
+            "cell_measures_no_missing_by_rsd"
+            if remove_missing_values
+            else "cell_measures_by_rsd"
+        )
+        if self._map_p.contains_group(group_name) and load_cached_version:
+            return fc(
+                self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
+            )
+
+        _i = pd.IndexSlice
+        # total number of nodes at each time
+        if isinstance(xy_slice, pd.MultiIndex):
+            glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
+            glb = partial_index_match(glb, xy_slice)
+        else:
+            glb = self.count_p[
+                _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
+            ]  # only ground truth
+
+        time_index = glb.index.get_level_values("simtime").unique().to_numpy()
+        rsd_ids = self._map_p.get_rsd_ids()
+
+        out = []
+        for rsd in rsd_ids:
+            # all (time, x, y, id) based count, err, squerr cell values
+            # without ground truth (see slice last slice `1:`)
+            # The measurements are summed over all nodes (this will drop the id index )
+            print(f"process rsd: {rsd}")
+            if isinstance(xy_slice, pd.MultiIndex):
+                nodes: pd.DateOffset = self.count_p.select(
+                    key=self.count_p.group,
+                    where=[f"{DpmmCountKey.ID}>0", f"{DpmmCountKey.RSD_ID} == {rsd}"],
+                    columns=["count", "err", "sqerr"],
+                )
+                if remove_missing_values:
+                    nodes = self.remove_missing_values(nodes, _i[:, :, :, 1:])
+                nodes = partial_index_match(nodes, xy_slice)
+            else:
+                terms = self.count_p.parse_index_slice(
+                    _i[:, xy_slice[0], xy_slice[1], 1:]
+                )[0]
+                terms.append(f"{DpmmCountKey.RSD_ID} == {rsd}")
+                nodes: pd.DataFrame = self.count_p.select(
+                    key=self.count_p.group,
+                    where=terms,
+                    columns=["count", "err", "sqerr"],
+                )
+                if remove_missing_values:
+                    nodes = self.remove_missing_values(
+                        nodes, _i[:, xy_slice[0], xy_slice[1], 1:]
+                    )
+
+            # filter global values based on cells (x, y) in current rsd
+            txy_index_full = self.create_full_time_index(time_index, nodes.index)
+            _idx = glb.index.intersection(txy_index_full)
+            glb_rsd = glb.loc[_idx].copy(deep=True)
+
+            _out = self._cell_count_measure(glb=glb_rsd, nodes=nodes)
+            _out[DpmmCountKey.RSD_ID] = rsd
+            out.append(_out.reset_index())
+
+        out = pd.concat(out, axis=0, ignore_index=True)
+        out = out.set_index([DpmmCountKey.RSD_ID, "simtime", "x", "y"]).sort_index()
+        # remove uncessary columns
+        return fc(out.loc[index_slice, columns])
+
     def cell_count_measure(
         self,
         load_cached_version: bool = True,
@@ -975,10 +1206,6 @@ class DpmMap(BaseDpmMap):
             glb = self.count_p[
                 _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
             ]  # only ground truth
-        glb = glb.droplevel("ID")
-        glb.columns = ["glb_count"]
-        glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count) aka. M
-        glb_map_sum.columns = ["num_Agents"]
 
         # all (time, x, y, id) based count, err, squerr cell values
         # without ground truth (see slice last slice `1:`)
@@ -999,45 +1226,7 @@ class DpmMap(BaseDpmMap):
                     nodes, _i[:, xy_slice[0], xy_slice[1], 1:]
                 )
 
-        nodes["abserr"] = np.abs(nodes["err"])
-
-        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
-        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
-        cell_base: pd.DateFrame = nodes.groupby(
-            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
-        ).agg(
-            ["sum"]
-        )  # [time, x, y](...data-columns...)
-
-        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
-        # join total number of agents (aka. M) with cell based measures. See function description
-        cell_base: pd.DataFrame = cell_base.join(glb_map_sum, on="simtime")
-        cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
-        cell_base["glb_count"] = cell_base["glb_count"].fillna(value=0)
-        cell_base["num_Agents"] = cell_base["num_Agents"].fillna(value=0)
-        if cell_base.isna().any().any():
-            raise ValueError(
-                f"Found coulmns with nan values: {cell_base.isna().any(axis=0)}"
-            )
-
-        # divide by total number of nodes at each time to create mean measruements
-        cell_base["cell_mean_count_est"] = (
-            cell_base["count_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij) -> neee for metric II
-        cell_base["cell_mean_est_sqerr"] = np.power(
-            cell_base["cell_mean_count_est"] - cell_base["glb_count"], 2
-        )  # (1/M sum^M_j (Y_ij) - Y^_i)^2 -> needed for metric II
-
-        cell_base["cell_mse"] = (
-            cell_base["sqerr_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij - Y^_i)^2 -> needed for metric III
-        cell_base["cell_mean_err"] = (
-            cell_base["err_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij - Y^_i) -> optional
-        cell_base["cell_mean_abserr"] = (
-            cell_base["abserr_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j |Y_ij - Y^_i| -> optional
-
+        cell_base = self._cell_count_measure(glb=glb, nodes=nodes)
         # remove uncessary columns
         # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
         return fc(cell_base.loc[index_slice, columns])

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import os
 from functools import partial
 from typing import Callable, List, Tuple
@@ -11,7 +10,6 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 from pandas import IndexSlice as _i
-from pandas._typing import IntervalClosedType
 
 import crownetutils.omnetpp.scave as Scave
 import crownetutils.utils.plot as _Plot
@@ -23,11 +21,12 @@ from crownetutils.analysis.common import (
     SimulationGroup,
 )
 from crownetutils.analysis.dpmm.dpmm import percentile
-from crownetutils.analysis.hdf_providers.node_position import (
+from crownetutils.analysis.hdf.provider import (
     BaseHdfProvider,
-    EnbPositionHdf,
-    NodePositionHdf,
+    HdfGroupFactory,
+    ProviderVersion,
 )
+from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
 from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult
 from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_interval
@@ -138,21 +137,6 @@ class _hdf_Extractor(AnalysisBase):
         except SqlEmptyResult as e:
             logger.error("No packets found")
             logger.error(e)
-
-
-class ServingEnbHdf(BaseHdfProvider):
-    @classmethod
-    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> ServingEnbHdf:
-        obj = cls(hdf_path=hdf_path, group="enb_association", allow_lazy_loading=True)
-        obj.add_group_factory(
-            obj.group,
-            partial(OppAnalysis.get_serving_enb, sql=sim.sql, with_host_id=True),
-        )
-        return obj
-
-    @classmethod
-    def from_sim(cls, sim: Simulation, **kwargs) -> ServingEnbHdf:
-        return cls.get(sim.path("position.h5"), sim, **kwargs)
 
 
 class _OppAnalysis(AnalysisBase):
@@ -517,7 +501,6 @@ class _OppAnalysis(AnalysisBase):
         self,
         sim: Simulation,
         end_time_provider: Callable[[pd.Series], pd.Series] | None = None,
-        interval_closed: IntervalClosedType = "right",
     ) -> pd.DataFrame:
         """Get interval indexed serving cells with start and stop intervals.
 
@@ -546,7 +529,9 @@ class _OppAnalysis(AnalysisBase):
                             if s["start"] > max_time_dict[i]
                             else max_time_dict[i]
                         )
-                        s["end"] = t
+                        s["end"] = (
+                            t + 1e-12
+                        )  # ensure last measurement is part of interval
                 return s
 
             end_time_provider = _apply
@@ -567,25 +552,42 @@ class _OppAnalysis(AnalysisBase):
         serving["delta"] = serving["end"] - serving["start"]
 
         serving["interval"] = [
-            pd.Interval(*row, closed=interval_closed)
+            pd.Interval(*row, closed="left")
             for _, row in serving[["start", "end"]].iterrows()
         ]
         serving = serving.loc[:, ["hostId", "interval", "start", "end", "servingEnb"]]
         serving = serving.set_index(["hostId", "interval"]).sort_index()
         return serving
 
-    def get_node_serving_data(
+    def get_node_position_with_serving_cell(
         self,
         sim: Simulation,
-        enb_pos: EnbPositionHdf | pd.DataFrame,
         ue_pos: NodePositionHdf | pd.DataFrame,
+        drop_columns=("interval", "start", "end"),
+    ):
+        ue = ue_pos.get_dataframe() if isinstance(ue_pos, NodePositionHdf) else ue_pos
+
+        enb_int = self.get_serving_enb_interval(sim)
+
+        # append enb association data
+        ue = ue.set_index(["hostId", "time"]).sort_index()
+        ue = merge_on_interval(ue, enb_int, index="time", interval_closed_at="left")
+        if drop_columns is not None:
+            ue = ue.drop(columns=list(drop_columns))
+        return ue
+
+    def get_node_serving_data_color_coded(
+        self,
+        sim: Simulation,
+        enb_pos: pd.DataFrame,
+        ue_pos: pd.DataFrame,
     ) -> pd.DataFrame:
         """Create data for positional eNB association of each node.
 
         Args:
             sql (Scave.CrownetSql): _description_
-            enb_pos (EnbPositionHdf): _description_
-            ue_pos (NodePositionHdf): _description_
+            enb_pos (pd.DataFrame): _description_
+            ue_pos (pd.DataFrame): _description_
             end_time_provider (Callable[[pd.Series], pd.Series]): _description_
 
         Returns:
@@ -593,17 +595,8 @@ class _OppAnalysis(AnalysisBase):
            and a LineCollection containing all segments
         """
 
-        enb = (
-            enb_pos.get_dataframe() if isinstance(enb_pos, EnbPositionHdf) else enb_pos
-        )
-        ue = ue_pos.get_dataframe() if isinstance(ue_pos, NodePositionHdf) else ue_pos
-
-        enb_int = self.get_serving_enb_interval(sim)
-
         # append enb association data
-        ue = ue.set_index(["hostId", "time"]).sort_index()
-        ue = merge_on_interval(ue, enb_int, index="time").fillna(-1)
-        ue = ue.drop(columns=["interval", "start", "end"])
+        ue = self.get_node_position_with_serving_cell(sim, ue_pos)
 
         # add next position (x1, y1) to create line segment (start point, end point)
         ue2 = ue.groupby("hostId")[["x", "y"]].shift(-1).set_axis(["x1", "y1"], axis=1)
@@ -626,8 +619,8 @@ class _OppAnalysis(AnalysisBase):
         )  # [ [[x, y], [x1, y1]], [[.],[.]], ... ]
 
         # create color array containg all enb's plus one for no connection and one for not in the simulation
-        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * enb.shape[0])))
-        enb_colors = enb_c[-(2 + enb.shape[0]) :]
+        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * enb_pos.shape[0])))
+        enb_colors = enb_c[-(2 + enb_pos.shape[0]) :]
         enb_colors[0] = [
             1,
             1,
@@ -1178,6 +1171,7 @@ class _OppAnalysis(AnalysisBase):
     ):
         map = sim.get_dcdMap()
         if sim.sql.is_count_map():
+            # MapMeasure (Count)
             group = "map_measure"
             _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
             if _hdf.contains_group(group):
@@ -1186,17 +1180,7 @@ class _OppAnalysis(AnalysisBase):
                 map_measure = map.map_count_measure(load_cached_version=False)
                 _hdf.write_frame(group=group, frame=map_measure)
 
-        if sim.sql.is_entropy_map():
-            # use cell_value_measure method
-            group = "cell_measures"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                cell_measure = map.cell_value_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=cell_measure)
-        else:
-            # use cell_count_measure method
+            # CellMeasure (Count)
             group = "cell_measures"
             _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
             if _hdf.contains_group(group):
@@ -1204,6 +1188,40 @@ class _OppAnalysis(AnalysisBase):
             else:
                 cell_measure = map.cell_count_measure(load_cached_version=False)
                 _hdf.write_frame(group=group, frame=cell_measure)
+        else:
+            # CellMeasure (Entropy)
+            group = "cell_measures"
+            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
+            if _hdf.contains_group(group):
+                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
+            else:
+                cell_measure = map.cell_value_measure(load_cached_version=False)
+                _hdf.write_frame(group=group, frame=cell_measure)
+
+        # Resource sharing domain specific data.
+        if sim.builder.map_p.version >= ProviderVersion.V0_4:
+            rsd_list = sim.builder.map_p.get_rsd_ids()
+            if sim.sql.is_count_map() and len(rsd_list) > 1:
+                group = "map_measure_by_rsd"
+                if _hdf.contains_group(group):
+                    print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
+                else:
+                    map_measure_rsd = map.map_count_measure_by_rsd(
+                        load_cached_version=False
+                    )
+                    _hdf.write_frame(group=group, frame=map_measure_rsd)
+
+                group = "cell_measures_by_rsd"
+                if _hdf.contains_group(group):
+                    print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
+                else:
+                    cell_measure_rsd = map.cell_count_measure_by_rsd(
+                        load_cached_version=False
+                    )
+                    _hdf.write_frame(group=group, frame=cell_measure_rsd)
+
+            elif sim.sql.is_entropy_map() and len(rsd_list) > 1:
+                pass  # todo by rsd for density maps
 
     @timing
     def get_data_001(self, sim: Simulation):
@@ -2005,3 +2023,84 @@ class _CellOccupancy:
 CellOccupancy = _CellOccupancy()
 OppAnalysis = _OppAnalysis()
 HdfExtractor = _hdf_Extractor()
+
+
+class NodePositionWithRsdHdf(BaseHdfProvider):
+    @classmethod
+    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> NodePositionWithRsdHdf:
+        obj = cls(
+            hdf_path=hdf_path, group="trajectories_with_rsd", allow_lazy_loading=True
+        )
+        if len(kwargs) > 0:
+            gf = HdfGroupFactory(
+                group_name=obj.group,
+                factory=partial(cls.build, sim=sim, **kwargs),
+                meta=cls.add_meta,
+                post=cls.frame_post,
+            )
+            obj.add_group_factory(gf)
+        else:
+            gf = HdfGroupFactory(
+                group_name=obj.group,
+                factory=partial(cls.build, sim=sim),
+                meta=cls.add_meta,
+                post=cls.frame_post,
+            )
+            obj.add_group_factory(gf)
+        return obj
+
+    @classmethod
+    def from_sim(cls, sim: Simulation, **kwargs) -> NodePositionWithRsdHdf:
+        return cls.get(sim.path("position.h5"), sim, **kwargs)
+
+    @staticmethod
+    def build(sim: Simulation, **kwargs):
+        ue = NodePositionHdf.from_sim(sim).frame()
+        out = OppAnalysis.get_node_position_with_serving_cell(
+            sim=sim, ue_pos=ue, drop_columns=("interval",)
+        )
+        out = out.rename(
+            columns={
+                "servingEnb": "rsd_id",
+                "start": "interval_start",
+                "end": "interval_end",
+            }
+        )
+        out["rsd_id"] = out["rsd_id"].astype(int)
+        return out
+
+    @staticmethod
+    def add_meta() -> dict:
+        return {
+            "interval_column": ("interval", "interval_start", "interval_end", "left")
+        }
+
+    @staticmethod
+    def frame_post(frame: pd.DataFrame, p: BaseHdfProvider) -> pd.DataFrame:
+        m = p.get_attribute("interval_column")
+        if all(i in frame.columns for i in [m[1], m[2]]):
+            idx = [
+                pd.Interval(v[0], v[1], closed=m[3])
+                for v in frame.loc[:, [m[1], m[2]]].values
+            ]
+            frame[m[0]] = pd.IntervalIndex(idx, closed=m[3])
+        return frame
+
+
+class ServingEnbHdf(BaseHdfProvider):
+    @classmethod
+    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> ServingEnbHdf:
+        obj = cls(hdf_path=hdf_path, group="enb_association", allow_lazy_loading=True)
+        obj.add_group_factory(
+            HdfGroupFactory(
+                group_name=obj.group,
+                factory=partial(
+                    OppAnalysis.get_serving_enb, sql=sim.sql, with_host_id=True
+                ),
+            )
+        )
+        return obj
+
+    @classmethod
+    def from_sim(cls, sim: Simulation, **kwargs) -> ServingEnbHdf:
+        return cls.get(sim.path("position.h5"), sim, **kwargs)

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class SqlOp:
     """
     Helper class to build `WHERE` clause for matching a
@@ -21,6 +24,22 @@ class SqlOp:
 
     def get_names(self):
         return self._group
+
+    def append_path(self, path: str) -> SqlOp:
+        path = path if path.startswith(".") else f".{path}"
+        for i in range(len(self._group)):
+            self._group[i] = f"{self._group[i]}{path}"
+        return self
+
+    def drop_path_elements(self, num: int = 1) -> SqlOp:
+        for i in range(len(self._group)):
+            path_elements = self._group[i].split(".")
+            if len(path_elements) < num:
+                raise ValueError(
+                    f"path is to sort. cannot drop {num} elements: {self._group[i]}"
+                )
+            self._group[i] = ".".join(path_elements[0 : len(path_elements) - 1])
+        return self
 
     def apply(self, table, column):
         ret = []

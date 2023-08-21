@@ -783,6 +783,42 @@ class CrownetSql(OppSql):
             cols=cols,
         )
 
+    def get_resource_sharing_domains(
+        self,
+        ids_only: bool = False,
+        epsg_code_base: str | None = None,
+        epsg_code_to: str | None = None,
+        apply_offset: bool = True,
+        bottom_left_origin: bool = True,
+    ) -> pd.Series | pd.DataFrame:
+        module_name = self.m_enb()
+        rsd = self.sca_data(
+            module_name=module_name.append_path(".cellularNic.phy"),
+            scalar_name="macNodeId:last",
+            cols=("modulename", "scalarValue"),
+        )
+        if ids_only:
+            r = rsd["scalarValue"].astype(int)
+            r.name = "rsd_id"
+            return r
+
+        rsd = rsd.set_axis(["hostId", "rsd_id"], axis=1)
+        rsd["rsd_id"] = rsd["rsd_id"].astype(int)
+        p = re.compile(r".*\[(\d+)\].*")
+        rsd["hostId"] = rsd["hostId"].apply(lambda x: int(p.match(x).groups()[0]))
+        enb = self.enb_position(
+            module_name=self.m_enb(),
+            epsg_code_base=epsg_code_base,
+            epsg_code_to=epsg_code_to,
+            apply_offset=apply_offset,
+            bottom_left_origin=bottom_left_origin,
+            cols=("hostId", "host", "x", "y"),
+        )
+        enb["hostId"] = enb["hostId"].astype(int)
+
+        enb = enb.merge(rsd, how="inner", on="hostId")
+        return enb
+
     def node_position(
         self,
         module_name: Union[SqlOp, str, None] = None,
@@ -1246,11 +1282,11 @@ class CrownetSql(OppSql):
         else:
             return self.dpmm_cfg.m_map(_m, node_index=idx, path=path)
 
-    def m_enb(self, index: int = -1, module: str = "") -> str:
+    def m_enb(self, index: int = -1, module: str = "") -> SqlOp:
         if index < 0:
-            return f"{self.network}.eNB[%]{module}"
+            return SqlOp(operator="", group=f"{self.network}.eNB[%]{module}")
         else:
-            return f"{self.network}.eNB[{index}]{module}"
+            return SqlOp(operator="", group=f"{self.network}.eNB[{index}]{module}")
 
     def m_append_suffix(
         self, suffix: str, modules: str | List[str] | SqlOp | None = None

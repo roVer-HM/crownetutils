@@ -6,6 +6,7 @@ from typing import Any, Callable, List, Protocol
 
 import numpy as np
 import pandas as pd
+from pandas._typing import IntervalClosedType
 from pandas.io.formats.style import Styler
 
 
@@ -39,35 +40,6 @@ class FrameConsumer(Protocol):
 
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass
-
-
-class MissingValueImputationStrategy(Protocol):
-    """Imputation strategy to fill or remove missing values from a frame. Note that in case of removing the whole
-    row will be removed."""
-
-    def __call__(
-        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
-    ) -> pd.DataFrame:
-        ...
-
-
-class ArbitraryValueImputation(MissingValueImputationStrategy):
-    def __init__(self, fill_value=0.0) -> None:
-        self.fill_value = fill_value
-
-    def __call__(
-        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
-    ) -> pd.DataFrame:
-        df[data_column] = df[data_column].fillna(self.fill_value)
-        return df
-
-
-class DeleteMissingImputation(MissingValueImputationStrategy):
-    def __call__(
-        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
-    ) -> pd.DataFrame:
-        mask = ~df[data_column].isna()
-        return df[mask].copy()
 
 
 def siunitx_format(val, cmd, options=None):
@@ -278,6 +250,7 @@ def merge_on_interval(
     df_interval,
     index="time",
     interval_col="interval",
+    interval_closed_at: IntervalClosedType = "left",
     merge: bool = True,
     **merge_args,
 ):
@@ -293,22 +266,25 @@ def merge_on_interval(
         data[interval_col] = np.nan
         for _index, _df in data.groupby(group_by_index):
             i_index = pd.IntervalIndex(
-                index_or_col(df_interval.loc[_index], interval_col)
+                index_or_col(df_interval.loc[_index], interval_col),
+                closed=interval_closed_at,
             )
             data.loc[_index, [interval_col]] = pd.cut(
                 _df.index.get_level_values(index), bins=i_index
             )
     else:
-        i_index = pd.IntervalIndex(index_or_col(df_interval, interval_col))
+        i_index = pd.IntervalIndex(
+            index_or_col(df_interval, interval_col), closed=interval_closed_at
+        )
+
         data[interval_col] = pd.cut(data.index.get_level_values(0), bins=i_index)
         group_by_index = []
 
-    merge_args.update(dict(on=[*group_by_index, interval_col], how="left"))
-
     if merge:
-        data = data.reset_index().merge(df_interval.reset_index(), **merge_args)
+        merge_args.update(dict(on=[*group_by_index, interval_col], how="left"))
+        out = data.reset_index().merge(df_interval.reset_index(), **merge_args)
 
-    return data
+    return out
 
 
 def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.DataFrame:

@@ -44,6 +44,43 @@ class HdfGroupDataFactory(Protocol):
         ...
 
 
+class HdfGroupAppendMetadata(Protocol):
+    def __call__(self) -> dict:
+        """Callable that returns dictionary with key value pairs added to group metadata"""
+        ...
+
+    @staticmethod
+    def EMPTY() -> dict:
+        return {}
+
+
+class HdfGroupFramePostProcessing(Protocol):
+    def __call__(self, frame: pd.DataFrame, p: BaseHdfProvider) -> pd.DataFrame:
+        ...
+
+    @staticmethod
+    def EMPTY(frame: pd.DataFrame, p: BaseHdfProvider) -> pd.DataFrame:
+        return frame
+
+
+class HdfGroupFactory:
+    def __init__(
+        self,
+        group_name: str,
+        factory: HdfGroupDataFactory,
+        meta: HdfGroupAppendMetadata = None,
+        post: HdfGroupFramePostProcessing = None,
+    ) -> None:
+        self.group = group_name
+        self.factory = factory
+        self.meta: HdfGroupAppendMetadata = (
+            HdfGroupAppendMetadata.EMPTY if meta is None else meta
+        )
+        self.post: HdfGroupFramePostProcessing = (
+            HdfGroupFramePostProcessing.EMPTY if post is None else post
+        )
+
+
 class BaseHdfProvider:
     def __init__(
         self, hdf_path: str, group: str = "root", allow_lazy_loading: bool = False
@@ -52,7 +89,7 @@ class BaseHdfProvider:
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
-        self.group_factory: Dict[str, HdfGroupDataFactory] = {}
+        self.group_factory: Dict[str, HdfGroupFactory] = {}
         self._lazy_loading = allow_lazy_loading
 
     # allow pickling of hdf providers
@@ -77,8 +114,8 @@ class BaseHdfProvider:
     def lazy_loading(self) -> bool:
         return self._lazy_loading
 
-    def add_group_factory(self, group: str, factory: HdfGroupDataFactory):
-        self.group_factory[group] = factory
+    def add_group_factory(self, f: HdfGroupFactory):
+        self.group_factory[f.group] = f
 
     def __setstate__(self, state):
         self.__dict__.update(state)
@@ -94,7 +131,16 @@ class BaseHdfProvider:
 
         with self.ctx(mode="r") as store:
             df = store.get(key=_key)
-        return pd.DataFrame(df)
+        df = pd.DataFrame(df)
+
+        if _key in self.group_factory:
+            df = self.group_factory[_key].post(df, self)
+
+        return df
+
+    def frame(self, group=None) -> pd.DataFrame:
+        """Alias for get_dataframe"""
+        return self.get_dataframe(group)
 
     def _check_lazy_load(self, group: str | None = None):
         key = self.group if group is None else group
@@ -116,9 +162,14 @@ class BaseHdfProvider:
         logger.info(
             f"execute group factory callback for group {group} for file {self._hdf_path}"
         )
-        data = self.group_factory[group]()
+        gf = self.group_factory[group]
+        data = gf.factory()
         logger.info(f"write group {group} to file {self._hdf_path}")
         self.write_frame(group=group, frame=data, index=True, index_data_columns=True)
+        if gf.meta is not None:
+            logger.info(f"append metadata to group {group} to file {self._hdf_path}")
+            for k, v in gf.meta().items():
+                self.set_attribute(attr_key=k, value=v, group=group)
 
     def write_frame(self, group, frame, index=True, index_data_columns=True):
         with self.ctx() as store:
@@ -317,6 +368,10 @@ class BaseHdfProvider:
                 iterator=iterator,
                 chunksize=chunksize,
             )
+
+        if key in self.group_factory:
+            ret = self.group_factory[key].post(ret, self)
+
         return ret
 
 
@@ -617,23 +672,21 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         return condition, columns
 
     def __getitem__(self, item: any) -> pd.DataFrame:
-        condition, columns = self.dispatch(self.default_index_key(), item)
-        condition.extend(list(self._filters))
-        # remove conditions containing 'None' values
-        condition = [i for i in condition if not "None" in i]
+        condition, columns = self.parse_index_slice(item)
         if len(condition) == 0 and columns is None:
             # empty condition -> return full frame
             dataframe = self.get_dataframe()
         else:
             dataframe = self._select_where(condition, columns)
-        # if (
-        #     dataframe.empty and columns is None
-        # ):  # if len(column) == 0 user only wants index!
-        #     raise ValueError(
-        #         f"Returned dataframe was empty. Please check your index names.{condition=}"
-        #     )
         # allow empty frames
         return dataframe
+
+    def parse_index_slice(self, item: any) -> Tuple[List[str], List[str]]:
+        condition, columns = self.dispatch(self.default_index_key(), item)
+        condition.extend(list(self._filters))
+        # remove conditions containing 'None' values
+        condition = [i for i in condition if not "None" in i]
+        return condition, columns
 
     def __setitem__(self, key, value):
         raise UnsupportedOperation("Not supported!")

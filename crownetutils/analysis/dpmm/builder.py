@@ -14,7 +14,7 @@ import pandas as pd
 from pandas import IndexSlice as Idx
 
 import crownetutils.analysis.dpmm.csv_loader as DcdUtil
-from crownetutils.analysis.dpmm.dpmm import DpmMap, DpmMapMulti
+from crownetutils.analysis.dpmm.dpmm import DpmMap
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
@@ -23,13 +23,14 @@ from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     pos_density_from_csv,
 )
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
-from crownetutils.analysis.dpmm.metadata import DpmmMetaData
-from crownetutils.analysis.hdf.provider import ProviderVersion
-from crownetutils.utils.dataframe import (
+from crownetutils.analysis.dpmm.imputation import (
     ArbitraryValueImputation,
-    FrameConsumer,
     MissingValueImputationStrategy,
 )
+from crownetutils.analysis.dpmm.metadata import DpmmMetaData
+from crownetutils.analysis.hdf.provider import ProviderVersion
+from crownetutils.omnetpp.scave import CrownetSql
+from crownetutils.utils.dataframe import FrameConsumer
 from crownetutils.utils.logging import logger, logging
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
@@ -147,6 +148,7 @@ class DpmmHdfBuilder(FrameConsumer):
     def __init__(self, cfg: DpmmCfg):  # hdf_path, map_paths, global_path, epsg=""):
         super().__init__()
         self.cfg = cfg
+        self.sql = CrownetSql.from_dpmm_cfg(cfg)
         # paths
         self.hdf_path = self.cfg.hdf_path()
         self.map_paths = glob.glob(os.path.join(cfg.base_dir, cfg.node_map_csv_glob))
@@ -336,7 +338,18 @@ class DpmmHdfBuilder(FrameConsumer):
                 kind="full",
             )
 
-        # 5) set attributes
+        if self.map_p.version >= ProviderVersion.V0_4:
+            rsd = self.sql.get_resource_sharing_domains(ids_only=True)
+            with self.map_p.ctx() as store:
+                store.append(
+                    key=DpmmKey.RSD_ID,
+                    value=rsd,
+                    index=False,
+                    format="table",
+                    data_columns=True,
+                )
+
+        # 6) set attributes
         for p in [self.position_p, self.global_p, self.map_p, self.count_p]:
             p.set_attribute("cell_size", meta.cell_size)
             p.set_attribute("cell_count", meta.cell_count)
@@ -409,9 +422,16 @@ class DpmmHdfBuilder(FrameConsumer):
         imputation_f: MissingValueImputationStrategy = ArbitraryValueImputation(),
     ):
         """
-        Creates dataframe of the form:
-          index: [simtime, x, y, ID]
-          columns: [count, err, sqerr, owner_dist]
+        Creates dataframe of the form (index)[column]:
+          (simtime, x, y, ID)[count, err, sqerr, owner_dist, missing_value]
+
+          The frame contains only time steps for which the node is also present in the simulation. Missing values,
+          for timestamped cells (simtime, x, y) the node does not have any information, are append using ground truth
+          data as well as the imputation strategy provide as an argument to the method.
+
+          The returned frame does not contain any NAN values in any column. If NAN values are present after the imputation
+          a ValueError is raised.
+
         df: Input data frame of one node containing count values seen by this node. It is possible
             that the node didn't see all occupied cells. To fill the gaps the data frame is concatednated
             with the ground truth to fill the missing cell values with zero (i.e. maximal error!)
@@ -423,46 +443,50 @@ class DpmmHdfBuilder(FrameConsumer):
             return
         # only use selected values
         _df = df[df["selection"] != 0].copy(deep=True)
-        # extract id, times and positions from data frame
+        # extract node id and times from data frame
         id = _df.index.get_level_values("ID").unique()[0]
+
         present_at_times = (
             _df.index.get_level_values("simtime").unique().sort_values().to_numpy()
         )
-        not_present_at_times = np.setdiff1d(self._all_times, present_at_times)
-        positions = _df.loc[:, ["x_owner", "y_owner"]].droplevel(
-            ["x", "y", "ID", "source"]
-        )
-        positions = positions[np.invert(positions.index.duplicated(keep="first"))]
+        # select global data for time interval the current node is in the simulation
+        glb = self.global_df.loc[present_at_times].set_axis(["glb_count"], axis=1)
 
         # get count and node position
         selected_columns = DpmmKey.count_map_creation_cols[csv_version]
         _df = _df.loc[:, selected_columns].droplevel(["source", "ID"])
-        # merge with global, rename columns and fill glb_count nan with '0'
-        # fill only global. The index where this happens are values where
-        # the global map does not have any values -> thus count=0
-        _df = pd.concat([self.global_df, _df], axis=1)
-        _df.columns = ["glb_count", *selected_columns]
-        # add marker column for which data imputation is used.
+        # merge with global and mark 'missing values' based on 'count' column
+        # NAN values in 'glb_count' are not missing values. These are cases where
+        # the node measured something but there was nothing in the ground truth.
+        # If and how this kind of error is dealt with is determined by the imputation strategy
+        _df = pd.concat([glb, _df], axis=1)
         missing_value_idx = _df[_df["count"].isna().values].index
         _df["missing_value"] = False
         _df.loc[missing_value_idx, ["missing_value"]] = True
-        # use arbitrary value imputation with value=0
-        # For the default scenario (counting pedestrians via beacons) a count of
-        # zero (i.e. value=0) is a reasonable assumption because in the case of
-        # perfect reception and zero package loss no information from a given cell
-        # translates to no pedestrian in this cell, thus a count of zero. For other
-        # measurements this assumption is not automatically right and other imputation
-        # methods or deletion might be better.
-        _df = imputation_f(_df, "count")
-        # _df = _df.fillna(0)
 
-        # remove times where node is not part of simulation
-        _df = _df.loc[Idx[present_at_times, :, :], :]
+        # See MissingValueImputationStrategy  configuration of builder for more information
+        _df = imputation_f(_df, "count")
+        _df = _df.sort_index()
 
         # fill missing owner position values
-        for _time in present_at_times:
-            _df.loc[Idx[_time, :, :], "x_owner"] = positions.loc[_time, ["x_owner"]][0]
-            _df.loc[Idx[_time, :, :], "y_owner"] = positions.loc[_time, ["y_owner"]][0]
+        pos_nan_filled = (
+            _df.reset_index()
+            .set_index(["simtime", "missing_value", "x", "y"])
+            .sort_index()  # ensure valid values if present are at top
+            .loc[:, ["x_owner", "y_owner"]]  # only remove nan from x/y_owner
+            .groupby(["simtime"])  # only propagate value within one time step
+            .fillna(
+                method="ffill"
+            )  # forward fill (propagate) valid value to all cells at current time
+            .droplevel("missing_value")
+        )
+        _df.loc[pos_nan_filled.index, ["x_owner", "y_owner"]] = pos_nan_filled
+
+        # no NAN values after this point.
+        if _df.isna().any(axis=0).any():
+            raise ValueError(
+                f"Count map processing for node {id} contains NAN values after imputation processing: NAN found in columns: {_df.isna().any(axis=0).to_dict()}"
+            )
 
         _x_idx = _df.index.get_level_values("x")
         _y_idx = _df.index.get_level_values("y")
@@ -474,8 +498,6 @@ class DpmmHdfBuilder(FrameConsumer):
         _df = _df.drop(columns=["glb_count", "x_owner", "y_owner"])
         _df["ID"] = id
         _df = _df.set_index(["ID"], drop=True, append=True)
-        # _df["count"] = _df["count"].astype(int)
-        # _df["err"] = _df["err"].astype(int)
         _df = _df.astype(
             {
                 k: v
@@ -494,7 +516,8 @@ class DpmmHdfBuilder(FrameConsumer):
         _df["owner_dist"] = 0.0
         _df["missing_value"] = False
         if self.global_p.version >= ProviderVersion.V0_4:
-            _df[DpmmKey.RSD_ID] = -1.0
+            _df[DpmmKey.RSD_ID] = -1
+            _df[DpmmKey.RSD_ID_OWNER] = -1
         _df = _df.set_index(["ID"], drop=True, append=True)
         self.append_to_provider(self.count_p, _df)
 

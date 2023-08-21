@@ -710,7 +710,7 @@ class Simulation:
         return c
 
     @classmethod
-    def with_dpmm_cfg(cls, cfg: DpmmCfg, label: str | None = None):
+    def from_dpmm_cfg(cls, cfg: DpmmCfg, label: str | None = None):
         label = os.path.basename(cfg.base_dir) if label is None else label
         return cls(cfg.base_dir, label, dpmm_cfg=cfg)
 
