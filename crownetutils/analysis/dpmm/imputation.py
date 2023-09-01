@@ -89,13 +89,16 @@ class ArbitraryValueImputationWithRsd(ArbitraryValueImputation):
             .copy(deep=True)
             .set_axis(["x", "y", self.rsd_col], axis=1)
         )
+        # performance: join with dummy column faster than resetting index, merging and apply new index
+        null_df = pd.DataFrame(0, columns=["dummy"], index=null_index)
         xy_rsd = (
-            null_index.to_frame()
-            .reset_index(drop=True)
-            .merge(xy_rsd, how="left")
-            .set_index(["simtime", "x", "y"])
+            null_df.join(xy_rsd.set_index(["x", "y"]), on=["x", "y"], how="left")
+            .drop(columns="dummy")
+            .sort_index()
         )
-        df.loc[xy_rsd.index, self.rsd_col] = xy_rsd.astype(float)
+
+        # performance: replacing nan with indexed series faster than using index.__setitem__ (i.e. df.loc[indexA, [col]] = seriesA)
+        df[self.rsd_col] = df[self.rsd_col].fillna(xy_rsd["rsd_id"])
 
         # owner_rsd_id value for missing_values
         o = (
@@ -109,7 +112,8 @@ class ArbitraryValueImputationWithRsd(ArbitraryValueImputation):
             )  # forward fill (propagate) valid value to all cells at current time
             .droplevel("missing_value")
         )
-        df.loc[o.index, "owner_rsd_id"] = o
+        # performance: replacing column with join faster than using index.__setitem__ (df.loc[o.index, "owner_rsd_id"] = o)
+        df = df.drop(columns="owner_rsd_id").join(o)  # replace owner_rsd_id
 
         return df
 

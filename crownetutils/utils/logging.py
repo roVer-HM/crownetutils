@@ -59,3 +59,31 @@ def timing(func):
         return result
 
     return _timing
+
+
+class TimeIt:
+    def __init__(self) -> None:
+        self.start = 0.0
+        self.end = 0.0
+        self.round = 0.0
+
+    def __enter__(self):
+        self.start = it.default_timer()
+        self.round = self.start
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.end = it.default_timer()
+
+    @property
+    def t(self):
+        return self.end - self.start
+
+    def str(self, format_str="2.4f"):
+        return f"{format(self.t, format_str)} s"
+
+    def round_str(self, format_str="2.4f"):
+        now = it.default_timer()
+        ret = f"{format(now - self.round, format_str)} s"
+        self.round = now
+        return ret

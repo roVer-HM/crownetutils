@@ -21,7 +21,7 @@ from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
 from crownetutils.omnetpp.scave_config import ScaveConfig
 from crownetutils.omnetpp.sim_bound import SimBound
 from crownetutils.omnetpp.sql import SqlOp
-from crownetutils.utils.logging import logger, timing
+from crownetutils.utils.logging import TimeIt, logger, timing
 
 
 class SqlEmptyResult(Exception):
@@ -235,6 +235,100 @@ class OppSql:
                 return f"{prefix} {table}.{column} = '{obj}' {suffix}"
         else:
             raise ValueError("expected SqlOp or string")
+
+    def check_if_index_exists(self, print_info: bool = False) -> bool:
+        """Check for indexes on 'vectorId' and 'eventNumber' on vectorData table.
+
+        CREATE INDEX IF NOT EXISTS vectorData_vectorId_index ON vectorData (vectorId);
+        CREATE INDEX IF NOT EXISTS vectorData_eventNumber_index ON vectorData (eventNumber);
+
+        CREATE INDEX IF NOT EXISTS vector_moduleName_index ON vector (moduleName);
+        CREATE INDEX IF NOT EXISTS vector_vectorName_index ON vector (vectorName);
+        """
+        except_indices = [
+            ("vector", "vector_moduleName_index", "moduleName"),
+            ("vector", "vector_vectorName_index", "vectorName"),
+            ("vectorData", "vectorData_vectorId_index", "vectorId"),
+            ("vectorData", "vectorData_eventNumber_index", "eventNumber"),
+        ]
+        with self.vec_con() as c:
+            idx_info = []
+            found_at = []
+            for table in ["vectorData", "vector"]:
+                indexes = c.execute(f"PRAGMA index_list({table});").fetchall()
+                if len(indexes) <= 0:
+                    continue
+                index_names = [r[1] for r in indexes]
+                for idx, i_name in enumerate(index_names):
+                    index_infos = c.execute(f"PRAGMA index_info({i_name});").fetchall()
+                    if len(index_infos) == 0:
+                        idx_info.append((table, index_names[idx], None))
+                    else:
+                        idx_info.append((table, index_names[idx], index_infos[0][2]))
+
+            for expected in except_indices:
+                found = False
+                for idx, i in enumerate(idx_info):
+                    found = False
+                    if expected == i:
+                        found_at.append((idx, True))
+                        found = True
+                        break
+                    elif expected[0] == i[0] and expected[2] == i[2]:
+                        found_at.append((idx, False))
+                        found = True
+                        break
+                if not found:
+                    found_at.append((-1, False))
+
+            if print_info:
+                print(
+                    "expected indices:\nnum | table | index_name | column | match(full/partial)\n "
+                )
+                for idx, e in enumerate(except_indices):
+                    m = found_at[idx]
+                    if m[0] >= 0:
+                        if m[1]:
+                            m = f"match at {idx}"
+                        else:
+                            m = f"partial match at {idx}"
+                    else:
+                        m = "not found!"
+                    print(f"{idx} | {e[0]} |  {e[1]} | {e[2]} |  {m}")
+                print("-" * 80)
+                print(
+                    "found indices:\nnum | table | index_name | column | match(full/partial)\n "
+                )
+                for idx, e in enumerate(idx_info):
+                    print(f"{idx} | {e[0]} | {e[1]} | {e[2]}")
+
+            if all([i[0] >= 0 for i in found_at]):
+                return True
+            return False
+
+    def append_index_if_missing(self):
+        """Append missing indexes to vector database. Will increase memory footprint by about 1/3.
+
+        CREATE INDEX IF NOT EXISTS vectorDataIndex ON vectorData (vectorId);
+        CREATE INDEX IF NOT EXISTS vectorDataIndexEventNumber ON vectorData (eventNumber);
+
+        CREATE INDEX IF NOT EXISTS moduleNameIndex ON vector (moduleName);
+        CREATE INDEX IF NOT EXISTS vectorNameIndex ON vector (vectorName);
+        """
+        index_sql = [
+            "CREATE INDEX IF NOT EXISTS vectorData_vectorId_index ON vectorData (vectorId);",
+            "CREATE INDEX IF NOT EXISTS vectorData_eventNumber_index ON vectorData (eventNumber);",
+            "CREATE INDEX IF NOT EXISTS vector_moduleName_index ON vector (moduleName);",
+            "CREATE INDEX IF NOT EXISTS vector_vectorName_index ON vector (vectorName);",
+        ]
+        timer = TimeIt()
+        with timer:
+            with self.vec_con() as c:
+                for s in index_sql:
+                    logger.info(f"execute: {s}")
+                    ret = c.execute(s).fetchall()
+                    logger.info(f"Done in {timer.round_str()} with return value: {ret}")
+        logger.info(f"indices create in {timer.str()}")
 
     def vector_exists(
         self,
@@ -1076,6 +1170,51 @@ class CrownetSql(OppSql):
             df = df.drop(columns=drop, errors="ignore")
         return df
 
+    def create_event_number_join(self, records: dict) -> Tuple[str, str]:
+        """Create join based on vectorData table and same eventNumber
+
+        Performance: ensure that db has an index on vectorData.vectorId and
+        vectorData.eventNumber. See self.check_if_index_exists() and
+        self.append_index_if_missing() for checking and creating db index.
+
+        Args:
+            records (dict): record containing the hostId key with column name / vectorId mapping
+                            as key value pairs.
+        Raises:
+            ValueError: If maximum number of joins is reached (20 for now)
+
+        Returns:
+            Tuple[str, str]: (hostId, sql statement)
+        """
+        statements = []
+        for record in records:
+            host_id = record["hostId"]
+            joins = [(k, v) for k, v in record.items() if k != "hostId"]
+            if len(joins) > 20:
+                raise ValueError(f"To many joins max. 20 got {len(joins)}")
+
+            selects = [
+                f"v{idx}.value as '{col_name}'"
+                for idx, (col_name, _) in enumerate(joins)
+            ]
+            selects_str = ",\n    ".join(selects)
+            sql = f"select v0.simtimeRaw/1e12 as 'time', v0.eventNumber,\n    {selects_str}\n"
+            sql = f"{sql}from vectorData as v0\n"
+
+            def inner_join(first_id, second_id, join_idx):
+                ret = f"    INNER JOIN vectorData as v{join_idx}\n"
+                ret = f"{ret}        on v0.eventNumber == v{join_idx}.eventNumber\n"
+                if join_idx == 1:
+                    ret = f"{ret}        and v0.vectorID == {first_id}\n"
+                ret = f"{ret}        and v{join_idx}.vectorID == {second_id}\n"
+                return ret
+
+            first_id = joins[0][1]  # first vectorId
+            for idx, (_, second_id) in enumerate(joins[1:]):
+                sql = f"{sql}{inner_join(first_id, second_id, idx+1)}"
+            statements.append((host_id, sql))
+        return statements
+
     @timing
     def vec_data_pivot(
         self,
@@ -1127,24 +1266,37 @@ class CrownetSql(OppSql):
             raise SqlEmptyResult(
                 f"No data for vector names: {list(vector_name_map.keys())} found."
             )
-        vec_data = self.vec_data(
-            ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value")
+        timer = TimeIt()
+
+        # get rows of vectorIds where columns are the vector names that should be joined.
+        # performance: ensure that db has an index on vectorData.vectorId and vectorData.eventNumber.
+        #              See self.check_if_index_exists() and self.append_index_if_missing()
+        join_by_host_id = df.pivot(
+            index="hostId", columns="vectorName", values="vectorId"
         )
-        vec_data["vectorName"] = vec_data["vectorName"].map(
-            {k: v["name"] for k, v in vector_name_map.items()}
+        with timer:
+            join_it = self.create_event_number_join(
+                join_by_host_id.reset_index().to_dict("records")
+            )
+            data = []
+            for host_id, _sql in join_it:
+                df = self.query_vec(sql_str=_sql)
+                df["hostId"] = host_id
+                data.append(df)
+        logger.info(
+            f"Db inner join {join_by_host_id.shape[1]} vectors for {join_by_host_id.shape[0]} hostIds. Took: {timer.str()}"
         )
-        vec_data = (
-            vec_data.drop(columns=["vectorId"])
-            .pivot(index=["hostId", "time", "eventNumber"], columns=["vectorName"])
-            .droplevel(level=0, axis=1)
-            .reset_index()
+
+        vec_data = pd.concat(data, axis=0)
+        vec_data = vec_data.rename(
+            columns={k: v["name"] for k, v in vector_name_map.items()}
         )
+
         _dtypes = {v["name"]: v["dtype"] for _, v in vector_name_map.items()}
         col_dtypes = self.get_column_types(
             vec_data.columns.to_list(), time=float, **_dtypes
         )
         vec_data = vec_data.astype(col_dtypes)
-        vec_data.columns.name = ""
         if index is None:
             _idx = ["hostId", *append_index, "eventNumber", "time"]
             # ensure no duplicates added and keep order. https://stackoverflow.com/a/480227

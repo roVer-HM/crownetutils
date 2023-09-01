@@ -147,17 +147,19 @@ class DpmmProviderTest(unittest.TestCase):
             [
                 call(
                     key=self.provider.group_key(),
-                    index=True,
+                    index=False,
                     value=ret_df_1,
                     format="table",
                     data_columns=True,
+                    complib=None,
                 ),
                 call(
                     key=self.provider.group_key(),
-                    index=True,
+                    index=False,
                     value=ret_df_2,
                     format="table",
                     data_columns=True,
+                    complib=None,
                 ),
             ]
         )

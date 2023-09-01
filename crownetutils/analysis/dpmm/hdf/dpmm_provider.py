@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from typing import Callable, Dict, List, Union
 
 import geopandas as gpd
@@ -178,7 +179,9 @@ class DpmmProvider(IHdfProvider):
         frame_consumer: List[FrameConsumer] = [],
         **kwargs,
     ) -> None:
-        progress = ProgressCmd(prefix="read csv: ", cycle_count=len(csv_paths))
+        progress = ProgressCmd(
+            prefix="read csv: ", cycle_count=len(csv_paths), print_interval=0.01
+        )
         for file_path in csv_paths:
             progress.incr()
             # build data frame from csv
@@ -194,9 +197,10 @@ class DpmmProvider(IHdfProvider):
                 store.append(
                     key=self.group,
                     value=dcd_df,
-                    index=True,
+                    index=False,  # index later
                     format="table",
                     data_columns=True,
+                    complib=None,
                 )
             # send data frame to frame_consumers
             for consumer in frame_consumer:
@@ -219,6 +223,8 @@ class DpmmProvider(IHdfProvider):
             real_coords=True,
             df_filter=self.csv_filters,
         )
+        if df.empty:
+            raise EmptyDataError()
         # add own node id
         df[DpmmKey.NODE] = node_id
         # set index

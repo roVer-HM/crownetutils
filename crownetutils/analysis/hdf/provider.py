@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import threading
+import timeit
 import warnings
 from enum import Enum
 from tempfile import NamedTemporaryFile
@@ -30,7 +31,7 @@ from geopandas.geodataframe import GeoDataFrame
 from crownetutils.analysis.hdf.geo_provider import GeoProvider
 from crownetutils.analysis.hdf.operator import Operation
 from crownetutils.omnetpp.sim_bound import SimBound
-from crownetutils.utils.logging import logger
+from crownetutils.utils.logging import TimeIt, logger
 
 
 class UnsupportedOperation(RuntimeError):
@@ -88,7 +89,7 @@ class BaseHdfProvider:
         self._lock = threading.Lock()
         self.group: str = group
         self._hdf_path: str = hdf_path
-        self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
+        self._hdf_args: Dict[str, Any] = {}  # {"complevel": 9, "complib": "zlib"}
         self.group_factory: Dict[str, HdfGroupFactory] = {}
         self._lazy_loading = allow_lazy_loading
 
@@ -209,7 +210,8 @@ class BaseHdfProvider:
         args = [
             "ptrepack",
             "--chunkshape=auto",
-            "--propindexes",
+            # "--propindexes",
+            "--dont-regenerate-old-indexes",
             "--complib",
             self._hdf_args.get("complib", "zlib"),
             "--complevel",
@@ -219,15 +221,18 @@ class BaseHdfProvider:
         ]
 
         try:
-            fd = NamedTemporaryFile()
-            logger.info(f"repack {self._hdf_path}. This might take some time...")
-            ret = subprocess.check_call(
-                args,
-                stdout=fd,
-                stderr=fd,
-                env=os.environ,
-                cwd=os.path.dirname(self._hdf_path),
-            )
+            timer = TimeIt()
+            with timer:
+                fd = NamedTemporaryFile()
+                logger.info(f"repack {self._hdf_path}. This might take some time...")
+                logger.info(f"repack args: {' '.join(args)}")
+                ret = subprocess.check_call(
+                    args,
+                    stdout=fd,
+                    stderr=fd,
+                    env=os.environ,
+                    cwd=os.path.dirname(self._hdf_path),
+                )
         except subprocess.CalledProcessError:
             logger.error(f"Error while repacking {self._hdf_path}\nargs:{args}")
             with open(fd.name, "r") as f:
@@ -239,10 +244,13 @@ class BaseHdfProvider:
             with open(fd.name, "r") as f:
                 print("\n".join(f.readlines()))
         else:
+            msg = f"repack done. Took {timer.str()}."
             os.rename(self._hdf_path, old_path)
             os.rename(new_path, self._hdf_path)
             if not keep_old_file:
+                msg = f"{msg} Removing old file."
                 os.remove(old_path)
+            logger.info(msg)
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
         _key = self.group if group is None else group

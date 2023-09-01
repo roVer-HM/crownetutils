@@ -480,7 +480,9 @@ class DpmmHdfBuilder(FrameConsumer):
             )  # forward fill (propagate) valid value to all cells at current time
             .droplevel("missing_value")
         )
-        _df.loc[pos_nan_filled.index, ["x_owner", "y_owner"]] = pos_nan_filled
+        # performance: replacing columns with join faster than using index.__setitem__
+        # _df.loc[pos_nan_filled.index, ["x_owner", "y_owner"]] = pos_nan_filled
+        _df = _df.drop(columns=["x_owner", "y_owner"]).join(pos_nan_filled)
 
         # no NAN values after this point.
         if _df.isna().any(axis=0).any():
