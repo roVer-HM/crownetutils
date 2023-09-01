@@ -18,3 +18,11 @@ def load_matplotlib_style(style) -> matplotlib.RcParams:
         plt.rcParams.update(plt.rcParamsDefault)
         plt.style.use(style)
     return old
+
+
+def style_context(style):
+    if isinstance(style, tuple):
+        with resource_path(*style) as path:
+            return plt.style.context(path)
+    else:
+        raise ValueError()

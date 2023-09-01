@@ -507,7 +507,7 @@ class PlotUtil_:
             bbox=[0.0, 0.0, 1.0, 1.0],
         )
         t.auto_set_font_size(False)
-        t.set_fontsize(11)
+        t.set_fontsize(plt.rcParams["font.size"])
         t.auto_set_column_width(col=(list(range(df.shape[1]))))
         [c.set_height(0.2) for c in t.get_celld().values()]
         ax.get_yaxis().set_visible(False)
@@ -515,6 +515,35 @@ class PlotUtil_:
         if title is not None:
             ax.set_title(title)
         return fig, ax, t
+
+    def stats_to_table(
+        self,
+        df: pd.DataFrame,
+        ax: plt.Axes | None = None,
+        title: str | None = None,
+        with_count: bool = False,
+        num_format: Callable[[Any], str] = None,
+    ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
+        if with_count:
+            stats: pd.DataFrame = (
+                df.describe().reset_index().rename(columns={"index": ""})
+            )
+        else:
+            stats: pd.DataFrame = (
+                df.describe().reset_index().iloc[1:, :].rename(columns={"index": ""})
+            )
+
+        if num_format is not None:
+
+            def f(e):
+                try:
+                    return num_format(e)
+                except Exception:
+                    pass
+                return e
+
+            stats = stats.applymap(f)
+        return self.df_to_table(stats, ax, title)
 
     def fig_to_pdf(self, path, figures: List[plt.figure], close_figures: bool = False):
         """Save list of figures into one pdf file. Close figure object at the end if set.

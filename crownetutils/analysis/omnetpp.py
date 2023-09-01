@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+from datetime import timedelta
 from functools import partial
 from typing import Callable, List, Tuple
 
@@ -9,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 from pandas import IndexSlice as _i
 
 import crownetutils.omnetpp.scave as Scave
@@ -33,6 +36,7 @@ from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_i
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
 from crownetutils.utils.parallel import run_kwargs_map
+from crownetutils.utils.styles import STYLE_SIMPLE_169, style_context
 
 
 def make_run_series(
@@ -148,40 +152,56 @@ class _OppAnalysis(AnalysisBase):
     ) -> pd.DataFrame:
         """
         Get ratio of simulation time and real time to measure performance
-        Packet age: (time x received packet i) - (time packet i created)
-                | sim_time        |  real_time   |  ratio_sim_real |
-            0   |  0.000          |  0.000021    | 0.000000        |
-            1   |  0.018          |  43.239500   | 0.000416        |
-            ... |  10.002         |  45.324600   | 4.788400        |
+        frame structure = ()["event_number", "simtime", "realtime", "events_per_simsec", "simsec_per_realsec", "events_per_simsec"]
         """
 
-        df = pd.DataFrame(data={"sim_time": [], "real_time": [], "ratio_sim_real": []})
+        # df = pd.DataFrame(data={"sim_time": [], "real_time": [], "ratio_sim_real": []})
 
-        self._check_omnetpp_container_log_file(omnetpp_log_file_path)
+        # self._check_omnetpp_container_log_file(omnetpp_log_file_path)
 
         with open(omnetpp_log_file_path, "r", encoding="utf-8") as fd:
             line_before = ""
-            for line in fd.readlines():
+
+            rows = []
+            row = []  # event_num
+
+            for line in fd:
+                if line.strip().startswith("<!>"):
+                    break
+                if line.strip().startswith("**"):
+                    col = re.sub("\s+", " ", line.strip()).split(" ")
+                    row.extend(
+                        [
+                            int(col[2][1:].strip()),  # event_num
+                            float(col[3].split("=")[1].strip()),  # simtime
+                            float(col[5][:-1].strip()),  # realtime_in_sec
+                        ]
+                    )
+                    line_before = line
+                    continue
+
                 if "Speed:" in line and "Elapsed:" in line_before:
                     # split strings and read values
-                    ratio = line.split("Speed:")[1]
-                    ratio_sim_real = float(
-                        ratio.split("simsec/sec=")[1].split("ev/simsec")[0]
-                    )
-                    sim_time = line_before.split("Elapsed:")[0]
-                    sim_time = float(sim_time.split("t=")[-1])
-                    real_time = line_before.split("Elapsed:")[1]
-                    real_time = float(real_time.split("s")[0])
+                    col = re.sub("\s+", " ", line.strip()).split(" ")
 
-                    df_ = pd.DataFrame(
-                        data={
-                            "sim_time": [sim_time],
-                            "real_time": [real_time],
-                            "ratio_sim_real": [ratio_sim_real],
-                        }
-                    )
-                    df = pd.concat([df, df_])
-                line_before = line
+                    ratio_ev_sec = float(col[1].split("=")[1].strip())
+                    ratio_sim_real = float(col[2].split("=")[1].strip())
+                    ratio_ev_sim_sec = float(col[3].split("=")[1].strip())
+                    row.extend([ratio_ev_sec, ratio_sim_real, ratio_ev_sim_sec])
+                    rows.append(tuple(row))
+                    row.clear()
+
+        df = pd.DataFrame.from_records(
+            rows,
+            columns=[
+                "event_number",
+                "simtime",
+                "realtime",
+                "events_per_sec",
+                "simsec_per_realsec",
+                "events_per_simsec",
+            ],
+        )
 
         df.reset_index(drop=True, inplace=True)
         if len(df) == 0:
@@ -190,6 +210,89 @@ class _OppAnalysis(AnalysisBase):
             )
 
         return df
+
+    def plot_simtime_to_realtime_ratios(
+        self, pef_data: str | pd.DataFrame, figure_path: str, nodes
+    ):
+        if isinstance(pef_data, str):
+            pef_data: pd.DataFrame = self.get_sim_real_time_ratio(pef_data)
+
+        pef_data = pef_data.dropna()
+        with style_context(STYLE_SIMPLE_169):
+            m = """a
+            a
+            b
+            c
+            c
+            """
+            fig, axes = plt.subplot_mosaic(m, figsize=(16, 18))
+
+            ax: plt.Axes = axes["a"]
+            tbla = axes["c"]
+            stats = pef_data[
+                ["events_per_sec", "simsec_per_realsec", "events_per_simsec"]
+            ]
+            _Plot.PlotUtil.stats_to_table(
+                stats, ax=tbla, num_format=lambda x: f"{x:.4e}"
+            )
+            # simsec/realsec over elapsed time
+            ax.scatter(
+                pef_data["realtime"],
+                pef_data["simsec_per_realsec"],
+                color="black",
+                marker=".",
+                label="sim/real-ratio",
+            )
+            ax.set_xlabel(
+                "Elapsed time -- realtime (days):hours:minutes / simtime hours:minute:seconds"
+            )
+            ax.set_ylabel("simtime / realtime ratio")
+            ax.set_ylim(0.0, 0.10)
+            ax.yaxis.set_major_locator(MultipleLocator(0.02))
+            ax.yaxis.set_minor_locator(MultipleLocator(0.01))
+            ax2: plt.Axes = ax.twinx()
+            ax2.scatter(
+                pef_data["realtime"],
+                pef_data["events_per_simsec"],
+                color="blue",
+                marker="+",
+                label="events/sim-ratio",
+            )
+            ax2.set_ylabel("events per simulated second")
+            ax2.grid(visible=False)
+            ax.set_title(
+                "Simulation time ratio and amount of events per simtime over elapsed time"
+            )
+            ab = axes["b"]
+            ab.plot(
+                nodes.reset_index()["simtime"] / 60,
+                nodes["count"],
+                "r--",
+                label="number nodes",
+            )
+            ab.set_ylabel("Number of nodes")
+            ab.set_xlabel("Simulation time")
+
+            def time_format(x, pos=None):
+                days = int(np.floor(x / (60 * 60 * 24)))
+                hours = int(np.floor(x / (60 * 60)) % 24)
+                min = int(np.floor(x / 60) % 60)
+                days = f"{days}d:" if days > 0 else ""
+
+                nearest_match = np.abs(pef_data["realtime"] - x).idxmin()
+                simtime = timedelta(
+                    seconds=np.floor(pef_data.loc[nearest_match, "simtime"])
+                )
+                return f"{days}{hours:02}:{min:02}\n{simtime}"
+
+            # time_format(data["realtime"].max())
+
+            ax.xaxis.set_major_formatter(FuncFormatter(time_format))
+            ax.xaxis.set_major_locator(MultipleLocator(4 * 60 * 60))
+            ax.xaxis.set_minor_locator(MultipleLocator(1 * 60 * 60))
+            fig.legend(loc="center right")
+            fig.tight_layout()
+            fig.savefig(figure_path)
 
     def _check_omnetpp_container_log_file(self, omnetpp_log_file_path):
         if os.path.basename(omnetpp_log_file_path) != "container_opp.out":
