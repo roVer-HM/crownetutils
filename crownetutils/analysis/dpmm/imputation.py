@@ -70,6 +70,33 @@ class ImputationStream(MissingValueImputationStrategy):
         return df
 
 
+class DeleteMissingArbitraryGlobalValueForImagined(MissingValueImputationStrategy):
+    """Delete values where node does not have any measurements (i.e missing values) and
+    set an arbitrary  global value for imagined values (i.e node 'sees' something in a
+    cell but there is no global value)
+    """
+
+    def __init__(
+        self,
+        glb_fill_value: float = 0.0,
+        glb_prefix: str = "glb_",
+        data_column: str = "count",
+    ) -> None:
+        super().__init__()
+        self.glb_prefix = glb_prefix
+        self.data_column = data_column
+        self.glb_fill_value = glb_fill_value
+
+    def name(self) -> str:
+        return "DeleteMissingValuesKeepErrorToGlobal"
+
+    def _apply(self, df: pd.DataFrame, *args: Any, **kwds: Any) -> pd.DataFrame:
+        glb_data_column = f"{self.glb_prefix}{self.data_column}"
+        df[glb_data_column] = df[glb_data_column].fillna(self.glb_fill_value)
+        df = df.dropna()
+        return self.sort_if_needed(df)
+
+
 class ArbitraryValueImputation(MissingValueImputationStrategy):
     """Replace missing values on the measurement and ground truth side
     with a predefined fixed value.
