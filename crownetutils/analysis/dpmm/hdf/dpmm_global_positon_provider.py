@@ -10,6 +10,7 @@ from crownetutils.analysis.dpmm.csv_loader import read_csv
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.hdf.groups import HdfGroups
 from crownetutils.analysis.hdf.provider import IHdfProvider
+from crownetutils.utils.logging import logger, timing
 
 
 class DpmMapKey:
@@ -192,7 +193,8 @@ class DpmmGlobal(IHdfProvider):
         return gdf
 
 
-def pos_density_from_csv(
+@timing
+def create_and_save_position_and_global(
     csv_path: str,
     hdf_path: str,
 ) -> Tuple[DpmmGlobalPosition, DpmmGlobal, DpmmMetaData]:
@@ -208,7 +210,13 @@ def pos_density_from_csv(
     position_df.set_index(
         keys=list(pos.index_order().values()), inplace=True, verify_integrity=True
     )
+    logger.info(
+        f"position_df: {position_df.memory_usage(index=True).sum()/1e6} MB with shape {position_df.shape}"
+    )
+    logger.info(
+        f"global: {global_df.memory_usage(index=True).sum()/1e6} MB with shape {global_df.shape}"
+    )
     pos.write_dataframe(position_df)
     density.write_dataframe(global_df)
-
+    # density.repack_hdf(keep_old_file=False)
     return pos, density, meta

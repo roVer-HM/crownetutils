@@ -82,8 +82,11 @@ class DpmmCfg:
     def map_paths(self) -> str:
         return glob.glob(os.path.join(self.base_dir, self.node_map_csv_glob))
 
-    def hdf_path(self) -> str:
-        return os.path.join(self.base_dir, self.hdf_file)
+    def hdf_path(self, file_name: str | None = None) -> str:
+        if file_name is None:
+            return os.path.join(self.base_dir, self.hdf_file)
+        else:
+            return os.path.join(self.base_dir, f"{self.map_type.value}_{file_name}")
 
     def vec_path(self) -> str:
         return os.path.join(self.base_dir, self.vec_name)

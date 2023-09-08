@@ -47,8 +47,8 @@ class IHDFProviderTest(unittest.TestCase):
         mock_store.assert_called_once_with(
             self.sample_file_dir,
             mode="a",
-            # complevel=self.provider._hdf_args.get("complevel", None),
-            # complib=self.provider._hdf_args.get("complib", None),
+            complevel=self.provider._hdf_args.get("complevel", None),
+            complib=self.provider._hdf_args.get("complib", None),
         )
 
     def test_cast_to_set(self):

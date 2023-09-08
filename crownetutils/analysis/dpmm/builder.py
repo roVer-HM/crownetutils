@@ -20,7 +20,7 @@ from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     DpmmGlobal,
     DpmmGlobalPosition,
-    pos_density_from_csv,
+    create_and_save_position_and_global,
 )
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.analysis.dpmm.imputation import (
@@ -28,10 +28,10 @@ from crownetutils.analysis.dpmm.imputation import (
     MissingValueImputationStrategy,
 )
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
-from crownetutils.analysis.hdf.provider import ProviderVersion
+from crownetutils.analysis.hdf.provider import BaseHdfProvider, ProviderVersion
 from crownetutils.omnetpp.scave import CrownetSql
 from crownetutils.utils.dataframe import FrameConsumer
-from crownetutils.utils.logging import logger, logging
+from crownetutils.utils.logging import logger, logging, timing
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 
@@ -155,6 +155,7 @@ class DpmmHdfBuilder(FrameConsumer):
         self.global_path = os.path.join(cfg.base_dir, cfg.global_map_csv_name)
 
         # providers
+        # self.count_p = DpmmCount(self.cfg.hdf_path("count.h5"))
         self.count_p = DpmmCount(self.hdf_path)
         self.map_p = DpmmProvider(self.hdf_path)
         self.position_p = DpmmGlobalPosition(self.hdf_path)
@@ -297,7 +298,7 @@ class DpmmHdfBuilder(FrameConsumer):
     def create_hdf_fast(self):
         t = DcdUtil.Timer.create_and_start("create_hdf", label="")
         # 1) parse global.csv in position and global provider
-        self.position_p, self.global_p, meta = pos_density_from_csv(
+        self.position_p, self.global_p, meta = create_and_save_position_and_global(
             self.global_path, self.hdf_path
         )
         # 2) access global_df and setup helpers for parsing map_*.csv to create
@@ -396,7 +397,7 @@ class DpmmHdfBuilder(FrameConsumer):
     def create_hdf(self):
         t = DcdUtil.Timer.create_and_start("create_hdf", label="")
         print("build global")
-        self.position_p, self.global_p = pos_density_from_csv(
+        self.position_p, self.global_p = create_and_save_position_and_global(
             self.global_path, self.hdf_path
         )
         print("build dcd map")
@@ -415,6 +416,7 @@ class DpmmHdfBuilder(FrameConsumer):
             "count": self.count_p,
         }
 
+    @timing
     def create_count_map(
         self,
         df: pd.DataFrame,
@@ -446,11 +448,17 @@ class DpmmHdfBuilder(FrameConsumer):
         # extract node id and times from data frame
         id = _df.index.get_level_values("ID").unique()[0]
 
-        present_at_times = (
-            _df.index.get_level_values("simtime").unique().sort_values().to_numpy()
-        )
+        # performance: use boolean index to filter time interval instead of frame.loc[xxx] (~18 times faster)
+        #              the filter assumes that a node is always present between start and end time. This is
+        #              always valid
+        t_min = _df.index.get_level_values("simtime").min()
+        t_max = _df.index.get_level_values("simtime").max()
         # select global data for time interval the current node is in the simulation
-        glb = self.global_df.loc[present_at_times].set_axis(["glb_count"], axis=1)
+        _m = (self.global_df.index.get_level_values(0) >= t_min) & (
+            self.global_df.index.get_level_values(0) <= t_max
+        )
+        # glb = self.global_df.loc[present_at_times].set_axis(["glb_count"], axis=1)
+        glb = self.global_df[_m].set_axis(["glb_count"], axis=1)
 
         # get count and node position
         selected_columns = DpmmKey.count_map_creation_cols[csv_version]
@@ -460,29 +468,12 @@ class DpmmHdfBuilder(FrameConsumer):
         # the node measured something but there was nothing in the ground truth.
         # If and how this kind of error is dealt with is determined by the imputation strategy
         _df = pd.concat([glb, _df], axis=1)
-        missing_value_idx = _df[_df["count"].isna().values].index
-        _df["missing_value"] = False
-        _df.loc[missing_value_idx, ["missing_value"]] = True
+        # safe missing count values as discriminator
+        _df["missing_value"] = _df["count"].isna()
 
         # See MissingValueImputationStrategy  configuration of builder for more information
-        _df = imputation_f(_df, "count")
-        _df = _df.sort_index()
-
-        # fill missing owner position values
-        pos_nan_filled = (
-            _df.reset_index()
-            .set_index(["simtime", "missing_value", "x", "y"])
-            .sort_index()  # ensure valid values if present are at top
-            .loc[:, ["x_owner", "y_owner"]]  # only remove nan from x/y_owner
-            .groupby(["simtime"])  # only propagate value within one time step
-            .fillna(
-                method="ffill"
-            )  # forward fill (propagate) valid value to all cells at current time
-            .droplevel("missing_value")
-        )
-        # performance: replacing columns with join faster than using index.__setitem__
-        # _df.loc[pos_nan_filled.index, ["x_owner", "y_owner"]] = pos_nan_filled
-        _df = _df.drop(columns=["x_owner", "y_owner"]).join(pos_nan_filled)
+        # imputation will sort by index [simtime, x, y]
+        _df = imputation_f.apply(_df)
 
         # no NAN values after this point.
         if _df.isna().any(axis=0).any():
@@ -524,6 +515,15 @@ class DpmmHdfBuilder(FrameConsumer):
         self.append_to_provider(self.count_p, _df)
 
     @staticmethod
-    def append_to_provider(provider, df: pd.DataFrame):
+    @timing
+    def append_to_provider(provider: BaseHdfProvider, df: pd.DataFrame):
+        logger.debug(f"save frame with shape {df.shape} to group {provider.group}")
         with provider.ctx() as store:
-            store.append(key=provider.group, value=df, index=False, data_columns=True)
+            store.append(
+                key=provider.group,
+                value=df,
+                format="table",
+                index=False,
+                complevel=9,
+                complib="blosc",
+            )

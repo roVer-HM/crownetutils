@@ -37,6 +37,8 @@ class FrameConsumer(Protocol):
 
     # the 'do nothing consumer'
     EMPTY: FrameConsumer = EmptyFrameConsumer()
+    """_summary_
+    """
 
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass

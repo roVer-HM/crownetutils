@@ -25,7 +25,7 @@ from crownetutils.analysis.hdf.provider import (
     VersionDict,
 )
 from crownetutils.utils.dataframe import FrameConsumer, LazyDataFrame
-from crownetutils.utils.logging import logger
+from crownetutils.utils.logging import TimeIt, logger, timing
 from crownetutils.utils.misc import ProgressCmd
 
 
@@ -180,7 +180,10 @@ class DpmmProvider(IHdfProvider):
         **kwargs,
     ) -> None:
         progress = ProgressCmd(
-            prefix="read csv: ", cycle_count=len(csv_paths), print_interval=0.01
+            prefix="read csv: ",
+            cycle_count=len(csv_paths),
+            print_interval=0.01,
+            override_row=False,
         )
         for file_path in csv_paths:
             progress.incr()
@@ -192,15 +195,12 @@ class DpmmProvider(IHdfProvider):
                 logger.warning(f"Empty DPMM file. Skip {file_path}")
                 continue
 
-            # append to table but do not index (will be done at the end)
             with self.ctx() as store:
+                # no index on columns other than index.
                 store.append(
                     key=self.group,
                     value=dcd_df,
-                    index=False,  # index later
                     format="table",
-                    data_columns=True,
-                    complib=None,
                 )
             # send data frame to frame_consumers
             for consumer in frame_consumer:
@@ -209,6 +209,7 @@ class DpmmProvider(IHdfProvider):
         self.set_selection_mapping_attribute()
         self.set_used_selection_attribute()
 
+    @timing
     def build_dcd_dataframe(self, path: str, node_id: int, **kwargs) -> pd.DataFrame:
         _df = LazyDataFrame.from_path(path)
         meta = _df.read_meta_data()

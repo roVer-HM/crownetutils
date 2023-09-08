@@ -89,7 +89,7 @@ class BaseHdfProvider:
         self._lock = threading.Lock()
         self.group: str = group
         self._hdf_path: str = hdf_path
-        self._hdf_args: Dict[str, Any] = {}  # {"complevel": 9, "complib": "zlib"}
+        self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "blosc"}
         self.group_factory: Dict[str, HdfGroupFactory] = {}
         self._lazy_loading = allow_lazy_loading
 
@@ -210,10 +210,10 @@ class BaseHdfProvider:
         args = [
             "ptrepack",
             "--chunkshape=auto",
-            # "--propindexes",
+            "--propindexes",
             "--dont-regenerate-old-indexes",
             "--complib",
-            self._hdf_args.get("complib", "zlib"),
+            self._hdf_args.get("complib", "blosc"),
             "--complevel",
             str(self._hdf_args.get("complevel", 9)),
             self._hdf_path,
@@ -701,7 +701,7 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
 
     def write_dataframe(self, data: pd.DataFrame) -> None:
         with self.ctx(mode="a") as store:
-            store.put(key=self.group, value=data, format="table", data_columns=True)
+            store.put(key=self.group, value=data, format="table")
 
     def exists(self) -> bool:
         """check for HDF store"""

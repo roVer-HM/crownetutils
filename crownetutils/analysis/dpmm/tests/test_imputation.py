@@ -4,9 +4,12 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from crownetutils.analysis.dpmm.builder import parse_node_id
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
-from crownetutils.analysis.dpmm.imputation import ArbitraryValueImputationWithRsd
+from crownetutils.analysis.dpmm.imputation import (
+    ArbitraryValueImputation,
+    FullRsdImputation,
+    ImputationStream,
+    OwnerPositionImputation,
+)
 
 
 class ImputationTest(unittest.TestCase):
@@ -25,7 +28,15 @@ class ImputationTest(unittest.TestCase):
                 [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
                 [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
                 [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
-                [2, np.nan, np.nan, np.nan, np.nan, True, np.nan],
+                [
+                    2,
+                    np.nan,
+                    np.nan,
+                    np.nan,
+                    np.nan,
+                    True,
+                    np.nan,
+                ],  # time 2 no other value (will keep nan)
                 [1, 5, np.nan, np.nan, 8, False, 42],
                 [1, 6, np.nan, np.nan, 9, False, 42],
                 [1, 7, np.nan, np.nan, 10, False, 42],
@@ -54,23 +65,28 @@ class ImputationTest(unittest.TestCase):
             ],
         )
 
-        inp = ArbitraryValueImputationWithRsd(
-            rsd_origin_position=enb_dist, rsd_col="rsd_id", fill_value=0
-        )
-        out = inp(data, data_column="count")
+        inp = ImputationStream()
+        inp.append(ArbitraryValueImputation(fill_value=0))
+        inp.append(FullRsdImputation(rsd_origin_position=enb_dist))
+        inp.append(OwnerPositionImputation())
+        out = inp.apply(data)
 
         # keep line count equal
         self.assertEqual(out.shape[0], 8)
 
         # only update missing values in the rsd.
         # ensure same cells get same rsd index 0 and 4
-        self.assertListEqual([2, 1, 1, 0, 2, 8, 9, 10], out["rsd_id"].to_list())
+        # imputation will sort index
+        self.assertListEqual([0, 1, 1, 2, 8, 9, 10, 2], out["rsd_id"].to_list())
+
+        # owner_rsd_id will be sorted by simtime (t=2 has no value thus nan at end)
         self.assertListEqual(
-            [42.0, 42.0, 42.0, 42.0, 999.0, 42.0, 42.0, 42.0],
+            [42.0, 42.0, 42.0, 42.0, 42.0, 42.0, 42.0, 999.0],
             out["owner_rsd_id"].fillna(999.0).to_list(),
         )
         # only update missing values and leave the rest alone
-        self.assertListEqual([0, 0, 0, 0, 0, 5, 6, 7], out["count"].to_list())
+        # imputation will sort index
+        self.assertListEqual([0, 0, 0, 0, 5, 6, 7, 0], out["count"].to_list())
 
 
 if __name__ == "__main__":
