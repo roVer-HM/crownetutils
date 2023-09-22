@@ -126,7 +126,7 @@ class Timer:
         t = cls(name, label)
         return t.start()
 
-    def __init__(self, name, label):
+    def __init__(self, name="timer", label=0):
         self._name = name
         self._label = label
         self._start = timeit.default_timer()
