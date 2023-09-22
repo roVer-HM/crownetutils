@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
-from dataclasses import InitVar, dataclass, field
+import sys
+from collections.abc import Callable
+from dataclasses import InitVar, asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List
+from typing import Any, Dict, List, TextIO
 
 from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.misc import Project
@@ -14,6 +17,98 @@ from crownetutils.utils.misc import Project
 class MapType(Enum):
     DENSITY = "density"
     ENTROPY = "entropy"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class DpmmCfgEncoder(json.JSONEncoder):
+    @classmethod
+    def new(cls, keep_base_dir: bool):
+        """Provide pre configured callable to crete json encoder"""
+
+        def func(*args, **kwargs) -> DpmmCfgEncoder:
+            return DpmmCfgEncoder(keep_base_dir, *args, **kwargs)
+
+        return func
+
+    def __init__(
+        self,
+        keep_base_dir: bool,
+        *,
+        skipkeys: bool = False,
+        ensure_ascii: bool = True,
+        check_circular: bool = True,
+        allow_nan: bool = True,
+        sort_keys: bool = False,
+        indent: int | str | None = None,
+        separators: tuple[str, str] | None = None,
+        default: Callable[..., Any] | None = None,
+    ) -> None:
+        super().__init__(
+            skipkeys=skipkeys,
+            ensure_ascii=ensure_ascii,
+            check_circular=check_circular,
+            allow_nan=allow_nan,
+            sort_keys=sort_keys,
+            indent=indent,
+            separators=separators,
+            default=default,
+        )
+        self.keep_base_dir = keep_base_dir
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, DpmmCfg):
+            __o = asdict(o)
+            if not self.keep_base_dir:
+                __o["base_dir"] = None
+            return __o
+        elif isinstance(o, MapType):
+            return o.value
+        else:
+            return super().default(o)
+
+
+class DpmmCfgDecoder(json.JSONDecoder):
+    @classmethod
+    def new(cls, base_dir=None) -> DpmmCfgDecoder:
+        def func(*args, **kwargs):
+            return DpmmCfgDecoder(base_dir, *args, **kwargs)
+
+        return func
+
+    def __init__(
+        self,
+        base_dir=None,
+        *,
+        parse_float: Callable[[str], Any] | None = None,
+        parse_int: Callable[[str], Any] | None = None,
+        parse_constant: Callable[[str], Any] | None = None,
+        strict: bool = True,
+        object_pairs_hook: Callable[[list[tuple[str, Any]]], Any] | None = None,
+    ) -> None:
+        super().__init__(
+            object_hook=self.object_hook,
+            parse_float=parse_float,
+            parse_int=parse_int,
+            parse_constant=parse_constant,
+            strict=strict,
+            object_pairs_hook=object_pairs_hook,
+        )
+        self.base_dir = base_dir
+
+    def object_hook(self, obj):
+        if obj["base_dir"] is None and self.base_dir is None:
+            raise ValueError(
+                "Provided json object does not base_dir nor does the JSONDecoder. obj: {obj} "
+            )
+        if self.base_dir is not None:
+            obj["base_dir"] = self.base_dir
+        try:
+            obj["map_type"] = MapType(obj["map_type"])
+        except:
+            ValueError(f"Did not found TypeMap {obj['map_type']}")
+        return DpmmCfg(**obj)
 
 
 @dataclass
@@ -123,6 +218,61 @@ class DpmmCfg:
             node_index=node_index,
             path=path,
         )
+
+    def as_dict(self):
+        d = asdict(self)
+        d["map_type"] = self.map_type.value
+        return d
+
+    def to_json(self, fd: TextIO | None = None, dump_base_dir: bool = True):
+        if fd is None:
+            return json.dumps(
+                obj=self,
+                ensure_ascii=True,
+                allow_nan=True,
+                indent=2,
+                sort_keys=True,
+                cls=DpmmCfgEncoder.new(dump_base_dir),
+            )
+        else:
+            json.dump(
+                obj=self,
+                fp=fd,
+                ensure_ascii=True,
+                allow_nan=True,
+                indent=2,
+                sort_keys=True,
+                cls=DpmmCfgEncoder.new(dump_base_dir),
+            )
+
+    def save_cfg(self, path_fd: str | TextIO, dump_base_path: bool = True):
+        if isinstance(path_fd, str):
+            with open(path_fd, "w", encoding="utf-8") as fd:
+                self.to_json(fd, dump_base_dir=dump_base_path)
+        else:
+            self.to_json(path_fd, dump_base_dir=dump_base_path)
+
+    def copy(self, base_dir) -> DpmmCfg:
+        """Get new instance with different base directory"""
+        o = asdict(self)
+        o["base_dir"] = base_dir
+        return DpmmCfg(**o)
+
+    @classmethod
+    def from_json(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfg:
+        if isinstance(str_fd, str):
+            o = json.loads(str_fd, cls=DpmmCfgDecoder.new(base_dir))
+        else:
+            o = json.load(str_fd, cls=DpmmCfgDecoder.new(base_dir))
+        return o
+
+    @classmethod
+    def load(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfg:
+        if isinstance(str_fd, str):
+            with open(str_fd, "r", encoding="utf-8") as fd:
+                return cls.from_json(fd, base_dir=base_dir)
+        else:
+            return cls.from_json(str_fd, base_dir=base_dir)
 
     @classmethod
     def default_density_beacon_map_cfg(cls, base_dir):
