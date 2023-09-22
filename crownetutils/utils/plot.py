@@ -485,7 +485,11 @@ class PlotUtil_:
                 ax.set_xlim([min_, max_])
 
     def df_to_table(
-        self, df: pd.DataFrame, ax: plt.Axes | None = None, title: str | None = None
+        self,
+        df: pd.DataFrame,
+        ax: plt.Axes | None = None,
+        title: str | None = None,
+        col_width=None,
     ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
         """Save columns of dataframe as matplotlib table.
 
@@ -508,7 +512,10 @@ class PlotUtil_:
         )
         t.auto_set_font_size(False)
         t.set_fontsize(plt.rcParams["font.size"])
-        t.auto_set_column_width(col=(list(range(df.shape[1]))))
+        if col_width is None:
+            t.auto_set_column_width(col=(list(range(df.shape[1]))))
+        else:
+            t.auto_set_column_width(col=col_width)
         [c.set_height(0.2) for c in t.get_celld().values()]
         ax.get_yaxis().set_visible(False)
         ax.get_xaxis().set_visible(False)
