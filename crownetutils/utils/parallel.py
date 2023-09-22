@@ -7,7 +7,8 @@ import traceback
 from functools import partial
 from itertools import repeat
 from multiprocessing import get_context
-from typing import Any, List, Tuple
+from multiprocessing.pool import ThreadPool
+from typing import Any, List, Literal, Tuple, Type
 
 from crownetutils.utils.logging import logger
 
@@ -38,6 +39,16 @@ def kwargs_with_try(
         return (False, f"Error in args: {kwargs} message: {e}\n{trace}")
 
 
+PoolKind = Literal["process", "thread"]
+
+
+def get_pool(size, pool_type, kind):
+    if kind == "process":
+        return get_context(pool_type).Pool(processes=size)
+    elif kind == "thread":
+        return ThreadPool(processes=size)
+
+
 def run_kwargs_map(
     func,
     kwargs_iter,
@@ -46,6 +57,7 @@ def run_kwargs_map(
     raise_on_error: bool = True,
     append_args: bool = False,
     filter_id: int | List[int] | None = None,
+    pool_kind: PoolKind = "process",
 ) -> List[Tuple[bool, Any]] | List[Any]:
     """Execute `func` in parallel
 
@@ -70,7 +82,7 @@ def run_kwargs_map(
     if len(kwargs_iter) == 1:
         map = [kwargs_with_try(func, kwargs_iter[0], append_args=append_args)]
     else:
-        with get_context(pool_type).Pool(processes=pool_size) as pool:
+        with get_pool(size=pool_size, pool_type=pool_type, kind=pool_kind) as pool:
             map = pool.starmap(
                 partial(kwargs_with_try, append_args=append_args),
                 zip(repeat(func), kwargs_iter),
@@ -119,6 +131,50 @@ def args_with_try(
         return (False, f"Error in args: {args} message: {e}")
 
 
+def run_item(item: ExecutionItem):
+    return item()
+
+
+def run_items(
+    items: List[ExecutionItem],
+    pool_size: int = 10,
+    pool_type: str = "spawn",
+    raise_on_error: bool = True,
+    unpack: bool = True,
+    filter_id: int | List[int] | None = None,
+    pool_kind: PoolKind = "process",
+):
+    map: List[ResultItem] = []
+    if filter_id is not None:
+        filter_id = [filter_id] if isinstance(filter_id, int) else filter_id
+        items = [items[i] for i in filter_id]
+
+    with get_pool(size=pool_size, pool_type=pool_type, kind=pool_kind) as pool:
+        map = pool.map(run_item, iterable=items)
+
+    if raise_on_error:
+        ret_data = []
+        ret_err: List[ResultItem] = []
+        for ret in map:
+            if ret.ok:
+                if unpack:
+                    ret_data.append(ret.value)
+                else:
+                    ret_data.append(ret)
+            else:
+                ret_err.append(ret)
+        if len(ret_err) > 0:
+            for ret in ret_err:
+                logger.error(ret.exception)
+            raise ValueError(f"{len(ret_err)} out of {len(items)} failed")
+        return ret_data
+    else:
+        if unpack:
+            return [i.value for i in map]
+        else:
+            return map
+
+
 def run_args_map(
     func,
     args_iter,
@@ -127,6 +183,7 @@ def run_args_map(
     raise_on_error: bool = True,
     append_args: bool = False,
     filter_id: int | List[int] | None = None,
+    pool_kind: PoolKind = "process",
 ) -> List[Tuple(bool, Any)] | List[Any]:
     """Execute `func` in parallel with the possibility to debug single runs if
     necessary. To do this add the arg_iter index of the run(s) to debug in the
@@ -153,7 +210,7 @@ def run_args_map(
     if len(args_iter) == 1:
         map = [args_with_try(func, args_iter[0], append_args=append_args)]
     else:
-        with get_context(pool_type).Pool(processes=pool_size) as pool:
+        with get_pool(size=pool_size, pool_type=pool_type, kind=pool_kind) as pool:
             map = pool.starmap(
                 partial(args_with_try, append_args=append_args),
                 zip(repeat(func), args_iter),
@@ -174,3 +231,60 @@ def run_args_map(
         return ret_data
     else:
         return map
+
+
+class ExecutionItem:
+    def __init__(self, fn, args=None, kwargs=None) -> None:
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+        self.postprocessing = []
+
+    def add_post_function(self, fn, *args, **kwargs):
+        self.postprocessing.append((fn, args, kwargs))
+
+    def __call__(self) -> Any:
+        try:
+            _args = [] if self.args is None else self.args
+            _kwargs = {} if self.kwargs is None else self.kwargs
+            ret = self.fn(*_args, **_kwargs)
+        except Exception as e:
+            traceback.print_exc()
+            ret = ResultItem(None, self, e, self.fn.__name__)
+        else:
+            try:
+                for _pfn, _pargs, _pkwargs in self.postprocessing:
+                    ret = _pfn(ret, *_pargs, **_pkwargs)
+            except Exception as e:
+                traceback.print_exc()
+                ret = ResultItem(None, self, e, _pfn.__name__)
+            else:
+                ret = ResultItem(ret, self, None)
+
+        return ret
+
+
+class ResultItem:
+    def __init__(
+        self, ret=None, exec_item: ExecutionItem = None, exception=None, fn_name=None
+    ) -> None:
+        self.ret = ret
+        self.exec_item = exec_item
+        self.exception = exception
+        self.exception_func = fn_name
+
+    @property
+    def ok(self):
+        return self.exception is None
+
+    @property
+    def value(self) -> Any:
+        return self.ret
+
+    def __repr__(self) -> str:
+        e = (
+            "Ok"
+            if self.ok
+            else f"Err({self.exception.__class__.__name__}-'{self.exception}')"
+        )
+        return f"<{self.__class__.__module__}.{self.__class__.__name__}[{e}] at {hex(id(self))}"

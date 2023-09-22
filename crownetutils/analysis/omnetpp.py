@@ -30,12 +30,21 @@ from crownetutils.analysis.hdf.provider import (
     ProviderVersion,
 )
 from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
-from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult
+from crownetutils.omnetpp.scave import (
+    CrownetSql,
+    SqlEmptyResult,
+    append_host_vector_index,
+)
 from crownetutils.omnetpp.sql import SqlOp
-from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_interval
+from crownetutils.utils.dataframe import (
+    FrameConsumer,
+    append_columns,
+    append_index,
+    merge_on_interval,
+)
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
-from crownetutils.utils.parallel import run_kwargs_map
+from crownetutils.utils.parallel import ExecutionItem, run_items, run_kwargs_map
 from crownetutils.utils.styles import STYLE_SIMPLE_169, style_context
 
 
@@ -1658,6 +1667,36 @@ class _OppAnalysis(AnalysisBase):
             data = data.sort_index()
             data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
         return data
+
+    def run_collect_vec_info(
+        self,
+        run_map: RunMap,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        pool_size: int = 20,
+    ):
+        items: List[ExecutionItem] = []
+        sg: SimulationGroup
+        for g, sg in run_map.items():
+            for run_id, sim in sg.simulation_iter():
+                e = ExecutionItem(
+                    fn=sim.sql.vec_info,
+                    kwargs=dict(module_name=module_name, vector_name=vector_name),
+                )
+                e.add_post_function(append_columns, ["group", "run_id"], [g, run_id])
+                e.add_post_function(
+                    append_host_vector_index, sql=sim.sql, col_name="moduleName"
+                )
+                items.append(e)
+        print(f"got {len(items)} executon items")
+        df = run_items(
+            items=items,
+            pool_size=min(pool_size, len(items)),
+            raise_on_error=True,
+            unpack=True,
+        )
+        df = pd.concat(df)
+        return df
 
 
 class CellOccupancyInfo:
