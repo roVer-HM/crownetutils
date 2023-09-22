@@ -676,6 +676,15 @@ class Simulation:
     self.run_context    Access to simulation config used during simulation
     """
 
+    def raise_err(self, what, msg):
+        msg = f"{msg}\nSimulation:\n\tdata_root: {self.data_root}"
+        if self.dpmm_cfg is not None:
+            cfg = self.dpmm_cfg.to_json().splitlines()
+            cfg = [f"\t\t{l}" for l in cfg]
+            cfg = "\n".join(cfg)
+            msg = f"{msg}\n\tcfg: {cfg}"
+        raise what(msg)
+
     @classmethod
     def from_context(cls, ctx: str | RunContext, label="", id_offset: int = 0):
         if isinstance(ctx, str):
@@ -810,7 +819,7 @@ class Simulation:
     def get_dcdMap(self) -> DpmMap:
         sel = self.builder.map_p.get_attribute("used_selection")
         if sel is None:
-            raise ValueError("selection not set!")
+            self.raise_err(ValueError, "selection not set!")
         return self.builder.build_dcdMap(selection=list(sel)[0])
 
     def _check_container_log_stats_file(self, log_stats_file_path):
