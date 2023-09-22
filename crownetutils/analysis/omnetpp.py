@@ -69,7 +69,19 @@ class _hdf_Extractor(AnalysisBase):
             logger.info("hdf file exists nothing to do.")
             return
         df = []
-        for module_name, m_str in [(sql.m_beacon(), "b"), (sql.m_map(), "m")]:
+
+        modules = []
+        # FIXME: check if applications are present.
+        try:
+            modules.append((sql.m_beacon(), "b"))
+        except:
+            pass
+        try:
+            modules.append((sql.m_map(), "m"))
+        except:
+            pass
+
+        for module_name, m_str in modules:
             logger.info(f"read vector data for {module_name}")
             seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
             seqNo_vec = sql.find_vector_name(module_name, seqNo_vec)
