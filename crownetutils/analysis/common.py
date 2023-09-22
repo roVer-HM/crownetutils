@@ -324,9 +324,20 @@ class RunMap(dict):
             g = {}
             g["attr"] = group.attr
             g["group_name"] = group.group_name
-            g["data"] = [
-                (sim.run_context.ctx_path, sim.label, sim._id_offset) for sim in group
-            ]
+            data = []
+            for sim in group:
+                if sim.dpmm_cfg is None:
+                    data.append((sim.run_context.ctx_path, sim.label, sim._id_offset))
+                else:
+                    data.append(
+                        (
+                            sim.run_context.ctx_path,
+                            sim.label,
+                            sim._id_offset,
+                            sim.dpmm_cfg.as_dict(),
+                        )
+                    )
+            g["data"] = data
             ret["groups"][group.group_name] = g
 
         fd = self.path("run_map.json") if fd is None else fd
@@ -346,10 +357,17 @@ class RunMap(dict):
 
         ret = cls(map["output_dir"])
         for g_name, group in map["groups"].items():
-            sims = [
-                Simulation.from_context(ctx, label, id_offset)
-                for ctx, label, id_offset in group["data"]
-            ]
+            sims = []
+            for data in group["data"]:
+                sim = Simulation.from_context(
+                    ctx=data[0], label=data[1], id_offset=data[2]
+                )
+                if len(data) > 3:
+                    __o = data[3]
+                    __o["map_type"] = MapType(__o["map_type"])
+                    sim.dpmm_cfg = DpmmCfg(**__o)
+                sims.append(sim)
+
             sim_group = SimulationGroup(g_name, data=sims, attr=group["attr"])
             ret.append_or_add(sim_group)
         return ret
