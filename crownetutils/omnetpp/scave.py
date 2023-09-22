@@ -22,6 +22,7 @@ from crownetutils.omnetpp.scave_config import ScaveConfig
 from crownetutils.omnetpp.sim_bound import SimBound
 from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.logging import TimeIt, logger, timing
+from crownetutils.utils.parallel import run_kwargs_map
 
 
 class SqlEmptyResult(Exception):
@@ -682,24 +683,113 @@ class OppSql:
 
 
 class HostIdMap:
+    """Provides access to OMNeT++ module name to module ids. The caller must check if the provided id exists.
+    If not and this is an acceptable state for the application a dummy unique identifier is provided.
+    Key: str of module name
+    Value: module identifier (or dummy id)
+    """
+
     def __init__(self, id_map) -> None:
         self.id_map: dict = id_map
-        self._next_dummy_id = -1
+        self.key_set = set(list(id_map.keys()))
+
+    def _next_id_peek(self):
+        if len(self.key_set) == 0:
+            return 0
+        else:
+            return max(self.key_set) + 1
+
+    def _next_id(self):
+        i = self._next_id_peek()
+        self.key_set.add(i)
+        return i
 
     def __getitem__(self, key):
         return self.id_map[key]
 
     def get_dummy_id(self, key):
         if key not in self.id_map:
-            logger.warn(
-                f"module '{key}' not found in id_map. Provide dummy id {self._next_dummy_id}"
-            )
-            self.id_map[key] = self._next_dummy_id
-            self._next_dummy_id -= 1
+            i = self._next_id()
+            logger.warn(f"module '{key}' not found in id_map. Provide dummy id {i}")
+            self.id_map[key] = i
         return self.id_map[key]
 
     def __contains__(self, key):
         return key in self.id_map
+
+
+class ModuleMatcher:
+    """Extract module name, vector index and module id (OMNeT interval node identifier) from
+    OMNeT++ module path. The module name ist the OMNeT++ module path to the module which
+    contains the '@NetworkNode` marker in the OMNeT++ ned file definition. In combination with
+    the `hostId` statistic a match between the module id and the network path is possible.
+
+    In case of missing `hostId` statistics a dummy unique identifier is used. See `HostIdMap`
+    for more information.
+    """
+
+    def __init__(self, sql) -> None:
+        self.sql: CrownetSql = sql
+        self._module_map = None
+
+    @property
+    def module_map(self):
+        if self._module_map is None:
+            self._module_map = self.sql.module_to_host_ids()
+        return self._module_map
+
+    def _match_host(self, x):
+        if _m := self.sql._host_index_regex.match(x):
+            return f'{_m.groupdict()["type"]}[{_m.groupdict()["hostIdx"]}]'
+        raise ValueError(
+            f"given moduelName '{x}' does not match vector index regex {self.sql._host_index_regex}"
+        )
+
+    def _match_host_id(self, x):
+        if _m := self.sql._host_id_regex.match(x):
+            if _m.groupdict()["host"] in self.module_map:
+                return self.module_map[_m.groupdict()["host"]]
+            elif _m.groupdict()["type"] in ["eNB", "gNB"]:
+                return self._host_index_regex.match(x).groupdict()["hostIdx"]
+            else:
+                return self.module_map.get_dummy_id(_m.groupdict()["host"])
+        raise ValueError(
+            f"given moduleName '{x}' does match module regex {self._host_id_regex}"
+        )
+
+    def _match_vector_idx(self, x):
+        if _m := self.sql._host_index_regex.match(x):
+            return int(_m.groupdict()["hostIdx"])
+        raise ValueError(
+            f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
+        )
+
+    def get_host(self, s: pd.Series) -> pd.Series:
+        return s.apply(lambda x: self._match_host(x))
+
+    def get_host_id(self, s: pd.Series) -> pd.Series:
+        return s.apply(lambda x: self._match_host_id(x))
+
+    def get_vector_index(self, s: pd.Series) -> pd.Series:
+        return s.apply(lambda x: self._match_vector_idx(x))
+
+
+def append_host_id(
+    df: pd.DataFrame, sql: CrownetSql, col_name: str = "moduleName"
+) -> pd.DataFrame:
+    if col_name not in df.columns:
+        raise ValueError(f"expected {col_name} in frame got {df.columns}")
+    df["host_id"] = sql.module_matcher.get_host_id(df[col_name])
+    return df
+
+
+def append_host_vector_index(
+    df: pd.DataFrame, sql: CrownetSql, col_name: str = "moduleName"
+) -> pd.DataFrame:
+    if col_name not in df.columns:
+        raise ValueError(f"expected {col_name} in frame got {df.columns}")
+    df["vec_idx"] = sql.module_matcher.get_vector_index(df[col_name])
+    return df
 
 
 class CrownetSql(OppSql):
@@ -769,6 +859,7 @@ class CrownetSql(OppSql):
             f"^{self.network}\.(?P<type>{'|'.join(self._all_modules)})\[(?P<hostIdx>\d+)\].*"
         )
         self._module_id_map: HostIdMap = None
+        self.module_matcher: ModuleMatcher = ModuleMatcher(self)
 
     def host_ids(self, module_name: Union[None, str, SqlOp] = None):
         """
@@ -1108,34 +1199,6 @@ class CrownetSql(OppSql):
         Returns:
             pd.DataFrame: Structure depends on args
         """
-        module_map = self.module_to_host_ids()
-
-        def _match_host(x):
-            if _m := self._host_index_regex.match(x):
-                return f'{_m.groupdict()["type"]}[{_m.groupdict()["hostIdx"]}]'
-            raise ValueError(
-                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
-            )
-
-        def _match_host_id(x):
-            if _m := self._host_id_regex.match(x):
-                if _m.groupdict()["host"] in module_map:
-                    return module_map[_m.groupdict()["host"]]
-                elif _m.groupdict()["type"] in ["eNB", "gNB"]:
-                    return self._host_index_regex.match(x).groupdict()["hostIdx"]
-                else:
-                    return module_map.get_dummy_id(_m.groupdict()["host"])
-            raise ValueError(
-                f"given moduleName '{x}' does match module regex {self._host_id_regex}"
-            )
-
-        def _match_vector_idx(x):
-            if _m := self._host_index_regex.match(x):
-                return int(_m.groupdict()["hostIdx"])
-            raise ValueError(
-                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
-            )
-
         _cols = list(vec_info_columns)  # copy
         if "moduleName" not in vec_info_columns:
             # moduleName must be returned to create needed names. Will be
@@ -1158,13 +1221,13 @@ class CrownetSql(OppSql):
         )
 
         if "host" in name_columns:
-            _df["host"] = _df["moduleName"].apply(lambda x: _match_host(x))
+            _df["host"] = self.module_matcher.get_host(_df["moduleName"])
             _cols.append("host")
         if "hostId" in name_columns:
-            _df["hostId"] = _df["moduleName"].apply(lambda x: _match_host_id(x))
+            _df["hostId"] = self.module_matcher.get_host_id(_df["moduleName"])
             _cols.append("hostId")
         if "vecIdx" in name_columns:
-            _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
+            _df["vecIdx"] = self.module_matcher.get_vector_index(["moduleName"])
             _cols.append("vecIdx")
 
         if pull_data:
@@ -1279,6 +1342,7 @@ class CrownetSql(OppSql):
         join_by_host_id = df.pivot(
             index="hostId", columns="vectorName", values="vectorId"
         )
+        num_vecs = join_by_host_id.shape[1]
         with timer:
             join_it = self.create_event_number_join(
                 join_by_host_id.reset_index().to_dict("records")
@@ -1286,6 +1350,10 @@ class CrownetSql(OppSql):
             data = []
             for host_id, _sql in join_it:
                 df = self.query_vec(sql_str=_sql)
+                if df.shape[1] - 2 != num_vecs:
+                    logger.warn(
+                        f"Did not found all vectors for host {host_id} expected {num_vecs} vectors found {df.shape}: {df.columns}"
+                    )
                 df["hostId"] = host_id
                 data.append(df)
         logger.info(
