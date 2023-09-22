@@ -98,6 +98,8 @@ def delay_feature(_df_ret, **kwargs):
     # calculate features (delay, AoI_NR (measured-to-now), AoI_MNr (received-to-now)
     now = _df_ret.index.get_level_values("simtime")
     _df_ret["delay"] = _df_ret["received_t"] - _df_ret["measured_t"]
+    # AoI defined as the time elapsed since the latest useful piece of
+    # information that reached its intended destination has been generated at its source.
     # AoI_NM == measurement_age (time since last measurement)
     _df_ret["measurement_age"] = now - _df_ret["measured_t"]
     # AoI_NR == update_age (time since last update)
