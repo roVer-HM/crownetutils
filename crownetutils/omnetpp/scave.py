@@ -622,6 +622,7 @@ class OppSql:
         ids: List[int] | pd.DataFrame | None = None,
         runId: int = 1,
         columns: List[str] = ("vectorId", "simtimeRaw", "value"),
+        order_by: List[str] = (),
         value_name: str = "value",
         time_slice: slice = slice(None),
         time_resolution=1e12,
@@ -641,6 +642,7 @@ class OppSql:
 
         _ids = ", ".join([str(i) for i in _ids])
         columns = ", ".join([f"v_data.{c}" for c in columns])
+        order_by = ", ".join([f"v_data.{c}" for c in order_by])
         if time_slice != slice(None):
             if time_slice.start is None:
                 _time = f" and v_data.simTimeRaw == {time_slice.stop * time_resolution}"
@@ -649,6 +651,9 @@ class OppSql:
         else:
             _time = ""
         _sql = f"select {columns} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
+        if len(order_by) > 0:
+            _sql = f"{_sql}  ORDER BY {order_by}"
+
         # print(_sql)
         df = self.query_vec(_sql, type="df", **kwargs)
         if time_resolution is not None and "simtimeRaw" in columns:
