@@ -235,6 +235,37 @@ def append_index(df: pd.DataFrame, col: str, val=None):
     return df
 
 
+def append_columns(
+    df: pd.DataFrame, column_names: str | List[str], default_value: Any | List[Any]
+) -> pd.DataFrame:
+    """Append columns to data frame with the provided default values.
+    If both column_names and default_value are lists, there length must match. If the default_values is not a list
+    the value will be used by each column
+
+    Args:
+        df (pd.DataFrame): Frame which will be extended
+        column_names (str | List[str]): column names to add to frame
+        default_value (Any | List[Any]): default values used.
+    Raises:
+        ValueError:
+
+    Returns:
+        pd.DataFrame:
+    """
+
+    column_names = [column_names] if isinstance(column_names, str) else column_names
+    if isinstance(default_value, list):
+        if len(default_value) != len(column_names):
+            raise ValueError(
+                f"column_names and default values must match length. got {len(column_names)} != {len(default_value)}"
+            )
+    else:
+        default_value = np.repeat([default_value], len(column_names))
+    for idx, col in enumerate(column_names):
+        df[col] = default_value[idx]
+    return df
+
+
 def index_or_col(df, name):
     if isinstance(df.index, pd.MultiIndex):
         if name in df.index.names:
