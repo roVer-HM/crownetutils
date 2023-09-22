@@ -503,6 +503,18 @@ class RunContext:
             value = match.groups()[0]
         return apply(value)
 
+    def init_contains(
+        self,
+        key: str,
+        regex: str | None = None,
+    ):
+        try:
+            self.ini_get(key, regex)
+        except ValueError:
+            return False
+        else:
+            return True
+
     def ini_get_or_default(
         self,
         key: str,
