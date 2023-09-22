@@ -383,6 +383,17 @@ class BaseHdfProvider:
         return ret
 
 
+class LazyHdfProvider(BaseHdfProvider):
+    def __init__(
+        self, hdf_path: str, group: str, group_factories: List[HdfGroupFactory]
+    ):
+        super().__init__(hdf_path, group, allow_lazy_loading=True)
+        if isinstance(group_factories, HdfGroupFactory):
+            group_factories = [group_factories]
+        for f in group_factories:
+            self.add_group_factory(f)
+
+
 class ProviderVersion(Enum):
     V0_1 = "0.1"
     V0_2 = "0.2"
