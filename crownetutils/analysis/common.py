@@ -1323,7 +1323,7 @@ class SuqcStudy:
         Returns:
             RunMap: Updated RunMap object. The run_map method argument is mutated.
         """
-        run_items = np.array(self.get_run_items(filter=id_filter))
+        run_items = np.array(self.get_run_items(filter=id_filter), dtype=object)
         if len(run_items) % sim_per_group != 0:
             raise ValueError(
                 f"Number of runs is not divisible by sim_per_group {len(run_items)}/{sim_per_group}. check id_filter function or sim_per_group count."
