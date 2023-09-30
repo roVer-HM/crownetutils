@@ -196,11 +196,12 @@ class DpmmProvider(IHdfProvider):
                 continue
 
             with self.ctx() as store:
-                # no index on columns other than index.
                 store.append(
                     key=self.group,
                     value=dcd_df,
                     format="table",
+                    index=False,
+                    data_columns=dcd_df.columns,
                 )
             # send data frame to frame_consumers
             for consumer in frame_consumer:

@@ -372,6 +372,67 @@ class OppSql:
 
         return None
 
+    def hist_info(
+        self,
+        module_name: SqlOp | str | None = None,
+        stat_name: SqlOp | str | None = None,
+        stat_ids: List[int] | None = None,
+        run_id: int = 1,
+        cols: List[str] | None = None,
+        **kwargs,
+    ):
+        """Query statistic table for histogram information"""
+        if cols is None:
+            cols = "*"  # select all columns
+        else:
+            cols = ", ".join([f"v.{c}" for c in cols])
+
+        if all(i is not None for i in [module_name, stat_name]):
+            _sql = f"select {cols} from statistic v where v.runId = '{run_id}' and v.isHistogram == 1"
+            _sql += self._to_sql(module_name, "v", "moduleName", "and")
+            _sql += self._to_sql(stat_name, "v", "statName", "and")
+        elif stat_ids is not None:
+            _id_str = [str(i) for i in stat_ids]
+            _sql = f"select {cols} from statistic v where v.runId = '{run_id}' and v.isHistogram == 1"
+            _sql += f" and v.statId in ({', '.join(_id_str)})"
+        else:
+            raise ValueError(
+                "expected either moduleName and vectorName or list of vector ids"
+            )
+        df = self.query_sca(_sql, type="df", **kwargs)
+        return df
+
+    def hist_data(
+        self,
+        module_name: SqlOp | str | None = None,
+        stat_name: SqlOp | str | None = None,
+        stat_ids: List[int] | None = None,
+        run_id: int = 1,
+        **kwargs,
+    ):
+        if all(i is not None for i in [module_name, stat_name]):
+            _sql = f"select v.*, b.lowerEdge, b.binValue from statistic v  inner join histogramBin as b on  v.statId == b.statId where v.runId = '{run_id}'"
+            _sql += self._to_sql(module_name, "v", "moduleName", "and")
+            _sql += self._to_sql(stat_name, "v", "statName", "and")
+        elif stat_ids is not None:
+            _id_str = [str(i) for i in stat_ids]
+            _sql = f"select v.*, b.lowerEdge, b.binValue from statistic v inner join histogramBin as b on  v.statId == b.statId where v.runId = '{run_id}'"
+            _sql += f" and v.statId in ({', '.join(_id_str)})"
+        else:
+            raise ValueError(
+                "expected either moduleName and vectorName or list of vector ids"
+            )
+        df = self.query_sca(_sql, type="df", **kwargs)
+        if not df.empty:
+            df = df.sort_values(["statId", "lowerEdge"])
+            df["upperEdge"] = df["lowerEdge"].shift(-1)
+            df["_statId"] = df["statId"].shift(-1)
+            df[df["statId"] == df["_statId"]]
+            df = df[~df["_statId"].isna()]
+            df["bin_size"] = np.abs(df["upperEdge"] - df["lowerEdge"])
+            df["inf_bin"] = df["bin_size"] == np.inf
+        return df
+
     def vec_info(
         self,
         module_name: SqlOp | str | None = None,
@@ -750,7 +811,7 @@ class ModuleMatcher:
             if _m.groupdict()["host"] in self.module_map:
                 return self.module_map[_m.groupdict()["host"]]
             elif _m.groupdict()["type"] in ["eNB", "gNB"]:
-                return self._host_index_regex.match(x).groupdict()["hostIdx"]
+                return self.sql._host_index_regex.match(x).groupdict()["hostIdx"]
             else:
                 return self.module_map.get_dummy_id(_m.groupdict()["host"])
         raise ValueError(
@@ -1227,7 +1288,7 @@ class CrownetSql(OppSql):
             _df["hostId"] = self.module_matcher.get_host_id(_df["moduleName"])
             _cols.append("hostId")
         if "vecIdx" in name_columns:
-            _df["vecIdx"] = self.module_matcher.get_vector_index(["moduleName"])
+            _df["vecIdx"] = self.module_matcher.get_vector_index(_df["moduleName"])
             _cols.append("vecIdx")
 
         if pull_data:

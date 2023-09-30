@@ -524,6 +524,7 @@ class DpmmHdfBuilder(FrameConsumer):
                 value=df,
                 format="table",
                 index=False,
+                data_columns=True,
                 complevel=9,
                 complib="blosc",
             )
