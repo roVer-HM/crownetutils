@@ -149,11 +149,15 @@ class DpmmProviderTest(unittest.TestCase):
                     key=self.provider.group_key(),
                     value=ret_df_1,
                     format="table",
+                    index=False,
+                    data_columns=True,
                 ),
                 call(
                     key=self.provider.group_key(),
                     value=ret_df_2,
                     format="table",
+                    index=False,
+                    data_columns=True,
                 ),
             ]
         )

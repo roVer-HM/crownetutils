@@ -201,7 +201,7 @@ class DpmmProvider(IHdfProvider):
                     value=dcd_df,
                     format="table",
                     index=False,
-                    data_columns=dcd_df.columns,
+                    data_columns=True,
                 )
             # send data frame to frame_consumers
             for consumer in frame_consumer:
