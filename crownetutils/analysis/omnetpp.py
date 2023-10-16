@@ -611,6 +611,9 @@ class _OppAnalysis(AnalysisBase):
                 name_columns=["hostId"],
                 drop=drop_col if drop_col is None else list(drop_col),
             )
+            df = df.loc[:, ["hostId", "time", "servingEnb"]].sort_values(
+                ["hostId", "time"]
+            )
         else:
             df = sql.vec_data(
                 module_name=module_name,
@@ -618,7 +621,6 @@ class _OppAnalysis(AnalysisBase):
                 value_name="servingEnb",
                 drop=drop_col if drop_col is None else list(drop_col),
             )
-        df = df.loc[:, ["hostId", "time", "servingEnb"]].sort_values(["hostId", "time"])
         return df
 
     def get_serving_enb_interval(

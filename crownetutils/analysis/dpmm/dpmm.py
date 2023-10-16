@@ -86,7 +86,10 @@ class BaseDpmMap:
 
 def percentile(n):
     def _percentil(x):
-        return np.percentile(x, float(n) * 100.0)
+        try:
+            return np.percentile(x, float(n) * 100.0)
+        except:
+            return np.nan
 
     _percentil.__name__ = f"p_{n*100:2.0f}"
     return _percentil

@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.collections import PatchCollection
 from matplotlib.colorbar import Colorbar
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm, to_rgba_array
 from matplotlib.image import AxesImage
@@ -1046,10 +1047,24 @@ class PlotHelper:
 
 
 def enb_with_hex(origin, inner_r, scale=30):
-    return [
-        enb_patch(scale_factor=scale, pos_xy=origin),
-        hex_patch(origin=origin, inner_r=inner_r),
-    ]
+    if origin.shape[0] > 1:
+        return [
+            PatchCollection(
+                [enb_patch(scale_factor=scale, pos_xy=p) for p in origin],
+                facecolors="none",
+                edgecolors="black",
+            ),
+            PatchCollection(
+                [hex_patch(origin=p, inner_r=inner_r) for p in origin],
+                facecolors="none",
+                edgecolors="grey",
+            ),
+        ]
+    else:
+        return [
+            enb_patch(scale_factor=scale, pos_xy=origin),
+            hex_patch(origin=origin, inner_r=inner_r),
+        ]
 
 
 def hex_patch(origin, inner_r=None, outter_r=None):
@@ -1069,6 +1084,11 @@ def hex_patch(origin, inner_r=None, outter_r=None):
     # origin = Polygon(xy)
     return pltPatch.PathPatch(pltPath.Path(xy))
     # return origin
+
+
+def enb_patch_annotate(patch: pltPatch.PathPatch, text, ax: plt.Axes):
+    box = patch.get_extents()
+    ax.annotate(text=text)
 
 
 def enb_patch(
