@@ -1067,6 +1067,15 @@ class SuqcStudy:
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
 
+    def is_postprocessing_failed(self, ctx: RunContext):
+        log_file = os.path.join(ctx.cwd, "log.out")
+        if os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8") as fd:
+                for line in fd.readlines():
+                    if "Traceback (most recent call last):" in line:
+                        return True
+        return False
+
     def get_failed_missing_runs(self, run_item_filter=lambda x: True):
         def check_fail(**kwargs) -> bool:
             if "out" not in kwargs:
@@ -1180,23 +1189,38 @@ class SuqcStudy:
         return os.path.join(self.base_path, *path)
 
     @classmethod
-    def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
-        run: SuqcStudy = cls(path)
+    def rerun_postprocessing(
+        cls, path: str, jobs=4, log=False, what="all", filter="all", **kwargs
+    ):
+        study: SuqcStudy = cls(path)
+
+        if what == "failed":
+            sims = [
+                sim
+                for sim in study.get_simulations()
+                if study.is_postprocessing_failed(sim.run_context)
+            ]
+        else:
+            sims = study.get_simulations()
+
+        if filter != "all":
+            # assume run_id==0 for all runs (true for Opp based)
+            par_ids = [r.run_context.par_id for r in sims]
+            filter_ids = apply_str_filter(filter, par_ids)
+            sims = [run for run in sims if run.run_context.par_id in filter_ids]
+
+        for sim in sims:
+            print(sim.run_context.sample_name)
+        print(f"found: {len(sims)} failed runs (with filter: {filter})")
+        if kwargs["list_only"]:
+            return True
+
         args = []
-        for sim in run.get_simulations():
+        for sim in sims:
             _arg = sim.run_context.create_postprocessing_args()
-            log_file = os.path.join(sim.run_context.cwd, "log.out")
-            if kwargs["failed_only"]:
-                if os.path.exists(log_file):
-                    with open(log_file, "r", encoding="utf-8") as fd:
-                        for line in fd.readlines():
-                            if "Traceback (most recent call last):" in line:
-                                _arg["log"] = log
-                                args.append(_arg)
-                                break
-            else:
-                _arg["log"] = log
-                args.append(_arg)
+            _arg["log"] = log
+            args.append(_arg)
+            print(_arg)
         with get_context("spawn").Pool(processes=jobs) as pool:
             ret = pool.map(func=RunContext.exec_runscript, iterable=args)
         return all(ret)
