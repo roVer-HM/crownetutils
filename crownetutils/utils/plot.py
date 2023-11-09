@@ -172,11 +172,21 @@ class FigureSaverSimple(FigureSaver):
     ):
         self.override_base_path = override_base_path
         self.next_name = None
+        self.next_suffix = None
         self.figure_type = figure_type
 
     def with_name(self, name):
         self.next_name = name
         return self
+
+    def with_suffix(self, suffix):
+        self.next_suffix = suffix
+        return self
+
+    @staticmethod
+    def append_suffix(path, suffix):
+        root, ext = os.path.splitext(path)
+        return f"{root}{suffix}{ext}"
 
     def __call__(self, figure, *args: Any, **kwargs):
         if len(args) < 1 and self.next_name is None:
@@ -193,6 +203,9 @@ class FigureSaverSimple(FigureSaver):
                 )
             path = os.path.join(self.override_base_path, os.path.basename(path))
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        if self.next_suffix is not None:
+            path = self.append_suffix(path, self.next_suffix)
+            self.next_suffix = None
         if self.figure_type is not None:
             base, ext = os.path.splitext(path)
             if self.figure_type != ext:

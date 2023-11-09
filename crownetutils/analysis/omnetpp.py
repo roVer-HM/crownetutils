@@ -26,7 +26,9 @@ from crownetutils.analysis.common import (
 from crownetutils.analysis.dpmm.dpmm import percentile
 from crownetutils.analysis.hdf.provider import (
     BaseHdfProvider,
+    HdfGroupDataFactory,
     HdfGroupFactory,
+    IHdfProvider,
     ProviderVersion,
 )
 from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
@@ -43,7 +45,7 @@ from crownetutils.utils.dataframe import (
     merge_on_interval,
 )
 from crownetutils.utils.logging import logger, timing
-from crownetutils.utils.misc import DataSource
+from crownetutils.utils.misc import DataSource, Project
 from crownetutils.utils.parallel import ExecutionItem, run_items, run_kwargs_map
 from crownetutils.utils.styles import STYLE_SIMPLE_169, style_context
 
@@ -67,12 +69,14 @@ class _hdf_Extractor(AnalysisBase):
 
     @classmethod
     def extract_trajectories(cls, hdf_file: str, sql: CrownetSql):
+        # TODO: deprecated use NodePositionWithRsdHdf
         _hdf = BaseHdfProvider(hdf_file, "trajectories")
         pos = sql.node_position()
         _hdf.write_frame(group="trajectories", frame=pos)
 
     @classmethod
     def extract_rvcd_statistics(cls, hdf_file: str, sql: Scave.CrownetSql):
+        # TODO: deprecated use NodeRxData
         _hdf = BaseHdfProvider(hdf_file, "rcvd_stats")
         if _hdf.hdf_file_exists:
             logger.info("hdf file exists nothing to do.")
@@ -143,6 +147,7 @@ class _hdf_Extractor(AnalysisBase):
     def extract_packet_loss(
         cls, hdf_file: str, group_suffix: str, sql: CrownetSql, app: SqlOp
     ):
+        # TODO: depreated use Node
         try:
             pkt_loss_g = f"pkt_loss_{group_suffix}"
             raw_g = f"pkt_loss_raw_{group_suffix}"
@@ -581,192 +586,6 @@ class _OppAnalysis(AnalysisBase):
         ).sort_index()
         return data
 
-    def get_serving_enb(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: SqlOp | str | None = None,
-        with_host_id: bool = False,
-        drop_col: List[str] | None = ("vectorId",),
-    ):
-        """Serving enb based on 'serveringCell:vector for physical layer of nodes.
-        The vector contains the time point at which a switch to a new eNB takes place.
-        The eNB id of zero indicates no connection
-
-        Args:
-            sql (Scave.CrownetSql): _description_
-            module_name (Scave.SqlOp | str | None, optional): _description_. Defaults to None.
-            with_host_id (bool, optional): _description_. Defaults to False.
-            drop_col (List[str] | None, optional): _description_. Defaults to ("vectorId",).
-
-        Returns:
-            pd.DataFrame: [hostId, time, servingEnb]
-        """
-        module_name = sql.m_phy() if module_name is None else module_name
-        if with_host_id:
-            df = sql.vector_ids_to_host(
-                module_name,
-                "servingCell:vector",
-                pull_data=True,
-                value_name="servingEnb",
-                name_columns=["hostId"],
-                drop=drop_col if drop_col is None else list(drop_col),
-            )
-            df = df.loc[:, ["hostId", "time", "servingEnb"]].sort_values(
-                ["hostId", "time"]
-            )
-        else:
-            df = sql.vec_data(
-                module_name=module_name,
-                vector_name="servingCell:vector",
-                value_name="servingEnb",
-                drop=drop_col if drop_col is None else list(drop_col),
-            )
-        return df
-
-    def get_serving_enb_interval(
-        self,
-        sim: Simulation,
-        end_time_provider: Callable[[pd.Series], pd.Series] | None = None,
-    ) -> pd.DataFrame:
-        """Get interval indexed serving cells with start and stop intervals.
-
-        Args:
-            sql (Scave.CrownetSql): Sql object.
-            end_time_provider (Callable[[pd.Series], pd.Series]): Apply callable to determine the last 'end' time. Callable has access to row [hostId, start, stop, servingEnb]
-            module_name (Scave.SqlOp | str | None, optional): Modules path. Defaults to None.
-            interval_closed (str, optional) =  Interval closing type . Defaults to right.
-
-
-        Returns:
-            pd.DataFrame: Indexed dataframe (hostId, interval)[start, stop, servingEnb]
-        """
-
-        if end_time_provider is None:
-            ue = NodePositionHdf.from_sim(sim).get_dataframe()
-            max_time_dict = ue.groupby("hostId")["time"].max().to_dict()
-            max_time = ue["time"].max()
-
-            def _apply(s):
-                if np.isnan(s["end"]):
-                    i = int(s["hostId"])
-                    if i in max_time_dict:
-                        t = (
-                            max_time
-                            if s["start"] > max_time_dict[i]
-                            else max_time_dict[i]
-                        )
-                        s["end"] = (
-                            t + 1e-12
-                        )  # ensure last measurement is part of interval
-                return s
-
-            end_time_provider = _apply
-
-        serving = ServingEnbHdf.from_sim(sim).get_dataframe()
-
-        serving = serving.loc[:, ["hostId", "time", "servingEnb"]].sort_values(
-            ["hostId", "time"]
-        )
-
-        # shift time column to get end time step.
-        _end = serving.groupby("hostId").shift(-1)
-        serving["end"] = _end["time"]
-        serving = serving.rename(columns={"time": "start"})
-
-        # set removal time of node as last time step based on end_time_provider
-        serving = serving.apply(end_time_provider, axis=1).dropna()
-        serving["delta"] = serving["end"] - serving["start"]
-
-        serving["interval"] = [
-            pd.Interval(*row, closed="left")
-            for _, row in serving[["start", "end"]].iterrows()
-        ]
-        serving = serving.loc[:, ["hostId", "interval", "start", "end", "servingEnb"]]
-        serving = serving.set_index(["hostId", "interval"]).sort_index()
-        return serving
-
-    def get_node_position_with_serving_cell(
-        self,
-        sim: Simulation,
-        ue_pos: NodePositionHdf | pd.DataFrame,
-        drop_columns=("interval", "start", "end"),
-    ):
-        ue = ue_pos.get_dataframe() if isinstance(ue_pos, NodePositionHdf) else ue_pos
-
-        enb_int = self.get_serving_enb_interval(sim)
-
-        # append enb association data
-        ue = ue.set_index(["hostId", "time"]).sort_index()
-        ue = merge_on_interval(ue, enb_int, index="time", interval_closed_at="left")
-        if drop_columns is not None:
-            ue = ue.drop(columns=list(drop_columns))
-        return ue
-
-    def get_node_serving_data_color_coded(
-        self,
-        sim: Simulation,
-        enb_pos: pd.DataFrame,
-        ue_pos: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Create data for positional eNB association of each node.
-
-        Args:
-            sql (Scave.CrownetSql): _description_
-            enb_pos (pd.DataFrame): _description_
-            ue_pos (pd.DataFrame): _description_
-            end_time_provider (Callable[[pd.Series], pd.Series]): _description_
-
-        Returns:
-           Tuple[pd.DataFrame, LineCollection]: data frame of the form [hostId, time, host, vecIdx, x, y, servingEnb, x1, x2, color, segment]
-           and a LineCollection containing all segments
-        """
-
-        # append enb association data
-        ue = self.get_node_position_with_serving_cell(sim, ue_pos)
-
-        # add next position (x1, y1) to create line segment (start point, end point)
-        ue2 = ue.groupby("hostId")[["x", "y"]].shift(-1).set_axis(["x1", "y1"], axis=1)
-        ue = pd.concat([ue, ue2], axis=1).dropna()
-
-        # extract enb association with start and end point data as array
-        ue_arr = (
-            ue.set_index(["hostId", "time"])
-            .sort_index()
-            .loc[:, ["servingEnb", "x", "y", "x1", "y1"]]
-            .to_numpy()
-        )
-
-        # use enb association as color index (will be used as array index )
-        enb_color_index = ue_arr[:, 0].astype(int) + 1
-
-        # create list of line segments. Each line segment consits of only two points. (start end end of line)
-        line_col = ue_arr[:, 1:].reshape(
-            -1, 2, 2
-        )  # [ [[x, y], [x1, y1]], [[.],[.]], ... ]
-
-        # create color array containg all enb's plus one for no connection and one for not in the simulation
-        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * enb_pos.shape[0])))
-        enb_colors = enb_c[-(2 + enb_pos.shape[0]) :]
-        enb_colors[0] = [
-            1,
-            1,
-            1,
-            1,
-        ]  # white: not in simulation (enb index -1) --> enb_color_index 0 (see above)
-        enb_colors[1] = [
-            0,
-            0,
-            0,
-            1,
-        ]  # black: not conneceted to any eNB (enb index 0) --> enb_color_index 1 (see above)
-
-        # match enb_color_index with actual color
-        enb_color_index = enb_colors[enb_color_index]  # replace color index with colors
-        # ue["color"] = enb_color_index.tolist()
-        ue["segment"] = line_col.tolist()
-
-        return ue
-
     def get_rcvd_generic_vec_data(
         self,
         sql: Scave.CrownetSql,
@@ -848,6 +667,7 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     def append_run_col(self, func, run: int, **kwargs) -> pd.DataFrame:
+        """Add run coloumn. Used in pool based muliprocessing to concatenate data from different runs."""
         print(f"run func for run {run}")
         df = func(**kwargs)
         df["run"] = run
@@ -886,6 +706,7 @@ class _OppAnalysis(AnalysisBase):
         module_name: SqlOp,
         interval_type: str = "all",
     ) -> pd.DataFrame:
+        # TODO: deprecated use node_tx_data.py
         if interval_type in ["all", "real"]:
             df1 = sql.vector_ids_to_host(
                 module_name=module_name,
@@ -910,39 +731,6 @@ class _OppAnalysis(AnalysisBase):
             return df2
         else:
             return pd.concat([df1, df2], axis=1, ignore_index=False)
-
-    def _load_vectors(
-        self,
-        module_index,
-        sql: Scave.CrownetSql,
-        module_f,
-        vector_name: SqlOp | str | None = None,
-    ):
-        df = sql.vector_ids_to_host(
-            module_f(idx=module_index),
-            vector_name,
-            pull_data=True,
-            columns=["vectorId", "simtimeRaw", "value", "eventNumber"],
-            name_columns=["hostId"],
-        )
-        df = (
-            df.set_index(["eventNumber", "time", "hostId", "vectorId"])
-            .unstack(["vectorId"])
-            .droplevel(0, axis=1)
-        )
-        vec_names = sql.vec_info(
-            vector_ids=df.columns.to_list(), cols=["vectorId", "vectorName"]
-        )
-        vec_names["vectorName"] = vec_names["vectorName"].apply(
-            lambda x: x[: x.index(":")]
-        )
-        names = dict()
-        for idx, row in vec_names.reset_index().iterrows():
-            names[row["vectorId"]] = row["vectorName"]
-        df = df.rename(columns=names)
-        df["app"] = 0
-        df = df.reset_index().set_index(["app", "eventNumber", "time", "hostId"])
-        return df
 
     @timing
     def get_measured_sinr_d2d(
@@ -1071,51 +859,6 @@ class _OppAnalysis(AnalysisBase):
             return df
         return hdf.get_dataframe(return_group)
 
-    @timing
-    def get_received_packet_loss2(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: SqlOp | str,
-    ) -> pd.DataFrame:
-        logger.info("load packet loss data from *.vec")
-
-        # statistic was renamed. Check old version fist.
-        seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
-        seqNo_vec = sql.find_vector_name(module_name, seqNo_vec)
-        vec_names = {
-            seqNo_vec: {
-                "name": "seqNo",
-                "dtype": np.int32,
-            },
-            "rcvdPktPerSrcLossCount:vector": dict(name="pkt_loss_sum", dtype=np.int32),
-            "rcvdPktPerSrcCount:vector": dict(
-                name="total_pkt_received", dtype=np.int32
-            ),
-            "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
-            "rcvdPktPerSrcJitter:vector": dict(name="jitter", dtype=np.float32),
-            "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
-        }
-
-        vec_data = sql.vec_data_pivot(
-            module_name, vec_names, append_index=["srcHostId"]
-        ).sort_index()
-
-        # drop self messages, where hostId == srcHostId
-        _shape = vec_data.shape
-        _m = vec_data.index.get_level_values(
-            "hostId"
-        ) != vec_data.index.get_level_values("srcHostId")
-        vec_data = vec_data[_m].copy(deep=True)
-        logger.info(
-            f"remove self references (hostId==srcHostId): {_shape}->{vec_data.shape} "
-        )
-        vec_data["total_pkt_send"] = (
-            vec_data["pkt_loss_sum"] + vec_data["total_pkt_received"]
-        )
-        vec_data["PRR"] = vec_data["total_pkt_received"] / vec_data["total_pkt_send"]
-
-        return vec_data
-
     def get_received_packet_bytes(
         self,
         sql: Scave.CrownetSql,
@@ -1162,9 +905,6 @@ class _OppAnalysis(AnalysisBase):
             hdf.write_frame(hdf_group, tx_pkt)
         return tx_pkt
 
-    def cached(self, **kwargs) -> _OppAnalysis:
-        return self
-
     def get_sent_packet_throughput_diff_by_app(
         self,
         sql: Scave.CrownetSql,
@@ -1172,6 +912,7 @@ class _OppAnalysis(AnalysisBase):
         freq: float = 1.0,
         hdf: BaseHdfProvider | None = None,
         hdf_group_base: str = "tx_throughput",
+        throuput_unit: float = 1000.0,
     ):
         hdf_group_diff = f"{hdf_group_base}_diff_{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group_diff):
@@ -1183,7 +924,9 @@ class _OppAnalysis(AnalysisBase):
             data = hdf.get_dataframe(hdf_group)
         else:
             print("create packet throughput by app")
-            data = self.get_sent_packet_throughput_by_app(sql, freq=freq, hdf=hdf)
+            data = self.get_sent_packet_throughput_by_app(
+                sql, freq=freq, hdf=hdf, throughput_unit=throuput_unit
+            )
         for c in data.columns:
             _rate = target_rate[c]
             data[f"diff_{c}"] = data[c] - _rate
@@ -1199,6 +942,7 @@ class _OppAnalysis(AnalysisBase):
         tx_byte_data: pd.DataFrame | None = None,
         hdf: BaseHdfProvider | None = None,
         hdf_group_base: str = "tx_throughput",
+        throughput_unit: float = 1000.0,
     ):
         hdf_group = f"{hdf_group_base}{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group):
@@ -1221,7 +965,7 @@ class _OppAnalysis(AnalysisBase):
             (
                 tx_rate.groupby([pd.cut(tx_rate.index, bins=bins), "app"]).sum()
                 / freq
-                / 1000
+                / throughput_unit
             )
             .unstack("app")
             .droplevel(0, axis=1)
@@ -1289,7 +1033,16 @@ class _OppAnalysis(AnalysisBase):
                     print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
                 else:
                     map_measure_rsd = map.map_count_measure_by_rsd(
-                        load_cached_version=False
+                        load_cached_version=False, local_data_only=False
+                    )
+                    _hdf.write_frame(group=group, frame=map_measure_rsd)
+
+                group = "local_map_measure_by_rsd"
+                if _hdf.contains_group(group):
+                    print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
+                else:
+                    map_measure_rsd = map.map_count_measure_by_rsd(
+                        load_cached_version=False, local_data_only=True
                     )
                     _hdf.write_frame(group=group, frame=map_measure_rsd)
 
@@ -2135,84 +1888,3 @@ class _CellOccupancy:
 CellOccupancy = _CellOccupancy()
 OppAnalysis = _OppAnalysis()
 HdfExtractor = _hdf_Extractor()
-
-
-class NodePositionWithRsdHdf(BaseHdfProvider):
-    @classmethod
-    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> NodePositionWithRsdHdf:
-        obj = cls(
-            hdf_path=hdf_path, group="trajectories_with_rsd", allow_lazy_loading=True
-        )
-        if len(kwargs) > 0:
-            gf = HdfGroupFactory(
-                group_name=obj.group,
-                factory=partial(cls.build, sim=sim, **kwargs),
-                meta=cls.add_meta,
-                post=cls.frame_post,
-            )
-            obj.add_group_factory(gf)
-        else:
-            gf = HdfGroupFactory(
-                group_name=obj.group,
-                factory=partial(cls.build, sim=sim),
-                meta=cls.add_meta,
-                post=cls.frame_post,
-            )
-            obj.add_group_factory(gf)
-        return obj
-
-    @classmethod
-    def from_sim(cls, sim: Simulation, **kwargs) -> NodePositionWithRsdHdf:
-        return cls.get(sim.path("position.h5"), sim, **kwargs)
-
-    @staticmethod
-    def build(sim: Simulation, **kwargs):
-        ue = NodePositionHdf.from_sim(sim).frame()
-        out = OppAnalysis.get_node_position_with_serving_cell(
-            sim=sim, ue_pos=ue, drop_columns=("interval",)
-        )
-        out = out.rename(
-            columns={
-                "servingEnb": "rsd_id",
-                "start": "interval_start",
-                "end": "interval_end",
-            }
-        )
-        out["rsd_id"] = out["rsd_id"].astype(int)
-        return out
-
-    @staticmethod
-    def add_meta() -> dict:
-        return {
-            "interval_column": ("interval", "interval_start", "interval_end", "left")
-        }
-
-    @staticmethod
-    def frame_post(frame: pd.DataFrame, p: BaseHdfProvider) -> pd.DataFrame:
-        m = p.get_attribute("interval_column")
-        if all(i in frame.columns for i in [m[1], m[2]]):
-            idx = [
-                pd.Interval(v[0], v[1], closed=m[3])
-                for v in frame.loc[:, [m[1], m[2]]].values
-            ]
-            frame[m[0]] = pd.IntervalIndex(idx, closed=m[3])
-        return frame
-
-
-class ServingEnbHdf(BaseHdfProvider):
-    @classmethod
-    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> ServingEnbHdf:
-        obj = cls(hdf_path=hdf_path, group="enb_association", allow_lazy_loading=True)
-        obj.add_group_factory(
-            HdfGroupFactory(
-                group_name=obj.group,
-                factory=partial(
-                    OppAnalysis.get_serving_enb, sql=sim.sql, with_host_id=True
-                ),
-            )
-        )
-        return obj
-
-    @classmethod
-    def from_sim(cls, sim: Simulation, **kwargs) -> ServingEnbHdf:
-        return cls.get(sim.path("position.h5"), sim, **kwargs)

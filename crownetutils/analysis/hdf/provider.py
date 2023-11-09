@@ -4,10 +4,12 @@ import abc
 import contextlib
 import os
 import re
+import shlex
 import subprocess
 import threading
 import timeit
 import warnings
+from dataclasses import dataclass
 from enum import Enum
 from tempfile import NamedTemporaryFile
 from typing import (
@@ -44,6 +46,10 @@ class HdfGroupDataFactory(Protocol):
         """Callable that returns a data frame"""
         ...
 
+    @staticmethod
+    def LAZY_LOAD_NOT_SUPPORTED(self) -> pd.DataFrame:
+        raise ("lazy loading not supported for this group.")
+
 
 class HdfGroupAppendMetadata(Protocol):
     def __call__(self) -> dict:
@@ -56,7 +62,9 @@ class HdfGroupAppendMetadata(Protocol):
 
 
 class HdfGroupFramePostProcessing(Protocol):
-    def __call__(self, frame: pd.DataFrame, p: BaseHdfProvider) -> pd.DataFrame:
+    def __call__(
+        self, frame: pd.DataFrame, p: BaseHdfProvider, key=None
+    ) -> pd.DataFrame:
         ...
 
     @staticmethod
@@ -260,17 +268,40 @@ class BaseHdfProvider:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
 
-    def get_attribute(self, attr_key: str, group=None, default: Any = None):
+    def get_attribute(
+        self,
+        attr_key: str,
+        group=None,
+        default: Any = None,
+        raise_on_key_error: bool = True,
+    ):
         if not self.hdf_file_exists:
             return default
 
         _key = self.group if group is None else group
         with self.tables_file(self._hdf_path, "r") as hdf_file:
+            _dir = hdf_file.root
+            path_items = _key.split("/")
+            for p in path_items:
+                if p in _dir:
+                    _dir = _dir[p]
+                else:
+                    if raise_on_key_error:
+                        raise ValueError(
+                            f"Key not found {_key}. Root contains {hdf_file.root}"
+                        )
+                    else:
+                        return False
             # with tables.open_file(self._hdf_path, "r") as hdf_file:
-            if attr_key in hdf_file.root[_key].table.attrs:
+            if attr_key in _dir.table.attrs:
                 return hdf_file.root[_key].table.attrs[attr_key]
             else:
                 return default
+
+    def get_groups(self):
+        with self.tables_file(self._hdf_path, "r") as hdf_file:
+            ret = [c._v_name for c in hdf_file.root]
+        return ret
 
     def has_attribute(self, attr_key: str, group=None) -> bool:
         return self.get_attribute(attr_key, group, default=None) is not None
@@ -306,7 +337,13 @@ class BaseHdfProvider:
         """
         if self.hdf_file_exists:
             with self.ctx() as ctx:
-                return group in [g._v_name for g in ctx.groups()]
+                if "/" in group:
+                    # ensure absolute path
+                    if group[0] != "/":
+                        group = f"/{group}"
+                    return [g._v_pathname for g in ctx.groups()]
+                else:
+                    return group in [g._v_name for g in ctx.groups()]
         return False
 
     @contextlib.contextmanager  # to ensure store closes after access
@@ -738,3 +775,25 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             return [f"{key} in {value}"]
         else:
             return [f"{key}{operation}{str(value)}"]
+
+
+@dataclass
+class HdfSelector:
+    hdf: BaseHdfProvider
+    group: str
+    where: str | None = None
+    columns: List[str] | None = None
+
+    @classmethod
+    def from_path(
+        cls,
+        path,
+        group: str,
+        where: str | None = None,
+        columns: List[str] | None = None,
+    ) -> HdfSelector:
+        _h = BaseHdfProvider(hdf_path=path, group=group)
+        return cls(_h, group, where, columns)
+
+    def select_args(self) -> dict:
+        return {"key": self.group, "where": self.where, "columns": self.columns}

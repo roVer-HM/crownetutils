@@ -13,10 +13,11 @@ from pandas import IndexSlice as _i
 
 import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import Simulation
-from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.hdf.provider import BaseHdfProvider, HdfSelector
+from crownetutils.analysis.hdf_providers.node_tx_data import NodeTxData
 from crownetutils.analysis.omnetpp import OppAnalysis
 from crownetutils.omnetpp.sql import SqlOp
-from crownetutils.utils.dataframe import assert_frame_structure
+from crownetutils.utils.dataframe import append_interval, assert_frame_structure
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.plot import FigureSaver, FigureSaverSimple, PlotUtil_, with_axis
 
@@ -54,6 +55,49 @@ class PlotAppTxInterval_(PlotUtil_):
             app_name="Map",
             saver=saver,
         )
+
+    def plot_txinterval_from_hdf_all(
+        self,
+        data: NodeTxData,
+        app_name: str,
+        data_root: str,
+        saver: FigureSaver | None = None,
+    ):
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
+        df: pd.DataFrame = data.tx_interval(app=app_name).frame()
+        df = df.reset_index().set_index(["servingEnb", "hostId", "time"]).sort_index()
+        df = df.rename(
+            columns={"tx_interval": "txInterval", "tx_interval_det": "txDetInterval"}
+        )
+        rsds = df.index.get_level_values("servingEnb").unique().to_list()
+        rsds.sort()
+        for rsd in rsds:
+            _cm = 1 / 2.54
+            fig, axes = plt.subplots(2, 2, figsize=(29.7 * _cm, 21.0 * _cm))
+            axes = axes.flatten()
+            _df = df.loc[rsd, ["txDetInterval", "txInterval"]].copy()
+
+            # 1/4
+            self.df_to_table(
+                df=_df.describe().applymap("{:1.4f}".format).reset_index(),
+                title=f"Descriptive statistics for application",
+                ax=axes[0],
+            )
+            # 2/4
+            self.plot_ts_txinterval(
+                data=_df, app_name=app_name, time_bucket_length=1.0, ax=axes[1]
+            )
+            self.append_title(axes[1], prefix=f"{app_name}: ")
+            # 3/4
+            self.plot_hist_txinterval(data=_df, ax=axes[2])
+            self.append_title(axes[2], prefix=f"{app_name}: ")
+            # 4/4
+            self.plot_ecdf_txinterval(data=_df, ax=axes[3])
+            self.append_title(axes[3], prefix=f"{app_name}: ")
+
+            fig.tight_layout()
+            saver(fig, f"{app_name}_tx_AppIntervall_rsd_{rsd}.png")
+            plt.close(fig)
 
     @timing
     def plot_txinterval_all(
@@ -100,19 +144,26 @@ class PlotAppTxInterval_(PlotUtil_):
         plt.close(fig)
 
     def plot_ts_txinterval(
-        self, data: pd.DataFrame, app_name="", time_bucket_length=1.0
+        self,
+        data: pd.DataFrame,
+        app_name="",
+        time_bucket_length=1.0,
+        ax: plt.Axes = None,
     ):
-        interval = pd.interval_range(
-            start=0.0, end=np.ceil(data.index.max()), freq=time_bucket_length
-        )
-        data = data.groupby(pd.cut(data.index, interval)).mean()
-        data.index = interval.left
-        data.index.name = "time"
+        data = append_interval(frame=data.copy(), interval_range=time_bucket_length)
+        data = data.groupby("time_bin").mean()
+        time = [i.left for i in data.index]
+        # interval = pd.interval_range(
+        #     start=0.0, end=np.ceil(data.index.max()), freq=time_bucket_length
+        # )
+        # data = data.groupby(pd.cut(data.index, interval)).mean()
+        # data.index = interval.left
+        # data.index.name = "time"
         cols = data.columns
-        data = data.reset_index()
-        fig, ax = self.check_ax()
+        # data = data.reset_index()
+        fig, ax = self.check_ax(ax)
         for c in cols:
-            ax.plot("time", c, data=data, label=f"{c} {app_name}")
+            ax.plot(time, data[c], label=f"{c} {app_name}")
         ax.legend(loc="upper right")
         ax.set_title(
             "Average transmission interval of all nodes over time. (time bin size 1s)"
@@ -121,9 +172,9 @@ class PlotAppTxInterval_(PlotUtil_):
         ax.set_ylabel("Transmission time interval in seconds")
         return fig, ax
 
-    def plot_hist_txinterval(self, data: pd.DataFrame):
+    def plot_hist_txinterval(self, data: pd.DataFrame, ax: plt.Axes = None):
         # use same bins for both data sets
-        fig, ax = self.check_ax()
+        fig, ax = self.check_ax(ax)
         _range = (data["txInterval"].min(), data["txInterval"].max())
         _bin_count = np.ceil(data["txInterval"].count() ** 0.5)
         _bins = np.histogram(data, bins=int(_bin_count))[1]
@@ -135,8 +186,8 @@ class PlotAppTxInterval_(PlotUtil_):
         ax.set_xlabel("Transmission time interval in seconds")
         return fig, ax
 
-    def plot_ecdf_txinterval(self, data: pd.DataFrame):
-        fig, ax = self.check_ax()
+    def plot_ecdf_txinterval(self, data: pd.DataFrame, ax: plt.Axes = None):
+        fig, ax = self.check_ax(ax)
         _x = data["txInterval"].sort_values().values
         _y = np.arange(len(_x)) / float(len(_x))
         ax.plot(_x, _y, label="txInterval")
@@ -148,6 +199,53 @@ class PlotAppTxInterval_(PlotUtil_):
         ax.set_ylabel("ECDF")
         ax.legend()
         return fig, ax
+
+    def plot_app_tx_throughput(
+        self,
+        hdf: NodeTxData,
+        rsd_ids: List[int],
+        target_rates: dict,
+        bin_size: float = 10.0,
+    ):
+        fig, axes = plt.subplots(
+            nrows=len(target_rates.keys()),
+            ncols=1,
+            sharex=True,
+            figsize=(16, 9 * len(target_rates.keys())),
+        )
+
+        t_max = 0
+        for rsd in rsd_ids:
+            data = hdf.tx_throuput_diff_by_app(
+                target_rates=target_rates,
+                bin_size=bin_size,
+                throughput_unit=1000 * 8,  # in kilo bytes
+                serving_enb=rsd,
+            ).reset_index()
+            for ax, (app, target_rate) in zip(axes, target_rates.items()):
+                ax.plot("time", app, data=data, label=f"real rate in rsd {rsd}")
+
+            _time_max = data["time"].max()
+            if _time_max > t_max:
+                t_max = _time_max
+
+        for ax, (app, target_rate) in zip(axes, target_rates.items()):
+            ax: plt.Axes
+            ax.hlines(
+                target_rate / (1000 * 8),
+                0,
+                t_max,
+                color="red",
+                label=f"target rate {app}",
+            )
+            ax.set_ylabel("throughput in kB/s")
+            ax.set_title(app)
+            ax.legend()
+
+        ax: plt.axes = axes[-1]
+        ax.set_xlabel("time in seconds")
+        fig.tight_layout()
+        fig.savefig("out12.png")
 
 
 PlotAppTxInterval = PlotAppTxInterval_()
@@ -463,7 +561,7 @@ class PlotAppMisc_(PlotUtil_):
         ax.set_ylabel("Number of members")
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Number of members used in the tx interval algorithm over time")
-        saver(fig, "Mode_count_ts_mean.png")
+        saver(fig, "Node_count_ts_mean.png")
         plt.close(fig)
 
     def get_jitter_delay_cached(
@@ -489,13 +587,25 @@ class PlotAppMisc_(PlotUtil_):
         return delay, jitter
 
     def plot_application_delay_jitter(
-        self, sim: Simulation, *, saver: FigureSaver | None = None
+        self,
+        sim: Simulation,
+        *,
+        hdf_selector: HdfSelector = None,
+        saver: FigureSaver | None = None,
     ):
         saver = FigureSaver.FIG(saver)
 
-        hdf = BaseHdfProvider(sim.path("rcvd_stats.h5"), "rcvd_stats")
-        with hdf.ctx() as c:
-            df = c.select(key="rcvd_stats", where="app=m", columns=["delay", "jitter"])
+        if hdf_selector is None:
+            hdf_selector = HdfSelector.from_path(
+                sim.path("rcvd_stats.h5"),
+                "rcvd_stats",
+                where="app=m",
+                columns=["delay", "jitter"],
+            )
+        # hdf = BaseHdfProvider(sim.path("rcvd_stats.h5"), "rcvd_stats")
+        with hdf_selector.hdf.ctx() as c:
+            # df = c.select(key="rcvd_stats", where="app=m", columns=["delay", "jitter"])
+            df = c.select(**hdf_selector.select_args())
 
         df = df.reset_index()
         fig, ax = self.check_ax()
@@ -518,8 +628,8 @@ class PlotAppMisc_(PlotUtil_):
         ax.legend()
         ax.set_ylabel("Delay/Jitter in seconds")
         ax.set_xlabel("Simulation time in seconds")
-        ax.set_title("Map: Delay and Jitter over time")
-        saver(fig, "Map_delay_and_jitter.png")
+        ax.set_title("Delay and Jitter over time")
+        saver(fig, "Delay_and_jitter.png")
         plt.close(fig)
 
         fig, ax = self.check_ax()
@@ -528,13 +638,13 @@ class PlotAppMisc_(PlotUtil_):
         ax.legend()
         ax.set_xlabel("Time in seconds")
         ax.set_title("CDF of jitter and delay")
-        saver(fig, "Map_delay_and_jitter_ecdf.png")
+        saver(fig, "Delay_and_jitter_ecdf.png")
         plt.close(fig)
 
         fig, ax, tbl = self.df_to_table(
             df[["delay", "jitter"]].describe().reset_index()
         )
-        saver(fig, "Map_delay_and_jitter_describe_tbl.png")
+        saver(fig, "Delay_and_jitter_describe_tbl.png")
 
     def plot_pkt_loss(
         self,

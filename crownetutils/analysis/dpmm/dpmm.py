@@ -25,7 +25,7 @@ from crownetutils.utils.dataframe import (
 )
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import intersect
-from crownetutils.utils.plot import PlotUtil, Style, savefigure, with_axis
+from crownetutils.utils.plot import FigureSaver, PlotUtil, Style, savefigure, with_axis
 
 
 class BaseDpmMap:
@@ -814,7 +814,9 @@ class DpmMap(BaseDpmMap):
         )
         return txy_index_full
 
-    def map_count_measure_by_rsd(self, load_cached_version: bool = True):
+    def map_count_measure_by_rsd(
+        self, load_cached_version: bool = True, local_data_only: bool = False, pos=None
+    ):
         """create map based error measure over time to indicate **total area count correctness**
 
         Get map count measure that shows how good the number of agents are
@@ -829,8 +831,13 @@ class DpmMap(BaseDpmMap):
                 )
         """
 
-        if self._map_p.contains_group("map_measure_by_rsd") and load_cached_version:
-            return self._map_p.get_dataframe(group="map_measure_by_rsd")
+        if local_data_only:
+            _key = "local_map_measure_by_rsd"
+        else:
+            _key = "map_measure_by_rsd"
+
+        if self._map_p.contains_group(_key) and load_cached_version:
+            return self._map_p.get_dataframe(group=_key)
 
         # get all ground truth data and extract the unique time index needed
         # to filter global data based on selected rsd.
@@ -840,14 +847,36 @@ class DpmMap(BaseDpmMap):
 
         out = []
         rsd_ids = self._map_p.get_rsd_ids()
-        for rsd in rsd_ids:
+        # for rsd in rsd_ids:
+        for rsd in [1]:
             logger.debug(f"process rsd_id: {rsd}")
+            if local_data_only:
+                # `cell_measurements_for_rsd` contains *ONLY* measurements concerning the selected RSD
+                # if the owner of the measurement is in the same RSD at the time of logging the measurement.
+                _where_clause = (
+                    f"{DpmmKey.RSD_ID}={rsd} and {DpmmKey.RSD_ID_OWNER}={rsd}"
+                )
+            else:
+                # `cell_measurements_for_rsd` contains measurements concerning the selected RSD
+                # *IRRESPECTIVE* of RSD the owner of the measurement is at the time of logging the measurement.
+                _where_clause = f"{DpmmKey.RSD_ID}={rsd}"
 
-            # `cell_measurements_for_rsd` contains measurements concerning the selected RSD
-            # *IRRESPECTIVE* of RSD the owner of the measurement is at the time of logging the measurement.
             cell_measurements_for_rsd = self._map_p.select(
-                where=f"{DpmmKey.RSD_ID}={rsd}", columns=["count"]
+                where=_where_clause,
+                # columns=["count"]
             )
+
+            c = cell_measurements_for_rsd.loc[200].copy().reset_index()
+            off = np.array([-428.52, -1143.11])
+            c["x"] = c["x"] - off[0]
+            c["y"] = c["y"] - off[1]
+            c["x_owner"] = c["y_owner"] - off[0]
+            c["y_owner"] = c["y_owner"] - off[1]
+            c["time"] = 200
+            cc = pos.merge_rsd_id_on_host_time_interval(
+                data=c, host_id_col="source", append_interval=False
+            )
+            dd = cc[~(cc["rsd_id"] == cc["servingEnb"])]
 
             # filter (all timestamped x, y cells present in `cell_measurements_for_rsd`)
             txy_index_full = self.create_full_time_index(
@@ -1095,7 +1124,8 @@ class DpmMap(BaseDpmMap):
         rsd_ids = self._map_p.get_rsd_ids()
 
         out = []
-        for rsd in rsd_ids:
+        # for rsd in rsd_ids:
+        for rsd in [1]:
             # all (time, x, y, id) based count, err, squerr cell values
             # without ground truth (see slice last slice `1:`)
             # The measurements are summed over all nodes (this will drop the id index )
@@ -1295,6 +1325,32 @@ class DpmMap(BaseDpmMap):
             nodes = pd.concat(df, axis=1)
 
         return nodes
+
+    def plot_map_count_diff_by_rsd(
+        self, saver: FigureSaver, limit_to_home_nodes: bool = False
+    ):
+        """Create count plot for density map for cells in *one* RSD
+
+        Args:
+            saver (FigureSaver): figer saving strategy
+            limit_to_home_nodes (bool, optional): If True only include measurements of
+            nodes which are in the current RSD at the time of the measurement. Defaults to False.
+        """
+
+        rsd_ids = self._map_p.select(key="rsd_id")
+
+        name = saver.next_name
+        for rsd in rsd_ids:
+            if limit_to_home_nodes:
+                _key = "local_map_measure_by_rsd"
+                _suffix = f"_local_rsd_{rsd}"
+            else:
+                _key = "map_measure_by_rsd"
+                _suffix = f"_rsd_{rsd}"
+            data = self._map_p.select(key=_key, where=f"{DpmmKey.RSD_ID}={rsd}")
+            data = data.droplevel("rsd_id")
+            s = saver.with_name(name).with_suffix(_suffix)
+            self.plot_map_count_diff(data_source=lambda: data, savefig=s)
 
     @savefigure
     @with_axis

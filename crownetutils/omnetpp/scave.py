@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import glob
+import inspect
 import io
 import os
 import pprint as pp
@@ -675,6 +676,50 @@ class OppSql:
             with open(path, "w", encoding="utf-8") as f:
                 f.writelines(lines)
             return None
+
+    def vec_data_paginate(
+        self,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        ids: List[int] | pd.DataFrame | None = None,
+        runId: int = 1,
+        vec_ids_per_page: int = 5,
+        columns: List[str] = ("vectorId", "simtimeRaw", "value"),
+        order_by: List[str] = (),
+        value_name: str = "value",
+        time_slice: slice = slice(None),
+        time_resolution=1e12,
+        index: List[str] | None = None,
+        index_sort: bool = True,
+        drop: str | List[str] | None = None,
+        **kwargs,
+    ):
+        _loc = locals()
+        sig = inspect.signature(self.vec_data_paginate)
+        sig = [
+            i[0]
+            for i in list(sig.parameters.items())
+            if i[0]
+            not in ["module_name", "vector_name", "ids", "vec_ids_per_page", "kwargs"]
+        ]
+        vec_ids_sig = {k: _loc[k] for k in sig}
+        if module_name is not None and vector_name is not None:
+            _ids = self.vec_ids(module_name, vector_name)
+        elif type(ids) == pd.DataFrame:
+            _ids = ids["vectorId"].unique()
+            if "vectorId" not in columns:
+                columns = [*columns, "vectorId"]
+        else:
+            _ids = ids
+
+        data = []
+        pages = int(np.ceil(len(_ids) / vec_ids_per_page))
+        for i in range(0, len(_ids), vec_ids_per_page):
+            print(f"query page: {int(i/vec_ids_per_page)}/{pages}")
+            page_ids = _ids[i : min(i + 5, len(_ids) - 1)]
+            o = self.vec_data(ids=page_ids, **vec_ids_sig, **kwargs)
+            data.append(o)
+        return pd.concat(data, axis=1)
 
     @timing
     def vec_data(

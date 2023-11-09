@@ -130,14 +130,17 @@ class BaseSimulationRunner:
             _post_map = self.sort_processing("post", method_list)
             for prio, _f in _post_map:
                 print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
-                try:
+                if self.ns["debug"]:
                     _f()
-                except Exception as e:
-                    _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
-                    logger.error(_err)
-                    logger.error(traceback.format_exc())
-                    err.append(f"  {_err}")
-                    break
+                else:
+                    try:
+                        _f()
+                    except Exception as e:
+                        _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
+                        logger.error(_err)
+                        logger.error(traceback.format_exc())
+                        err.append(f"  {_err}")
+                        break
 
             if len(err) > 0:
                 err = "\n".join(err)

@@ -473,7 +473,7 @@ class DpmmHdfBuilder(FrameConsumer):
 
         # See MissingValueImputationStrategy  configuration of builder for more information
         # imputation will sort by index [simtime, x, y]
-        _df = imputation_f.apply(_df)
+        _df = imputation_f.with_csv_id(id=id).apply(_df)
 
         # no NAN values after this point.
         if _df.isna().any(axis=0).any():
