@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from abc import ABC
 from typing import Any, List, Protocol, TextIO, runtime_checkable
 
@@ -28,7 +29,7 @@ class NullImputationIncidentLogger(ImputationIncidentLogger):
         super().__init__(os.devnull)
 
     def log(self, s: str, end="\n") -> ImputationIncidentLogger:
-        return self
+        return f"{s}{end}"
 
 
 class MissingValueImputationStrategy(ABC):
@@ -178,6 +179,7 @@ class FullRsdImputation(MissingValueImputationStrategy):
         rsd_origin_position: pd.DataFrame,
         rsd_col="rsd_id",
     ) -> None:
+        super().__init__()
         self.rsd_col = rsd_col
         self.rsd_distance = rsd_origin_position.rename(
             columns={"x": "enb_x", "y": "enb_y"}
@@ -248,12 +250,12 @@ class FullRsdImputation(MissingValueImputationStrategy):
                     owner_rsd_for_time.isna()
                 ].index.to_list()
                 num_data = df.loc[times_without_data].shape[0]
-                logger.warn(
+                logger.warning(
                     self.incident_log.log(
                         f"node {self.csv_id}: found {len(times_without_data)} time(s) without any data. Remove rows {num_data}/{df.shape[0]} ({num_data/df.shape[0]*100:0.4f}%) "
                     )
                 )
-                logger.warn(
+                logger.warning(
                     self.incident_log.log(
                         f"node {self.csv_id}: violating time idencies: {times_without_data}"
                     )
@@ -309,12 +311,12 @@ class OwnerPositionImputation(MissingValueImputationStrategy):
                     xy_owner.isna().any(axis=1)
                 ].index.to_list()
                 num_data = df.loc[times_without_data].shape[0]
-                logger.warn(
+                logger.warning(
                     self.incident_log.log(
                         f"node {self.csv_id}: found {len(times_without_data)} time(s) without any data. Remove rows {num_data}/{df.shape[0]} ({num_data/df.shape[0]*100:0.4f}%) "
                     )
                 )
-                logger.warn(
+                logger.warning(
                     self.incident_log.log(
                         f"node {self.csv_id}: violating time idencies: {times_without_data}"
                     )
