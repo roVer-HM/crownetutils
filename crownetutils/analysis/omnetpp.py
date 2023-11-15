@@ -914,6 +914,7 @@ class _OppAnalysis(AnalysisBase):
         hdf_group_base: str = "tx_throughput",
         throuput_unit: float = 1000.0,
     ):
+        """Deprecated. use NodeTxData class"""
         hdf_group_diff = f"{hdf_group_base}_diff_{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group_diff):
             return hdf.get_dataframe(hdf_group_diff)

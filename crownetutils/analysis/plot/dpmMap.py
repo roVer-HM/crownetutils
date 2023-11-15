@@ -58,6 +58,8 @@ class _PlotDpmMap(PlotUtil_):
         selection: str | None = None,
         saver: FigureSaver | None = None,
     ):
+        """Deprecated."""
+
         saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
 
         selection = builder.get_selected_alg() if selection is None else selection
