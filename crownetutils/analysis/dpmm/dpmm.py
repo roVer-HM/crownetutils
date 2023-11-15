@@ -15,7 +15,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from crownetutils.analysis.dpmm.csv_loader import DpmmMetaData
-from crownetutils.analysis.dpmm.dpmm_cfg import MapType
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount, DpmmCountKey
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.utils.dataframe import (
@@ -847,8 +846,7 @@ class DpmMap(BaseDpmMap):
 
         out = []
         rsd_ids = self._map_p.get_rsd_ids()
-        # for rsd in rsd_ids:
-        for rsd in [1]:
+        for rsd in rsd_ids:
             logger.debug(f"process rsd_id: {rsd}")
             if local_data_only:
                 # `cell_measurements_for_rsd` contains *ONLY* measurements concerning the selected RSD
@@ -862,21 +860,8 @@ class DpmMap(BaseDpmMap):
                 _where_clause = f"{DpmmKey.RSD_ID}={rsd}"
 
             cell_measurements_for_rsd = self._map_p.select(
-                where=_where_clause,
-                # columns=["count"]
+                where=_where_clause, columns=["count"]
             )
-
-            c = cell_measurements_for_rsd.loc[200].copy().reset_index()
-            off = np.array([-428.52, -1143.11])
-            c["x"] = c["x"] - off[0]
-            c["y"] = c["y"] - off[1]
-            c["x_owner"] = c["y_owner"] - off[0]
-            c["y_owner"] = c["y_owner"] - off[1]
-            c["time"] = 200
-            cc = pos.merge_rsd_id_on_host_time_interval(
-                data=c, host_id_col="source", append_interval=False
-            )
-            dd = cc[~(cc["rsd_id"] == cc["servingEnb"])]
 
             # filter (all timestamped x, y cells present in `cell_measurements_for_rsd`)
             txy_index_full = self.create_full_time_index(
@@ -1124,8 +1109,7 @@ class DpmMap(BaseDpmMap):
         rsd_ids = self._map_p.get_rsd_ids()
 
         out = []
-        # for rsd in rsd_ids:
-        for rsd in [1]:
+        for rsd in rsd_ids:
             # all (time, x, y, id) based count, err, squerr cell values
             # without ground truth (see slice last slice `1:`)
             # The measurements are summed over all nodes (this will drop the id index )
@@ -1383,6 +1367,7 @@ class DpmMap(BaseDpmMap):
         ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
         if self.style.create_legend:
             ax.legend()
+        PlotUtil.auto_major_minor_locator(ax)
         return ax.get_figure(), ax
 
     def err_box_over_time(self, bin_width=10.0):
