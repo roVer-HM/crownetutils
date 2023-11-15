@@ -92,6 +92,7 @@ class _PlotDpmMap(PlotUtil_):
         ax.set_title("Mean squared cell error (MSCE) over time")
         ax.set_ylabel("Mean squared cell error (MSCE)")
         ax.set_xlabel("Simulation time in seconds")
+        self.auto_major_minor_locator(ax)
         ax.legend()
         return ax.get_figure(), ax
 
@@ -111,17 +112,18 @@ class _PlotDpmMap(PlotUtil_):
             msce = frame_c(msce).reset_index()
             print(sim.label)
             print(msce["cell_mse"].describe())
-            self.ecdf(msce["cell_mse"], label=sim.label, ax=ax)
+            self.plot_ecdf(msce["cell_mse"], label=sim.label, ax=ax)
 
         ax.legend()
         ax.set_xlabel("MSCE")
         ax.set_title("ECDF: Mean squared cell error (MSCE) comparison")
+        self.auto_major_minor_locator(ax)
         return ax.get_figure(), ax
 
     @with_axis
     @savefigure
     def plot_msce_ecdf(self, data, *, ax: plt.Axes | None = None):
-        ax = self.ecdf(data, label="MSCE")
+        ax = self.plot_ecdf(data, label="MSCE")
         ax.set_title("ECDF: Mean squared cell error (MSCE)")
         ax.set_xlabel("MSCE")
         ax.legend()

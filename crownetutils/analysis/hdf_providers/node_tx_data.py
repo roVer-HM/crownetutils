@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from itertools import product
 from typing import List
 
 import pandas as pd
@@ -16,14 +17,19 @@ from crownetutils.utils.misc import Timer
 class NodeTxData:
     base_groups = ["tx_bytes", "tx_burst", "tx_interval"]
 
+    ATTR_rsd = "with_rsd"
+    ATTR_max_bw = "max_application_bandwidth_in_bps"
+
     def __init__(
         self,
         hdf_path: str,
         apps: List[SqlAppProxy],
+        with_max_app_bandwdith: bool = True,
     ) -> None:
         self.apps: List[SqlAppProxy] = apps
         self.hdf_path = hdf_path
         self._hdf: BaseHdfProvider = None
+        self.with_max_app_bandwidth = with_max_app_bandwdith
 
     def g(self, app: str | SqlAppProxy, path: str) -> str:
         if isinstance(app, SqlAppProxy):
@@ -111,15 +117,27 @@ class NodeTxData:
         )
         return ret
 
-    def tx_throuput_diff_by_app(
+    def get_target_rates(self, bps_to_multiplier: float = 1) -> dict:
+        apps = self.hdf.get_groups()
+        target_rates = {
+            app: self.tx_bytes(app).get_attribute(self.ATTR_max_bw) * bps_to_multiplier
+            for app in apps
+        }
+        return target_rates
+
+    def get_tx_throuput_diff_by_app(
         self,
-        target_rates: dict,
+        target_rates: dict = None,
         bin_size: float = 10.0,
         throughput_unit: float = 1000.0,
         serving_enb: int | None = None,
     ):
         if serving_enb is not None:
             serving_enb = f"servingEnb={serving_enb}"
+
+        if target_rates is None:
+            target_rates = self.get_target_rates()
+
         data = self.tx_bytes_per_app(
             apps=list(target_rates.keys()), where_clause=serving_enb
         )
@@ -143,6 +161,7 @@ class NodeTxData:
         hdf_path: str,
         apps: List[SqlAppProxy],
         node_pos: NodePositionWithRsdHdf = None,
+        append_max_app_bandwdith: bool = True,
         override_existing: bool = True,
     ) -> NodeTxData:
         obj: NodeTxData = cls(hdf_path, apps)
@@ -173,16 +192,29 @@ class NodeTxData:
             return False
         for app in self.apps:
             for g in self.base_groups:
-                if not self.hdf.contains_group(app.group_by_app(g)):
+                path = app.group_by_app(g)
+                if not self.hdf.contains_group(path):
                     return False
                 if not self.hdf.get_attribute(
-                    attr_key="with_rsd", group=app.group_by_app(g), default=False
+                    attr_key=self.ATTR_rsd, group=path, default=False
+                ):
+                    return False
+
+                if self.with_max_app_bandwidth and not self.hdf.get_attribute(
+                    attr_key=self.ATTR_max_bw, group=path, default=False
                 ):
                     return False
         return True
 
     def _build(self, node_pos: NodePositionWithRsdHdf):
         for app in self.apps:
+            max_bw = app.get_max_application_bandwidth_in_bps()
+            if max_bw is None and self.with_max_app_bandwidth:
+                raise ValueError(
+                    f"NodeTxData is configured to include maxApplicationBandwidth data \
+                                 into hdf attributes but application {app} does not provide a \
+                                 maxApplicationBandwidth"
+                )
             # packets sent
             df_bytes = app.sim.sql.vector_ids_to_host(
                 module_name=app.module_f(),
@@ -213,8 +245,13 @@ class NodeTxData:
                 frame=df_burst,
             )
             rsd = node_pos is not None
-            self.hdf.set_attribute("with_rsd", rsd, group=app.group_by_app("tx_bytes"))
-            self.hdf.set_attribute("with_rsd", rsd, group=app.group_by_app("tx_burst"))
+
+            attr_iter = product(
+                ["tx_bytes", "tx_burst"],
+                [(self.ATTR_max_bw, max_bw), (self.ATTR_rsd, rsd)],
+            )
+            for g, (attr_k, attr_v) in attr_iter:
+                self.hdf.set_attribute(attr_k, attr_v, group=app.group_by_app(g))
 
             # not needed anymore, reduce RAM footprint
             del df_bytes
@@ -246,9 +283,16 @@ class NodeTxData:
                     group=app.group_by_app("tx_interval"), frame=df_interval
                 )
                 self.hdf.set_attribute(
-                    "with_rsd", rsd, group=app.group_by_app("tx_interval")
+                    self.ATTR_rsd, rsd, group=app.group_by_app("tx_interval")
+                )
+                self.hdf.set_attribute(
+                    self.ATTR_max_bw, max_bw, group=app.group_by_app("tx_interval")
                 )
                 # not needed anymore, reduce RAM footprint
                 del df_interval
                 df_interval = None
         self.hdf.repack_hdf(keep_old_file=False)
+
+
+class SimGroupNodeTxData:
+    pass

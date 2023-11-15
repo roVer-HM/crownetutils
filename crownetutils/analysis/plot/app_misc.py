@@ -14,10 +14,15 @@ from pandas import IndexSlice as _i
 import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import Simulation
 from crownetutils.analysis.hdf.provider import BaseHdfProvider, HdfSelector
+from crownetutils.analysis.hdf_providers.node_position import NodePositionWithRsdHdf
 from crownetutils.analysis.hdf_providers.node_tx_data import NodeTxData
 from crownetutils.analysis.omnetpp import OppAnalysis
 from crownetutils.omnetpp.sql import SqlOp
-from crownetutils.utils.dataframe import append_interval, assert_frame_structure
+from crownetutils.utils.dataframe import (
+    append_interval,
+    assert_frame_structure,
+    index_or_col,
+)
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.plot import FigureSaver, FigureSaverSimple, PlotUtil_, with_axis
 
@@ -96,7 +101,7 @@ class PlotAppTxInterval_(PlotUtil_):
             self.append_title(axes[3], prefix=f"{app_name}: ")
 
             fig.tight_layout()
-            saver(fig, f"{app_name}_tx_AppIntervall_rsd_{rsd}.png")
+            saver(fig, f"{app_name}_tx_AppIntervall_rsd_{rsd}.png", dpi=300)
             plt.close(fig)
 
     @timing
@@ -170,6 +175,7 @@ class PlotAppTxInterval_(PlotUtil_):
         )
         ax.set_xlabel("Time in seconds")
         ax.set_ylabel("Transmission time interval in seconds")
+        self.auto_major_minor_locator(ax)
         return fig, ax
 
     def plot_hist_txinterval(self, data: pd.DataFrame, ax: plt.Axes = None):
@@ -184,6 +190,7 @@ class PlotAppTxInterval_(PlotUtil_):
         ax.set_title("Histogram of transmission time interval in seconds ")
         ax.set_ylabel("Density")
         ax.set_xlabel("Transmission time interval in seconds")
+        self.auto_major_minor_locator(ax)
         return fig, ax
 
     def plot_ecdf_txinterval(self, data: pd.DataFrame, ax: plt.Axes = None):
@@ -197,42 +204,68 @@ class PlotAppTxInterval_(PlotUtil_):
         ax.set_title("ECDF of transmission interval time")
         ax.set_xlabel("Time in seconds")
         ax.set_ylabel("ECDF")
+        self.auto_major_minor_locator(ax)
         ax.legend()
         return fig, ax
+
+    def plot_application_tx_time_hist_ecdf(
+        self,
+        tx_data: NodeTxData,
+        saver: FigureSaver | None = None,
+    ):
+        data = tx_data.frame_by_app("tx_bytes", columns=["time"])
+
+        fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(16, 9))
+        ax = axes[0]
+        ax, ecdf_x, _ = self.plot_ecdf(data, column="time", ax=ax, return_data=True)
+        ax.set_xlabel("Simulation time in seconds")
+        ax.set_ylabel("ecdf")
+        ax.set_title(
+            "ECDF of transmision times over time (all nodes and appllications)"
+        )
+        ax = axes[1]
+        ax.hist(ecdf_x)
+        ax.set_title("Hisogram of tx times (all nodes and applications)")
+        ax.set_ylabel("count")
+        ax.set_xlabel("Simulation time in seconds")
+        self.auto_major_minor_locator(axes)
+        FigureSaver.FIG(saver)(fig, "application_tx_time_hist_ecdf.png")
 
     def plot_app_tx_throughput(
         self,
         hdf: NodeTxData,
         rsd_ids: List[int],
-        target_rates: dict,
+        target_rates_in_Bps: dict,
         bin_size: float = 10.0,
+        saver: FigureSaver | None = None,
     ):
+        saver = FigureSaver.FIG(saver)
+
         fig, axes = plt.subplots(
-            nrows=len(target_rates.keys()),
+            nrows=len(target_rates_in_Bps.keys()),
             ncols=1,
-            sharex=True,
-            figsize=(16, 9 * len(target_rates.keys())),
+            figsize=(16, 9 * len(target_rates_in_Bps.keys())),
         )
 
         t_max = 0
         for rsd in rsd_ids:
-            data = hdf.tx_throuput_diff_by_app(
-                target_rates=target_rates,
+            data = hdf.get_tx_throuput_diff_by_app(
+                target_rates=target_rates_in_Bps,
                 bin_size=bin_size,
-                throughput_unit=1000 * 8,  # in kilo bytes
+                throughput_unit=1000,  # in kilo bytes (applied to targetrates and data)
                 serving_enb=rsd,
             ).reset_index()
-            for ax, (app, target_rate) in zip(axes, target_rates.items()):
-                ax.plot("time", app, data=data, label=f"real rate in rsd {rsd}")
+            for ax, (app, target_rate) in zip(axes, target_rates_in_Bps.items()):
+                ax.plot("time", app, data=data, label=f"rsd {rsd}")
 
             _time_max = data["time"].max()
             if _time_max > t_max:
                 t_max = _time_max
 
-        for ax, (app, target_rate) in zip(axes, target_rates.items()):
+        for ax, (app, target_rate) in zip(axes, target_rates_in_Bps.items()):
             ax: plt.Axes
             ax.hlines(
-                target_rate / (1000 * 8),
+                target_rate / (1000),
                 0,
                 t_max,
                 color="red",
@@ -240,12 +273,13 @@ class PlotAppTxInterval_(PlotUtil_):
             )
             ax.set_ylabel("throughput in kB/s")
             ax.set_title(app)
-            ax.legend()
+            ax.set_xlabel("Simulation time in seconds")
+            self.auto_major_minor_locator(ax)
+            ax.legend(ncol=2)
 
         ax: plt.axes = axes[-1]
-        ax.set_xlabel("time in seconds")
         fig.tight_layout()
-        fig.savefig("out12.png")
+        saver(fig, "application_throughput_by_rsd.png")
 
 
 PlotAppTxInterval = PlotAppTxInterval_()
@@ -283,6 +317,7 @@ class PlotAppMisc_(PlotUtil_):
         ax.set_title(
             "Packet size over time for all agents and all applications (Beacon and Map)"
         )
+        self.auto_major_minor_locator(ax)
         ax.legend()
         return ax.get_figure(), ax
 
@@ -329,6 +364,7 @@ class PlotAppMisc_(PlotUtil_):
         ax.set_title("Data rate based on sent packets in all from all nodes")
         ax.set_ylabel("Data rate in kBps")
         ax.set_xlabel("Time in seconds")
+        self.auto_major_minor_locator(ax)
         return ax.get_figure(), ax
 
     def cmp_system_level_tx_rate_based_on_application_layer_data(
@@ -456,27 +492,15 @@ class PlotAppMisc_(PlotUtil_):
         ax.set_title("Size of neighborhood table over time for each node")
         return ax.get_figure(), ax
 
-    def plot_number_of_agents(
-        self, sim: Simulation, *, saver: FigureSaver | None = None
+    @with_axis
+    def _plot_nt_map_comparison_scatter(
+        self,
+        node_count: pd.DataFrame,
+        nt_count: pd.DataFrame,
+        map_count: pd.DataFrame,
+        ax: plt.Axes = None,
     ):
-        saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
-        sql = sim.sql
-        dmap = sim.builder.build_dcdMap()
-        fig, ax = self.check_ax()
-
-        nt_count = sql.vec_data(sql.m_table(), "tableSize:vector", drop="vectorId")
-        node_count = (
-            dmap.glb_map.groupby("simtime")
-            .sum()
-            .reset_index()
-            .set_axis(["time", "value"], axis=1)
-        )
-        map_count = (
-            dmap.map_count_measure()
-            .loc[:, ["map_mean_count"]]
-            .reset_index()
-            .set_axis(["time", "value"], axis=1)
-        )
+        fig, ax = self.check_ax(ax)
 
         ax.scatter(
             "time",
@@ -510,14 +534,23 @@ class PlotAppMisc_(PlotUtil_):
         l = ax.legend()
         for h in l.legendHandles:
             h.set_sizes([10])
-        ax.set_ylabel("Number of members")
+        ax.set_ylabel("Number of nodes")
         ax.set_xlabel("Simulation time in seconds")
-        ax.set_title("Number of members used in the tx interval algorithm over time")
-        saver(fig, "Node_count_ts.png")
-        plt.close(fig)
+        ax.set_title(
+            "Number of nodes seen by neighborhood table and density map over time"
+        )
+        self.auto_major_minor_locator(ax)
+        return fig, ax
 
-        fig, ax = self.check_ax()
-        nt_count_d = self.ts_mean(nt_count.set_index("time")).dropna()
+    @with_axis
+    def _plot_nt_map_comparison_mean_fill(
+        self,
+        node_count: pd.DataFrame,
+        nt_count_d: pd.DataFrame,
+        map_count: pd.DataFrame,
+        ax: plt.Axes = None,
+    ):
+        fig, ax = self.check_ax(ax)
 
         self.fill_between(
             nt_count_d,
@@ -558,11 +591,130 @@ class PlotAppMisc_(PlotUtil_):
                 h.set_sizes([10])
             except AttributeError as e:
                 pass
-        ax.set_ylabel("Number of members")
+        ax.set_ylabel("Number of nodes")
         ax.set_xlabel("Simulation time in seconds")
-        ax.set_title("Number of members used in the tx interval algorithm over time")
-        saver(fig, "Node_count_ts_mean.png")
-        plt.close(fig)
+        ax.set_title(
+            "Number of nodes seen by neighborhood table and density map over time"
+        )
+        self.auto_major_minor_locator(ax)
+        return fig, ax
+
+    def plot_nt_map_comparision_by_rsd(
+        self,
+        sim: Simulation,
+        pos: NodePositionWithRsdHdf,
+        *,
+        saver: FigureSaver | None = None,
+    ):
+        """Plots time series of neighborhood table count with map based count for each RSD.
+        only use data of nodes which are located in the RSD during measurement time.
+
+        Args:
+            sim (Simulation): _description_
+            pos (NodePositionWithRsdHdf): _description_
+            saver (FigureSaver | None, optional): _description_. Defaults to None.
+        """
+
+        saver: FigureSaverSimple = FigureSaver.FIG(
+            saver, FigureSaverSimple(sim.data_root)
+        )
+        sql = sim.sql
+        dmap = sim.builder.build_dcdMap()
+
+        nt_count = sql.vector_ids_to_host(
+            module_name=sql.m_table(),
+            vector_name="tableSize:vector",
+            name_columns=["hostId"],
+            pull_data=True,
+            drop="vectorId",
+        )
+        nt_count = (
+            pos.merge_rsd_id_on_host_time_interval(nt_count)
+            .drop(columns=["hostId"])
+            .set_index(["servingEnb", "time"])
+            .sort_index()
+        )
+
+        node_count = (
+            dmap.glb_map.groupby("simtime")
+            .sum()
+            .reset_index()
+            .set_axis(["time", "value"], axis=1)
+        )
+        map_count = dmap.map_count_measure_by_rsd().loc[
+            :, ["map_mean_count", "map_glb_count"]
+        ]
+        for rsd in pos.enb.frame()["rsd_id"].sort_values().to_list():
+            _nt_count = nt_count.loc[rsd].copy()
+            _map_count = (
+                map_count.loc[pd.IndexSlice[:, rsd], ["map_mean_count"]]
+                .droplevel(1)
+                .reset_index()
+                .set_axis(["time", "value"], axis=1)
+                .copy()
+            )
+            _node_count = (
+                map_count.loc[pd.IndexSlice[:, rsd], ["map_glb_count"]]
+                .droplevel(1)
+                .reset_index()
+                .set_axis(["time", "value"], axis=1)
+                .copy()
+            )
+
+            fig, ax = self._plot_nt_map_comparison_scatter(
+                _node_count.reset_index(),
+                _nt_count.reset_index(),
+                _map_count.reset_index(),
+            )
+            ax.set_title(f"{ax.get_title()} rsd {rsd}")
+            saver.with_suffix(f"_rsd{rsd}")(fig, "nt_map_node_count_ts.png")
+
+            _nt_count_d = self.ts_mean(_nt_count).dropna()
+
+            fig, _ = self._plot_nt_map_comparison_mean_fill(
+                _node_count.reset_index(),
+                _nt_count_d.reset_index(),
+                _map_count.reset_index(),
+            )
+            saver.with_suffix(f"_rsd{rsd}")(fig, "Node_count_ts_mean.png")
+            ax.set_title(f"{ax.get_title()} rsd {rsd}")
+
+    def plot_nt_map_comparison(
+        self, sim: Simulation, *, saver: FigureSaver | None = None
+    ):
+        """Plots timeseries of neighorhood table count with map based count.
+
+        Args:
+            sim (Simulation): _description_
+            saver (FigureSaver | None, optional): _description_. Defaults to None.
+        """
+        saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
+        sql = sim.sql
+        dmap = sim.builder.build_dcdMap()
+
+        nt_count = sql.vec_data(sql.m_table(), "tableSize:vector", drop="vectorId")
+        node_count = (
+            dmap.glb_map.groupby("simtime")
+            .sum()
+            .reset_index()
+            .set_axis(["time", "value"], axis=1)
+        )
+        map_count = (
+            dmap.map_count_measure()
+            .loc[:, ["map_mean_count"]]
+            .reset_index()
+            .set_axis(["time", "value"], axis=1)
+        )
+
+        fig, _ = self._plot_nt_map_comparison_scatter(node_count, nt_count, map_count)
+        saver(fig, "nt_map_node_count_ts.png")
+
+        nt_count_d = self.ts_mean(nt_count.set_index("time")).dropna()
+
+        fig, _ = self._plot_nt_map_comparison_mean_fill(
+            node_count, nt_count_d, map_count
+        )
+        saver(fig, "nt_map_node_ts_mean.png")
 
     def get_jitter_delay_cached(
         self, sim: Simulation, hdf_path: str | None = None
@@ -629,22 +781,26 @@ class PlotAppMisc_(PlotUtil_):
         ax.set_ylabel("Delay/Jitter in seconds")
         ax.set_xlabel("Simulation time in seconds")
         ax.set_title("Delay and Jitter over time")
-        saver(fig, "Delay_and_jitter.png")
+        self.auto_major_minor_locator(ax)
+        saver(fig, "delay_and_jitter.png")
         plt.close(fig)
 
         fig, ax = self.check_ax()
-        self.ecdf(df["delay"], ax=ax, label="Delay")
-        self.ecdf(df["jitter"], ax=ax, label="Jitter")
+        self.plot_ecdf(df["delay"], ax=ax, label="Delay")
+        self.plot_ecdf(df["jitter"], ax=ax, label="Jitter")
         ax.legend()
         ax.set_xlabel("Time in seconds")
         ax.set_title("CDF of jitter and delay")
-        saver(fig, "Delay_and_jitter_ecdf.png")
+        self.auto_major_minor_locator(ax)
+        saver(fig, "delay_and_jitter_ecdf.png")
         plt.close(fig)
 
         fig, ax, tbl = self.df_to_table(
             df[["delay", "jitter"]].describe().reset_index()
         )
-        saver(fig, "Delay_and_jitter_describe_tbl.png")
+        self.auto_major_minor_locator(ax)
+        saver(fig, "delay_and_jitter_describe_tbl.png")
+        plt.close(fig)
 
     def plot_pkt_loss(
         self,
@@ -672,14 +828,16 @@ class PlotAppMisc_(PlotUtil_):
                     m.index.get_level_values("time"), y=m, s=1, marker="x", alpha=0.35
                 )
                 c.set_label(lbl(s, "Map pkt loss"))
-                self.ecdf(m, ax_ecdf, label=lbl(s, "Map pkt loss"))
+                self.plot_ecdf(m, ax_ecdf, label=lbl(s, "Map pkt loss"))
 
                 b = data.loc[_i[:, :, :, :, "Beacon"], ["pkt_loss"]]
                 c = ax_ts.scatter(
                     b.index.get_level_values("time"), y=b, s=1, marker="<", alpha=0.35
                 )
                 c.set_label(lbl(s, "Beacon pkt loss"))
-                self.ecdf(b, ax_ecdf, label=lbl(s, "Beacon pkt loss"), linestyle="--")
+                self.plot_ecdf(
+                    b, ax_ecdf, label=lbl(s, "Beacon pkt loss"), linestyle="--"
+                )
             else:
                 c = ax_ts.scatter(
                     data.index.get_level_values("time"),

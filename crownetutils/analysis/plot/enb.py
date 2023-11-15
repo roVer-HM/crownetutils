@@ -248,5 +248,31 @@ class _PlotEnb(PlotUtil_):
         ax.get_figure().tight_layout()
         return ax.get_figure(), ax
 
+    @with_axis
+    def plot_mac_cell_throughput_ul(
+        self,
+        sim: Simulation,
+        pos: NodePositionWithRsdHdf,
+        ax: plt.Axes = None,
+        saver: FigureSaver = None,
+    ):
+        saver = FigureSaver.FIG(saver)
+        fig, ax = self.check_ax(ax)
+        enbs = pos.enb.frame()
+        colors = pos.enb_colors()
+        for e in range(enbs.shape[0]):
+            df = sim.sql.vec_data(
+                f"World.eNB[{e}].cellularNic.mac",
+                "macCellThroughputUl:vector",
+            ).reset_index()
+            ax.scatter(df["time"], df["value"], marker=".", color=colors[e], alpha=0.5)
+
+        ax.set_ylabel("Bps")
+        ax.set_xlabel("time")
+        self.auto_major_minor_locator(ax)
+        ax.legend()
+        fig.tight_layout()
+        saver(fig, "mac_cell_throughput_ul.png")
+
 
 PlotEnb = _PlotEnb()

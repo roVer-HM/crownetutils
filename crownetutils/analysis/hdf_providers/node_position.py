@@ -405,6 +405,7 @@ class NodePositionWithRsdHdf:
         self.ue.repack_hdf(keep_old_file=False)
 
     def enb_colors(self) -> dict:
+        """Get color dictoinary with key is the enb vector index"""
         rsd_ids = self.enb.frame()["rsd_id"]
         cmap, normalizer, colors = get_color_map(
             N=rsd_ids.shape[0], append_not_connected=True, cmap="tab20"

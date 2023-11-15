@@ -298,7 +298,8 @@ class BaseHdfProvider:
             else:
                 return default
 
-    def get_groups(self):
+    def get_groups(self) -> List[str]:
+        """returns top level groups without leading or trailing '/'"""
         with self.tables_file(self._hdf_path, "r") as hdf_file:
             ret = [c._v_name for c in hdf_file.root]
         return ret
