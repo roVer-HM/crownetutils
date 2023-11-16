@@ -90,15 +90,9 @@ def plot_trace(ax: plt.Axes, traces, enb, inner_r):
         print(f"parse trajectory: {row}")
         lc = _df[["p1_x", "p1_y", "p2_x", "p2_y"]].values.reshape((-1, 2, 2))
         ax.add_collection(LineCollection(lc))
-    patches = [enb_with_hex(p, inner_r=inner_r, scale=200) for p in enb]
-    ax.add_collection(
-        PatchCollection(patches=[p[0] for p in patches], facecolors="black")
-    )
-    ax.add_collection(
-        PatchCollection(
-            patches=[p[1] for p in patches], facecolors="none", edgecolors="black"
-        )
-    )
+    enb_icon, enb_hex = enb_with_hex(enb, inner_r=inner_r, scale=200)
+    ax.add_collection(enb_icon)
+    ax.add_collection(enb_hex)
 
 
 def _apply_ax(

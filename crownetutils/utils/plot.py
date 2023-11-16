@@ -1102,7 +1102,12 @@ class PlotHelper:
 
 
 def enb_with_hex(origin, inner_r, scale=30):
-    if origin.shape[0] > 1:
+    if origin.shape == (2,):
+        return [
+            enb_patch(scale_factor=scale, pos_xy=origin),
+            hex_patch(origin=origin, inner_r=inner_r),
+        ]
+    else:
         return [
             PatchCollection(
                 [enb_patch(scale_factor=scale, pos_xy=p) for p in origin],
@@ -1114,11 +1119,6 @@ def enb_with_hex(origin, inner_r, scale=30):
                 facecolors="none",
                 edgecolors="grey",
             ),
-        ]
-    else:
-        return [
-            enb_patch(scale_factor=scale, pos_xy=origin),
-            hex_patch(origin=origin, inner_r=inner_r),
         ]
 
 
