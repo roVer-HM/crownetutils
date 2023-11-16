@@ -674,6 +674,43 @@ class RunContext:
         print(f"done: {cmd}")
         return return_code
 
+    def check_study_root(self, root) -> bool:
+        study_root = os.path.realpath(os.path.join(self.cwd, "../.."))
+        return root == study_root
+
+    @property
+    def study_root(self) -> str:
+        return os.path.realpath(os.path.join(self.cwd, "../.."))
+
+    def move_study_root(
+        self, new_study_root, bak_suffix, override_backup: bool = False
+    ):
+        ctx_path = os.path.abspath(self.ctx_path)
+        base, name = os.path.split(ctx_path)
+        ctx_backup_path = os.path.join(base, f"{name}_{bak_suffix}")
+        if os.path.exists(ctx_backup_path) and not override_backup:
+            raise ValueError("Backup file already exists. Remove it first.")
+        shutil.copyfile(
+            src=ctx_path,
+            dst=ctx_backup_path,
+        )
+
+        old_study_root = self.study_root
+        old_study_base = os.path.realpath(os.path.join(self.study_root, ".."))
+
+        new_study_root = os.path.abspath(new_study_root)
+        new_study_base = os.path.realpath(os.path.join(new_study_root, ".."))
+
+        new_lines = []
+        with open(ctx_path, "r", encoding="utf-8") as fd:
+            for line in fd:
+                _l = line.replace(old_study_root, new_study_root)
+                _l = _l.replace(old_study_base, new_study_base)
+                new_lines.append(_l)
+
+        with open(ctx_path, "w", encoding="utf-8") as fd:
+            fd.writelines(new_lines)
+
 
 class SimulationBase:
     def __init__(
