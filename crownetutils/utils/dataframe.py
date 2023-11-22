@@ -90,6 +90,15 @@ def format_frame(
 
     return _df
 
+def combine_stats(names, *args) -> pd.DataFrame:
+    """Combine statistics from different sources (pd.Series objects). Provide list of names to use as column names"""
+    ret = []
+    if len(names) != len(args):
+        raise ValueError()
+    for d in args:
+        ret.append(d.describe())
+    ret = pd.concat(ret, axis=1).set_axis(names, axis=1)
+    return ret
 
 def save_as_tex_table(
     df: pd.DataFrame,
