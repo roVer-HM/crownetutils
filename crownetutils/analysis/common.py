@@ -859,7 +859,7 @@ class Simulation:
         return self.run_context.par_id + self._id_offset
 
     def study_id(self):
-        return self.run_context.par_id
+        return -1 if self.run_context is None else self.run_context.par_id
 
     def path(self, *args):
         """Create path relative to Simulation object data_root directory"""
