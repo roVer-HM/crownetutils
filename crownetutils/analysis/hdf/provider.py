@@ -342,7 +342,7 @@ class BaseHdfProvider:
                     # ensure absolute path
                     if group[0] != "/":
                         group = f"/{group}"
-                    return [g._v_pathname for g in ctx.groups()]
+                    return group in [g._v_pathname for g in ctx.groups()]
                 else:
                     return group in [g._v_name for g in ctx.groups()]
         return False
