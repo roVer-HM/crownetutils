@@ -43,6 +43,7 @@ from matplotlib.image import AxesImage
 from matplotlib.ticker import (
     AutoLocator,
     AutoMinorLocator,
+    EngFormatter,
     MaxNLocator,
     MultipleLocator,
 )
@@ -772,6 +773,20 @@ class PlotUtil_:
         _axis = axis.axis_name
         axis.axes.grid(True, _which, _axis)
 
+    def add_eng_formatter(self, axes: np.ndarray|List[plt.Axes], unit:str = "B", xy="y", places=2):
+        if isinstance(axes, plt.Axes):
+            if "y" in xy:
+                axes.yaxis.set_major_formatter(EngFormatter(unit, places=places))
+            if "x" in xy:
+                axes.xaxis.set_major_formatter(EngFormatter(unit, places=places))
+        elif isinstance(axes, list):
+            for a in axes:
+                self.add_eng_formatter(a, unit, xy, places)
+        elif isinstance(axes, np.ndarray):
+            for a in axes.flatten():
+                self.add_eng_formatter(a, unit, xy, places)
+
+
     def auto_major_minor_locator(
         self, ax: plt.Axes | NDArray, minor_count: int = 4, what: str = "xy"
     ):
@@ -814,6 +829,7 @@ class PlotUtil_:
         bin_size: float = 1.0,
         start: float | None = None,
         end: float | None = None,
+        add_left_rigth:bool = False,
         *,
         closed: str = "right",
         columns: None | List[str] = None,
@@ -857,6 +873,10 @@ class PlotUtil_:
             data = data.set_axis([f"{a}_{b}" for a, b in data.columns], axis=1)
             data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
             data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+        if add_left_rigth and "bin_left" not in data.columns:
+            data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
+            data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+            
         return data
 
     @with_axis
