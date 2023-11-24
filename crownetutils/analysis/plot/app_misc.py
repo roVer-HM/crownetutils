@@ -4,9 +4,12 @@ import itertools
 import os
 from ast import List
 from typing import Tuple
+from crownetutils.analysis.hdf_providers.node_rx_data import NodeRxData
+from crownetutils.analysis.hdf_providers.sql_app_proxy import SqlAppProxy
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import numpy as np
 import pandas as pd
 from pandas import IndexSlice as _i
@@ -21,6 +24,7 @@ from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.dataframe import (
     append_interval,
     assert_frame_structure,
+    combine_stats,
     index_or_col,
 )
 from crownetutils.utils.logging import logger, timing
@@ -860,6 +864,227 @@ class PlotAppMisc_(PlotUtil_):
         ax_ecdf.set_ylabel("Packet loss encountered sind last reception")
         ax_ecdf.set_title("Packet loss ECDF")
         saver(ax_ecdf.get_figure(), "Pkt_loss_ecdf.pdf")
+    
+    def plot_by_app_overview(
+            self,
+            saver: FigureSaverSimple,
+            sim_id:str, 
+            node_rx: NodeTxData, 
+            node_tx: NodeRxData, 
+            pos: NodePositionWithRsdHdf, 
+            d_sim: Simulation, 
+            apps: List[SqlAppProxy],
+            rsd_filter:List[int]):
+        """Generates a matrix of plots for debuging appliation dealys for *one* RSD.
+        Each row depicts one application provided by `apps`. The generated figures in each 
+        column are:
+          1. Transmission intervals over time (raw data, scatter)
+          2. Number of nodes used to calcualted tx inteval over time(raw data, scatter and ground truth)
+          3. Size of transmitted messages in bytes (i.e. burst of one or more packets) ove time (raw data, scatter)
+          4. Size of burst (i.e. number of packets in one burst) over time (raw data, scatter)
+          5. Size of mean message size, calcuated as exponential moving average in each node over time. 
+             This message size is used in the calcuation of the tx interval in figure 1
+          6. Received data at application layer in one second over time. todo: why is this so low??
+          7. Number of different data sources over one second over time.  
+             
 
+        Args:
+            saver (FigureSaverSimple): Object to determine location and type (png/pdf) of saved figure
+            sim_id (str): Simulation label
+            node_rx (NodeTxData): TX data / HDF
+            node_tx (NodeRxData): RX data / HDF
+            pos (NodePositionWithRsdHdf): Position data / HDF
+            d_sim (Simulation): Simulation object with access to density map and SQLite db's
+            apps (List[SqlAppProxy]): List of appications and sqlite module functions. 
+            rsd_filter (List[int]): List of RSD for which a figure should be crated.
+        """
+        rsd_colors = pos.enb_colors()
+        for rsd in rsd_filter:
+            num_plots = 8
+            fig, axes = plt.subplots(len(apps), num_plots, figsize=((16/2)*num_plots, 16), sharex=True)
+
+            for i, app in enumerate(apps):
+                a1: plt.Axes = axes[i][0]
+                a2: plt.Axes = axes[i][1]
+                a3: plt.Axes = axes[i][2]
+                a4: plt.Axes = axes[i][3]
+                a5: plt.Axes = axes[i][4]
+                a6: plt.Axes = axes[i][5]
+                a7: plt.Axes = axes[i][6]
+                color = rsd_colors[rsd]
+                glb_count = d_sim.get_dcdMap()._map_p.select(key="map_measure_by_rsd", where=f"rsd_id={rsd}", columns=["map_glb_count"])
+                        
+                tx_data  = node_tx.tx_interval(app).select(where=f"servingEnb={rsd}").reset_index().sort_values(["time"])
+
+                det_interval = tx_data[["time", "tx_interval_det"]].groupby(["time"]).mean().reset_index()
+                a1.scatter(index_or_col(tx_data, "time"), tx_data["tx_interval"], marker="1", color=color, alpha=.3, label="interval")
+                a1.scatter(det_interval["time"], det_interval["tx_interval_det"], color="red", alpha=.3, label="det_interval", marker="3") 
+                a1.set_ylabel("Tx interval in seconds")
+
+                a2.scatter(index_or_col(tx_data, "time"), tx_data["member_count"], marker="3", color=color, alpha=.3, label="member")
+                a2.plot(index_or_col(glb_count, "simtime"), glb_count["map_glb_count"], color="red", label="ground truth")
+                a2.set_ylabel("node count used in interval calc.")
+
+                burst_data = node_tx.tx_burst(app).select(where=f"servingEnb={rsd}").reset_index().sort_values(["time"])
+                a3.scatter(burst_data["time"], burst_data["burst_size"], marker="3", color=color, alpha=.3)
+                a3.set_ylabel("TX burst size in bytes")
+
+                a4.scatter(burst_data["time"], burst_data["burst_num"], marker="3", color=color, alpha=.3)
+                a4.set_ylabel("TX burst size")
+
+                    # RX
+                data_rx_by_app = node_rx.rcvd_by_app(app).select(where=f"servingEnb={rsd}")
+                a5.scatter(index_or_col(data_rx_by_app, "time"), data_rx_by_app["avg_pkt_size"]/8, color=rsd_colors[rsd], label=rsd, marker="3", alpha=.3)
+                a5.set_ylabel("RX exp. moving average \nburst size in bytes")
+
+                data_rx = node_rx.rcvd_data(app).select(where=f"servingEnb={rsd}", columns=["pkt_bytes"])
+                data_rx_by_src = data_rx.reset_index().drop(columns=["srcHostId", "eventNumber"])
+                data_rx_by_src = self.append_bin(data_rx_by_src, idx_name="time", bin_size=1.0, start= 0.0)
+                    # received sum of packets per app per 1 second
+                data_rx_by_src = data_rx_by_src.reset_index(drop=True).groupby(["hostId", "bin"]).sum()
+                data_rx_by_src["time"] = [ x.left for x in data_rx_by_src.index.get_level_values("bin")]
+                a6.scatter(data_rx_by_src["time"], data_rx_by_src["pkt_bytes"], color=rsd_colors[rsd], label=rsd, marker="3", alpha=.3)
+                a6.set_ylabel("Rx bytes in 1 second ")
+
+                rx_different_sorces_over_time = self.append_bin(
+                    data_rx.reset_index()[["time", "hostId", "srcHostId"]], 
+                    idx_name="time", bin_size=1.0, start=0.0
+                    ).reset_index(drop=True)
+                rx_different_sorces_over_time["bin"] = rx_different_sorces_over_time["bin"].apply(lambda x: x.left)
+                rx_different_sorces_over_time = rx_different_sorces_over_time.drop_duplicates()
+                rx_different_sorces_over_time = rx_different_sorces_over_time.groupby(["bin", "hostId"]).count().reset_index().set_axis(["time", "hostId", "rx_count"], axis=1)
+                a7.scatter(rx_different_sorces_over_time["time"], rx_different_sorces_over_time["rx_count"],color=color,  marker="3", alpha=.3)
+                a7.set_ylabel("Number of different rx sources \nin 1 second")
+
+                self.add_eng_formatter([a3, a5, a6,], unit="B", places=1)
+                for a in axes[i]:
+                    a.set_title(app.name)
+                    self.auto_major_minor_locator(a)
+                    a.set_xlabel("time in seconds")
+                    a.legend()
+
+            fig.suptitle(f"Debug for rsd {rsd} for sim {sim_id}")
+            fig.tight_layout()
+            saver.with_suffix(f"_rsd{rsd}_sim_{sim_id}")(fig, "dbg_interval.png")
+    
+    def plot_planed_throughput_in_rsd(
+            self, 
+            saver: FigureSaverSimple, 
+            sim_id: str, 
+            node_tx: NodeRxData, 
+            apps: List[SqlAppProxy],
+            rsd_filter:List[int]):
+        """Plot planed throughput of each application and the application and basestation thoughput limits. 
+           The *planed* throughput is the amount of data send from the application layer down to the stack, 
+           not knowing if it will be queued or removed in case of full queues or delayed deue to overload 
+           situation. 
+
+        Args:
+            saver (FigureSaverSimple): Object to determine location and type (png/pdf) of saved figure
+            sim_id (str): Simulation label
+            node_tx (NodeRxData): RX data / HDF
+            apps (List[SqlAppProxy]): List of appications and sqlite module functions. 
+            rsd_filter (List[int]): List of RSD for which a figure should be crated.
+        """
+        for rsd in rsd_filter:
+            fig, axes = plt.subplots(1, 1, figsize=(16, 9), sharex=True)
+
+            sum_burst = []
+            t_rate = node_tx.get_target_rates(bps_to_multiplier=1/8) # in Bytes per Second
+            for i, app in enumerate(apps):
+                a1: plt.Axes = axes
+
+                burst_data = node_tx.tx_burst(app).select(where=f"servingEnb={rsd}").reset_index().sort_values(["time"])
+                app_burst = self.append_bin(burst_data, idx_name="time", bin_size=1.0, start=0.0, agg=["sum"])[["bin_left", "burst_size_sum"]].reset_index(drop=True)
+                l = a1.plot(app_burst["bin_left"], app_burst["burst_size_sum"],label=app.name)
+                a1.hlines(t_rate[app.name], 0, app_burst["bin_left"].max(), linestyles='dashed', color=l[0].get_color(), label=f"limit {app.name}")
+                sum_burst.append(app_burst)
+
+            sum_burst = pd.concat(sum_burst, axis=0).groupby("bin_left").sum().reset_index().set_axis(["time", "value"], axis=1)
+            l = a1.plot(sum_burst["time"], sum_burst["value"],label="cummulative application load")
+            max_enb_tp = 25*208*1000/8
+            a1.hlines(max_enb_tp, 0, sum_burst["time"].max(), linestyles='dashed', color=l[0].get_color(), label=f"Enb max throughput at CQI 7")
+
+            a1.set_xlabel("simulation time in seconds")
+            a1.set_ylabel("Planned thoughput per second in bytes.")
+            a1.set_title(f"Total planed thoughput based on appliction TX data for RSD {rsd} of Simulation {sim_id}")
+            a1.legend()
+            self.add_eng_formatter(a1, unit="B", places=2)
+            self.auto_major_minor_locator(a1)
+            fig.tight_layout()
+            saver.with_suffix(f"_rsd{rsd}_sim_{sim_id}")(fig, "dbg_total_planed_trasmitted_data.png")
+
+    def plot_received_bursts(
+            self, 
+            node_rx: NodeRxData, 
+            figuer_title, 
+            saver: FigureSaver, 
+            where:str|None = None):
+        """Plot number of packets received from the same source at the same time. This is 
+        indicates that the sender queues messages for at least as long as the caculated 
+        transmission intervall. For the beaocn/map data each new packet will contain newer 
+        information which will invalidate older one, leading to old data to be transmitted 
+        before fresher data. This not wanted and is not good.
+
+        Args:
+            node_rx (NodeRxData): _description_
+            node_tx (NodeRxData): RX data / HDF
+            saver (FigureSaverSimple): Object to determine location and type (png/pdf) of saved figure
+            where (str | None, optional): Query string to filter data (i.e. resource sharing id or time frame). Defaults to None.
+        """
+        apps = node_rx.hdf.get_groups()
+        fig, ax = plt.subplots(len(apps),4,figsize=(16/3 *4,16))
+        count_max = 3
+        delay_max = 0
+        for app_idx, app in enumerate(apps):
+            if len(apps) == 1:
+                ahist, acdf, adesc, adelay = ax
+            else:
+                ahist, acdf, adesc, adelay = ax[app_idx]
+
+            if where is None:
+                b = node_rx.rcvd_data(app=app).frame()
+            else:
+                b = node_rx.rcvd_data(app=app).select(where=where)
+
+            same_time_delivery = b.groupby(["hostId", "srcHostId", "time"])["delay"].count()
+            if same_time_delivery.max() > count_max:
+                count_max = same_time_delivery.max()
+            if b["delay"].max() > delay_max:
+                delay_max = b["delay"].max() 
+            ahist.hist(same_time_delivery.values)
+            ahist.set_xlabel("number of pkt at same time")
+            ahist.set_ylabel("count")
+            ahist.set_title(app)
+            ahist.xaxis.set_major_locator(MultipleLocator(1))
+            self.plot_ecdf(same_time_delivery, ax=acdf)
+            acdf.set_xlabel("number of pkt at same time")
+            acdf.set_title(app)
+            acdf.xaxis.set_major_locator(MultipleLocator(1))
+
+            _desc = combine_stats(["pkt_count", "delay"], same_time_delivery, b["delay"])
+            _desc = _desc.to_string(float_format=lambda x: f"{x:.3e}")
+
+            adesc.text(-.20, .5, f"Describe:\n num pkt at same time and delay\n ({app}):\n{_desc}", 
+                transform=adesc.transAxes,
+                horizontalalignment="left",
+                verticalalignment="center",
+                fontfamily="monospace",
+                fontsize="large")
+            adesc.set_axis_off()
+            
+            self.plot_ecdf(b, column="delay", ax=adelay)
+            adelay.set_xlabel("delay in seconds")
+            adelay.set_title(app)
+            adelay.set_title(f"Delay {app} CDF")
+        if len(apps) > 1:
+            for axes in ax:
+                axes[0].set_xlim(0, count_max)
+                axes[1].set_xlim(0, count_max)
+                axes[3].set_xlim(-0.5, delay_max)
+                axes[3].xaxis.set_major_locator(MultipleLocator(10))
+
+        fig.suptitle(figuer_title)
+        saver(fig, "same_time_delivery.png")
 
 PlotAppMisc = PlotAppMisc_()
