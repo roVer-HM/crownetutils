@@ -14,7 +14,9 @@ from crownetutils.utils.misc import Timer
 
 
 class NodeRxData:
-    base_groups = ["rcvd_stats"]
+    G_BY_SRC_STATS = "rcvd_stats"
+    G_BY_APP_STATS =  "rcvd_by_app"
+    base_groups = [G_BY_SRC_STATS, G_BY_APP_STATS]
 
     def __init__(
         self,
@@ -65,7 +67,10 @@ class NodeRxData:
         return self._hdf
 
     def rcvd_data(self, app: str | SqlAppProxy) -> BaseHdfProvider:
-        return BaseHdfProvider(self.hdf_path, group=self.g(app, "rcvd_stats"))
+        return BaseHdfProvider(self.hdf_path, group=self.g(app, self.G_BY_SRC_STATS))
+
+    def rcvd_by_app(self, app: str | SqlAppProxy) -> BaseHdfProvider:
+        return BaseHdfProvider(self.hdf_path, group=self.g(app, self.G_BY_APP_STATS))
 
     def g(self, app: str | SqlAppProxy, path: str) -> str:
         if isinstance(app, SqlAppProxy):
@@ -81,7 +86,7 @@ class NodeRxData:
     ) -> pd.DataFrame:
         ret = []
         for app in self.apps:
-            g = app.group_by_app("rcvd_stats")
+            g = app.group_by_app(self.G_BY_SRC_STATS)
             df = self.hdf.select(key=g, where=where, columns=columns)
             app_ids = self.hdf.get_attribute("app_ids", group=g, default=None)
             if with_app_names:
@@ -128,7 +133,8 @@ class NodeRxData:
                 "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
                 "rcvdPktPerSrcJitter:vector": dict(name="jitter", dtype=np.float32),
                 "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
-            }
+                "packetReceived:vector(packetBytes)": dict(name="pkt_bytes", dtype=np.float32),
+            } 
             vec_data = app.sim.sql.vec_data_pivot(
                 module_name=app.module_f(),
                 vector_name_map=vec_names,
@@ -158,11 +164,32 @@ class NodeRxData:
                 vec_data = self.node_pos.merge_rsd_id_on_host_time_interval(vec_data)
 
             self.hdf.write_frame(
-                group=app.group_by_app("rcvd_stats"),
+                group=app.group_by_app(self.G_BY_SRC_STATS),
                 frame=vec_data,
             )
             self.hdf.set_attribute(
-                attr_key="app_ids", value=app_ids, group=app.group_by_app("rcvd_stats")
+                attr_key="app_ids", value=app_ids, group=app.group_by_app(self.G_BY_SRC_STATS)
+            )
+
+
+            # by app (data used in interval calculation)
+            vec_names = {
+                "rcvdPktAvgSize:vector": dict(name="avg_pkt_size", dtype=np.float32),
+                "rcvdPktCount:vector": dict(name="pkt_count", dtype=np.float32),
+            }
+            vec_data = app.sim.sql.vec_data_pivot(
+                module_name=app.module_f(),
+                vector_name_map=vec_names,
+            ).reset_index("eventNumber").sort_index()
+            if self.node_pos is not None:
+                vec_data = self.node_pos.merge_rsd_id_on_host_time_interval(vec_data)
+
+            self.hdf.write_frame(
+                group=app.group_by_app(self.G_BY_APP_STATS),
+                frame=vec_data,
+            )
+            self.hdf.set_attribute(
+                attr_key="app_ids", value=app_ids, group=app.group_by_app(self.G_BY_APP_STATS)
             )
 
         self.hdf.repack_hdf(keep_old_file=False)

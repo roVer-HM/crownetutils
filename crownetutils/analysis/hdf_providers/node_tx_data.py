@@ -272,6 +272,7 @@ class NodeTxData:
                             "name": "tx_interval_det",
                             "dtype": float,
                         },
+                        "txMemberValue:vector": {"name": "member_count", "dtype": int},
                     },
                 ).droplevel("eventNumber")
                 if node_pos is not None:
