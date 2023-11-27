@@ -35,7 +35,7 @@ pages:
   stage: doc
   script:
     - source ./venv/bin/activate
-    - pip3 install -U sphinix 
+    - pip3 install -U sphinx 
     - ./venv/bin/sphinx-build -b html doc/source public
   artifacts:
     paths:
