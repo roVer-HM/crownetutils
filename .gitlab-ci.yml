@@ -1,6 +1,7 @@
 stages:
   - test
   - code_analysis
+  - doc
 
 # caching does not lead to a speed-up in our case - disabled
 # cache:
@@ -31,7 +32,7 @@ black_check:
   allow_failure: true
 
 pages:
-  stage: deploy
+  stage: doc
   script:
     - source ./venv/bin/activate
     - pip3 install -U sphinix 
