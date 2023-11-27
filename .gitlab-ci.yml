@@ -29,3 +29,13 @@ black_check:
     - black --version
     - black ./crownetutils/ --fast --check --diff
   allow_failure: true
+
+pages:
+  stage: deploy
+  script:
+    - source ./venv/bin/activate
+    - pip3 install -U sphinix 
+    - ./venv/bin/sphinx-build -b html doc/source public
+  artifacts:
+    paths:
+      - public

@@ -1,3 +1,4 @@
+"""Decentralized pedestrian measurement map (DPMM) metrics. (Density or entropy alike)"""
 from __future__ import annotations
 
 import itertools

@@ -240,12 +240,10 @@ class _OppAnalysis(AnalysisBase):
 
         pef_data = pef_data.dropna()
         with style_context(STYLE_SIMPLE_169):
-            m = """a
-            a
-            b
-            c
-            c
-            """
+            if nodes is None:
+                m = "a;a;c;c"
+            else:
+                m = "a;a;b;c;c"
             fig, axes = plt.subplot_mosaic(m, figsize=(16, 18))
 
             ax: plt.Axes = axes["a"]
@@ -284,15 +282,16 @@ class _OppAnalysis(AnalysisBase):
             ax.set_title(
                 "Simulation time ratio and amount of events per simtime over elapsed time"
             )
-            ab = axes["b"]
-            ab.plot(
-                nodes.reset_index()["simtime"] / 60,
-                nodes["count"],
-                "r--",
-                label="number nodes",
-            )
-            ab.set_ylabel("Number of nodes")
-            ab.set_xlabel("Simulation time")
+            if nodes is not None:
+                ab = axes["b"]
+                ab.plot(
+                    nodes.reset_index()["simtime"] / 60,
+                    nodes["count"],
+                    "r--",
+                    label="number nodes",
+                )
+                ab.set_ylabel("Number of nodes")
+                ab.set_xlabel("Simulation time")
 
             def time_format(x, pos=None):
                 days = int(np.floor(x / (60 * 60 * 24)))

@@ -1,6 +1,9 @@
 import glob
+from itertools import repeat
 import os
 from functools import partial
+from matplotlib.axes._axes import Axes
+from matplotlib.figure import Figure
 
 import numpy as np
 import pandas as pd
@@ -10,7 +13,7 @@ from matplotlib.ticker import MultipleLocator
 
 from crownetutils.sumo import SimDir
 from crownetutils.sumo.bonnmotion_reader import frame_from_bm
-from crownetutils.utils.parallel import ExecutionItem, run_items
+from crownetutils.utils.parallel import ExecutionItem, run_args_map, run_items
 from crownetutils.utils.plot import enb_with_hex
 
 
@@ -77,6 +80,18 @@ def save_descriptive_stats(
     fig.savefig(fig_path)
 
 
+def nearest_enb(trace, enb):
+
+    t =  np.tile(trace, enb.shape[0]).reshape((-1,3))
+
+    min_idx = np.linalg.norm(
+        t[:, 1:] - enb,
+        axis=1
+    ).argmin()
+
+    return np.concatenate([ trace, [min_idx]])
+
+
 def plot_trace(ax: plt.Axes, traces, enb, inner_r):
     # create line segments for traces
     traces = traces.sort_values(["id", "time"])
@@ -86,11 +101,14 @@ def plot_trace(ax: plt.Axes, traces, enb, inner_r):
     )
     segments = segments[segments["p1_id"] == segments["p2_id"]].copy()
 
-    for row, _df in segments.groupby("p1_id"):
-        print(f"parse trajectory: {row}")
-        lc = _df[["p1_x", "p1_y", "p2_x", "p2_y"]].values.reshape((-1, 2, 2))
-        ax.add_collection(LineCollection(lc))
-    patches = [enb_with_hex(p, inner_r=inner_r, scale=200) for p in enb]
+    # indexed_segment_start = segments.reset_index()[["index", "p1_x", "p2_x"]].values
+    # args_iter = zip(indexed_segment_start, repeat(enb[["base_x", "base_y"]].values))
+        
+    # out = run_args_map(nearest_enb, list(args_iter), pool_size=8)
+
+    lc = segments[["p1_x", "p1_y", "p2_x", "p2_y"]].values.reshape((-1, 2, 2))
+    ax.add_collection(LineCollection(lc))
+    patches = [enb_with_hex(p, inner_r=inner_r, scale=200) for p in enb[["base_x", "base_y"]].values]
     ax.add_collection(
         PatchCollection(patches=[p[0] for p in patches], facecolors="black")
     )
@@ -99,6 +117,7 @@ def plot_trace(ax: plt.Axes, traces, enb, inner_r):
             patches=[p[1] for p in patches], facecolors="none", edgecolors="black"
         )
     )
+    ax.set_aspect("equal")
 
 
 def _apply_ax(

@@ -1,3 +1,7 @@
+"""`Augmented Dickey-Fuller-Test <https://en.wikipedia.org/wiki/Dickey%E2%80%93Fuller_test>`_ to test presents of unit root in autoregression (AR) time series.
+
+"""
+
 import pandas as pd
 
 

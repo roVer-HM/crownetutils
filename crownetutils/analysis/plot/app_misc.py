@@ -1,3 +1,5 @@
+"""Application layer metrics (throughput, delay, tx interval)"""
+
 from __future__ import annotations
 
 import itertools
