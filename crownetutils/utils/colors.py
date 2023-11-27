@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 from enum import Enum
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import (
+    Colormap,
+    LinearSegmentedColormap,
+    ListedColormap,
+    Normalize,
+)
 
 
 class Colors:
@@ -44,6 +51,57 @@ def mono_cmap(
     map[:, base_color] = np.linspace(cspace[0], cspace[1], n)
     map[start:stop] = replace_with
     return ListedColormap(map)
+
+
+def _swap(array, i, j):
+    tmp = array[i].copy()
+    array[i] = array[j].copy()
+    array[j] = tmp
+    return array
+
+
+def get_color_map(N, append_not_connected: bool = True, cmap: str | Colormap = "tab20"):
+    if N == 15 and isinstance(cmap, str) and cmap == "tab20":
+        return enb_hex_15_colors(append_not_connected, cmap)
+    else:
+        if isinstance(cmap, str):
+            cmap = plt.get_cmap(cmap)
+
+        colors = cmap(np.linspace(0, 1, N))
+        if append_not_connected:
+            colors = np.concatenate(
+                [np.array([0.0, 0.0, 0.0, 1.0]), colors.flatten()]
+            ).reshape((-1, 4))
+
+        vmin = 0 if append_not_connected else 1
+        n = Normalize(vmin=vmin, vmax=15)
+        cmap = ListedColormap(colors=colors, N=len(colors))
+        return cmap, n, colors
+
+
+def enb_hex_15_colors(
+    append_not_connected: bool = True, cmap: str | Colormap = "tab20"
+):
+    vmin = 0 if append_not_connected else 1
+    n = Normalize(vmin=vmin, vmax=15)
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
+    colors = cmap(np.linspace(0, 1, 15))
+
+    # manual color correction to swap similar colors
+    # assume 5x3 with left-to-right and up
+    _swap(colors, 1, 2)
+    _swap(colors, 4, 14)
+    _swap(colors, 7, 10)
+    _swap(colors, 0, 11)
+
+    if append_not_connected:
+        colors = np.concatenate(
+            [np.array([0.0, 0.0, 0.0, 1.0]), colors.flatten()]
+        ).reshape((-1, 4))
+
+    hex_map = ListedColormap(colors=colors, name="enb_hex", N=len(colors))
+    return hex_map, n, colors
 
 
 def t_cmap(

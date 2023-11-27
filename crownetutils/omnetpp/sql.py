@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, List, Protocol
+
 
 class SqlOp:
     """
@@ -69,3 +71,17 @@ class SqlOp:
 
     def __str__(self) -> str:
         return self.apply("TABLE", "COLUMN")
+
+
+class RelativeModuleFunction(Protocol):
+    def __call__(
+        self,
+        modules: List[str] | None = None,
+        path: str = "app",
+        node_index: int | str = "%",
+    ) -> SqlOp:
+        """
+        Provides a SqlOp path for a module such as pNode[%].<...> or vNode[%].<...> where the
+        base node is provided by the implementer.
+        """
+        ...

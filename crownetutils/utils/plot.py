@@ -37,16 +37,23 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.collections import PatchCollection
 from matplotlib.colorbar import Colorbar
-from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm, to_rgba_array
 from matplotlib.image import AxesImage
-from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
+from matplotlib.ticker import (
+    AutoLocator,
+    AutoMinorLocator,
+    EngFormatter,
+    MaxNLocator,
+    MultipleLocator,
+)
 from mpl_toolkits import axes_grid1
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from numpy.typing import NDArray
 from shapely.geometry import Polygon
 
 import crownetutils.utils.logging as _log
 import crownetutils.utils.styles as Styles
+from crownetutils.utils.dataframe import index_or_col
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 logger = _log.logger
@@ -171,11 +178,21 @@ class FigureSaverSimple(FigureSaver):
     ):
         self.override_base_path = override_base_path
         self.next_name = None
+        self.next_suffix = None
         self.figure_type = figure_type
 
     def with_name(self, name):
         self.next_name = name
         return self
+
+    def with_suffix(self, suffix):
+        self.next_suffix = suffix
+        return self
+
+    @staticmethod
+    def append_suffix(path, suffix):
+        root, ext = os.path.splitext(path)
+        return f"{root}{suffix}{ext}"
 
     def __call__(self, figure, *args: Any, **kwargs):
         if len(args) < 1 and self.next_name is None:
@@ -192,13 +209,17 @@ class FigureSaverSimple(FigureSaver):
                 )
             path = os.path.join(self.override_base_path, os.path.basename(path))
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        if self.next_suffix is not None:
+            path = self.append_suffix(path, self.next_suffix)
+            self.next_suffix = None
         if self.figure_type is not None:
             base, ext = os.path.splitext(path)
             if self.figure_type != ext:
                 logger.info(f"override figure type from {ext} to {self.figure_type}")
             path = f"{base}{self.figure_type}"
         figure.tight_layout()
-        figure.savefig(path)
+        figure.savefig(path, **kwargs)
+        plt.close(figure)
 
     def __enter__(self, *arg, **kwargs):
         return self
@@ -398,26 +419,48 @@ class PlotUtil_:
         """
         return plt.rcParams.get(key, default)
 
+    def ecdf(self, data: pd.DataFrame | pd.Series, column: str | int = 0):
+        if isinstance(data, pd.Series):
+            x = data.sort_values().values
+        elif isinstance(data, pd.DataFrame):
+            if isinstance(column, int):
+                x = data.uloc[:, 0].sort_values().values
+            else:
+                x = pd.Series(index_or_col(data, name=column)).sort_values().values
+        else:
+            x = data
+
+        y = np.arange(len(x)) / float(len(x))
+
+        return x, y
+
     @with_axis
-    def ecdf(
-        self, data: pd.Series | pd.DataFrame, ax: plt.Axes | None = None, **kwargs
+    def plot_ecdf(
+        self,
+        data: pd.Series | pd.DataFrame,
+        column: int | str = 0,
+        ax: plt.Axes | None = None,
+        return_data: bool = False,
+        **kwargs,
     ) -> plt.Axes:
-        """Create empirical copulative density function (ECDF) of provided data.
+        """Create empirical commulative density function (ECDF) of provided data.
 
         Args:
-            data (pd.Series | pd.DataFrame): Data used. If Dataframe use first column
+            data (pd.Series | pd.DataFrame): Data used
+            column (int|str): Column for which the cdf is created. If integer use iloc otherwise column name. If data is Series column is ignored. Defaults to 0.
             ax (plt.Axes | None, optional): Provided axes for plotting. New object inject via `@with_axis` if None. Defaults to None.
 
         Returns:
             plt.Axes:
         """
-        if isinstance(data, pd.DataFrame):
-            data = data.iloc[:, 0]  # first column
-        _x = data.sort_values()
-        _y = np.arange(len(_x)) / float(len(_x))
+        _x, _y = self.ecdf(data, column)
         ax.plot(_x, _y, drawstyle="steps-pre", **kwargs)
         ax.set_ylabel("density")
-        return ax
+
+        if return_data:
+            return ax, _x, _y
+        else:
+            return ax
 
     def color_marker_lines(self, line_type="--") -> List[str]:
         """Create color/marker/line_type string for provided line type.
@@ -730,6 +773,34 @@ class PlotUtil_:
         _axis = axis.axis_name
         axis.axes.grid(True, _which, _axis)
 
+    def add_eng_formatter(self, axes: np.ndarray|List[plt.Axes], unit:str = "B", xy="y", places=2):
+        if isinstance(axes, plt.Axes):
+            if "y" in xy:
+                axes.yaxis.set_major_formatter(EngFormatter(unit, places=places))
+            if "x" in xy:
+                axes.xaxis.set_major_formatter(EngFormatter(unit, places=places))
+        elif isinstance(axes, list):
+            for a in axes:
+                self.add_eng_formatter(a, unit, xy, places)
+        elif isinstance(axes, np.ndarray):
+            for a in axes.flatten():
+                self.add_eng_formatter(a, unit, xy, places)
+
+
+    def auto_major_minor_locator(
+        self, ax: plt.Axes | NDArray, minor_count: int = 4, what: str = "xy"
+    ):
+        if isinstance(ax, np.ndarray):
+            for a in ax.flatten():
+                self.auto_major_minor_locator(a)
+            return
+        if "x" in what:
+            ax.xaxis.set_major_locator(AutoLocator())
+            ax.xaxis.set_minor_locator(AutoMinorLocator(minor_count))
+        if "y" in what:
+            ax.yaxis.set_major_locator(AutoLocator())
+            ax.yaxis.set_minor_locator(AutoMinorLocator(minor_count))
+
     def add_colorbar(
         self, im: AxesImage, aspect: float = 20, pad_fraction: float = 0.5, **kwargs
     ) -> Colorbar:
@@ -758,6 +829,7 @@ class PlotUtil_:
         bin_size: float = 1.0,
         start: float | None = None,
         end: float | None = None,
+        add_left_rigth:bool = False,
         *,
         closed: str = "right",
         columns: None | List[str] = None,
@@ -801,6 +873,10 @@ class PlotUtil_:
             data = data.set_axis([f"{a}_{b}" for a, b in data.columns], axis=1)
             data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
             data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+        if add_left_rigth and "bin_left" not in data.columns:
+            data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
+            data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+            
         return data
 
     @with_axis
@@ -1046,10 +1122,24 @@ class PlotHelper:
 
 
 def enb_with_hex(origin, inner_r, scale=30):
-    return [
-        enb_patch(scale_factor=scale, pos_xy=origin),
-        hex_patch(origin=origin, inner_r=inner_r),
-    ]
+    if origin.shape == (2,):
+        return [
+            enb_patch(scale_factor=scale, pos_xy=origin),
+            hex_patch(origin=origin, inner_r=inner_r),
+        ]
+    else:
+        return [
+            PatchCollection(
+                [enb_patch(scale_factor=scale, pos_xy=p) for p in origin],
+                facecolors="none",
+                edgecolors="black",
+            ),
+            PatchCollection(
+                [hex_patch(origin=p, inner_r=inner_r) for p in origin],
+                facecolors="none",
+                edgecolors="grey",
+            ),
+        ]
 
 
 def hex_patch(origin, inner_r=None, outter_r=None):
@@ -1069,6 +1159,11 @@ def hex_patch(origin, inner_r=None, outter_r=None):
     # origin = Polygon(xy)
     return pltPatch.PathPatch(pltPath.Path(xy))
     # return origin
+
+
+def enb_patch_annotate(patch: pltPatch.PathPatch, text, ax: plt.Axes):
+    box = patch.get_extents()
+    ax.annotate(text=text)
 
 
 def enb_patch(

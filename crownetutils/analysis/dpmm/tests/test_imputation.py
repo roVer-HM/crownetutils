@@ -24,7 +24,7 @@ class ImputationTest(unittest.TestCase):
         )
         data = pd.DataFrame.from_records(
             [
-                [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
+                [1, np.nan, 13.0, 14.0, np.nan, True, np.nan],
                 [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
                 [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
                 [1, np.nan, np.nan, np.nan, np.nan, True, np.nan],
@@ -36,7 +36,7 @@ class ImputationTest(unittest.TestCase):
                     np.nan,
                     True,
                     np.nan,
-                ],  # time 2 no other value (will keep nan)
+                ],  # time 2 no other value (remove as node was not active at this time)
                 [1, 5, np.nan, np.nan, 8, False, 42],
                 [1, 6, np.nan, np.nan, 9, False, 42],
                 [1, 7, np.nan, np.nan, 10, False, 42],
@@ -69,24 +69,24 @@ class ImputationTest(unittest.TestCase):
         inp.append(ArbitraryValueImputation(fill_value=0))
         inp.append(FullRsdImputation(rsd_origin_position=enb_dist))
         inp.append(OwnerPositionImputation())
-        out = inp.apply(data)
+        out = inp.with_csv_id(1).apply(data)
 
-        # keep line count equal
-        self.assertEqual(out.shape[0], 8)
+        # keep l
+        self.assertEqual(out.shape[0], 7)
 
         # only update missing values in the rsd.
         # ensure same cells get same rsd index 0 and 4
         # imputation will sort index
-        self.assertListEqual([0, 1, 1, 2, 8, 9, 10, 2], out["rsd_id"].to_list())
+        self.assertListEqual([0, 1, 1, 2, 8, 9, 10], out["rsd_id"].to_list())
 
         # owner_rsd_id will be sorted by simtime (t=2 has no value thus nan at end)
         self.assertListEqual(
-            [42.0, 42.0, 42.0, 42.0, 42.0, 42.0, 42.0, 999.0],
-            out["owner_rsd_id"].fillna(999.0).to_list(),
+            [42.0, 42.0, 42.0, 42.0, 42.0, 42.0, 42.0],
+            out["owner_rsd_id"].to_list(),
         )
         # only update missing values and leave the rest alone
         # imputation will sort index
-        self.assertListEqual([0, 0, 0, 0, 5, 6, 7, 0], out["count"].to_list())
+        self.assertListEqual([0, 0, 0, 0, 5, 6, 7], out["count"].to_list())
 
 
 if __name__ == "__main__":

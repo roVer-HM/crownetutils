@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import itertools
 import os
+import sys
+from io import StringIO
 from typing import Any, List, Tuple
 
 import matplotlib.pyplot as plt
@@ -10,15 +12,24 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.collections import PatchCollection
+from matplotlib.ticker import MultipleLocator
 from omnetinireader.config_parser import ObjectValue
+from pandas import IndexSlice as _i
 from scipy.stats import kstest, mannwhitneyu
+from shapely.geometry import Point, Polygon
 
 import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import RunMap, Simulation
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
+from crownetutils.analysis.dpmm.dpmm import DpmMap
+from crownetutils.analysis.hdf_providers.node_position import (
+    CoordinateType,
+    NodePositionWithRsdHdf,
+)
 from crownetutils.analysis.omnetpp import OppAnalysis
 from crownetutils.omnetpp.scave import CrownetSql
-from crownetutils.utils.dataframe import FrameConsumer
+from crownetutils.utils.dataframe import FrameConsumer, index_or_col
 from crownetutils.utils.logging import logger, timing
 from crownetutils.utils.misc import DataSource
 from crownetutils.utils.plot import (
@@ -27,6 +38,8 @@ from crownetutils.utils.plot import (
     FigureSaverSimple,
     PlotUtil_,
     Style,
+    enb_with_hex,
+    hex_patch,
     savefigure,
     with_axis,
 )
@@ -46,6 +59,8 @@ class _PlotDpmMap(PlotUtil_):
         selection: str | None = None,
         saver: FigureSaver | None = None,
     ):
+        """Deprecated."""
+
         saver = FigureSaver.FIG(saver, FigureSaverSimple(data_root))
 
         selection = builder.get_selected_alg() if selection is None else selection
@@ -69,9 +84,8 @@ class _PlotDpmMap(PlotUtil_):
         ax: plt.Axes | None = None,
     ):
         ax.scatter(
-            x,
-            y,
-            data=data,
+            index_or_col(data, x),
+            index_or_col(data, y),
             s=int(self.par("lines.markersize", 6) / 2),
             alpha=0.5,
             label="Mean squared cell error",
@@ -79,6 +93,7 @@ class _PlotDpmMap(PlotUtil_):
         ax.set_title("Mean squared cell error (MSCE) over time")
         ax.set_ylabel("Mean squared cell error (MSCE)")
         ax.set_xlabel("Simulation time in seconds")
+        self.auto_major_minor_locator(ax)
         ax.legend()
         return ax.get_figure(), ax
 
@@ -98,17 +113,18 @@ class _PlotDpmMap(PlotUtil_):
             msce = frame_c(msce).reset_index()
             print(sim.label)
             print(msce["cell_mse"].describe())
-            self.ecdf(msce["cell_mse"], label=sim.label, ax=ax)
+            self.plot_ecdf(msce["cell_mse"], label=sim.label, ax=ax)
 
         ax.legend()
         ax.set_xlabel("MSCE")
         ax.set_title("ECDF: Mean squared cell error (MSCE) comparison")
+        self.auto_major_minor_locator(ax)
         return ax.get_figure(), ax
 
     @with_axis
     @savefigure
     def plot_msce_ecdf(self, data, *, ax: plt.Axes | None = None):
-        ax = self.ecdf(data, label="MSCE")
+        ax = self.plot_ecdf(data, label="MSCE")
         ax.set_title("ECDF: Mean squared cell error (MSCE)")
         ax.set_xlabel("MSCE")
         ax.legend()
@@ -487,6 +503,230 @@ class _PlotDpmMap(PlotUtil_):
         ax.set_xlabel("Simulation time in seconds")
         ax.legend()
         return ax.get_figure(), ax
+
+    def pull_error_data(
+        self,
+        measure: pd.Series,
+        dpmm: DpmMap,
+        node_pos: NodePositionWithRsdHdf,
+        coord: CoordinateType,
+        out: StringIO,
+        delta_t: float = 10.0,
+    ) -> [plt.Figure, plt.Axes]:
+        ue = (
+            node_pos.ue.select(
+                where=f"hostId={measure['ID']} and time>={measure['simtime']-delta_t} and time<={measure['simtime']+5}"
+            )
+            .set_index(["time"])
+            .sort_index()
+        )
+        x = measure["x"]
+        y = measure["y"]
+        entry_log = dpmm._map_p.select(
+            where=f"ID={measure['ID']} and x={x} and y={y} and simtime>={measure['simtime']-delta_t} and simtime<={measure['simtime']+5}",
+            columns=[
+                "count",
+                "measured_t",
+                "received_t",
+                "selection",
+                "selectionRank",
+                "rsd_id",
+                "owner_rsd_id",
+                "delay",
+                "measurement_age",
+                "update_age",
+            ],
+        )
+
+        colors = node_pos.enb_colors()
+        with MapPlotter(node_pos=node_pos, coord=coord, with_icon=True) as (
+            map_plotter
+        ):
+            map_plotter.ax.scatter(
+                ue[coord.x],
+                ue[coord.y],
+                c=ue["servingEnb"].astype(int).apply(lambda x: colors[x]),
+                marker=".",
+            )
+            map_plotter.ax.scatter(
+                measure["x"],
+                measure["y"],
+                color="red",
+                marker=".",
+                alpha=1.0,
+                label=f"wrong RSD assignement by {measure['ID']}",
+            )
+
+        out.write("Error entry:\n")
+        out.write(str(measure))
+        out.write("\n\nPosition trace:\n")
+        out.write(str(ue))
+        out.write("\n")
+        entry_log["error"] = ""
+        entry_log.loc[measure["simtime"], "error"] = "<<<"
+        out.write(str(entry_log))
+        out.write("\n")
+        out.write("#" * 120)
+        out.write("\n")
+
+        return map_plotter
+
+    def plot_ground_truth_tiles(
+        self,
+        sim: Simulation,
+        node_pos: NodePositionWithRsdHdf,
+        coord: CoordinateType = CoordinateType.xy_cell,
+        rsd: int = 1,
+    ):
+        # enb bounds
+        colors = node_pos.enb_colors()
+        enb = node_pos.enb.frame()
+        ue = node_pos.ue.select(where=f"time=200")
+        ue_rsd_colors = ue["servingEnb"].astype(int).apply(lambda x: colors[x])
+
+        # rsd_1_hex =
+        outter_r = 650.0 / (np.sqrt(3) / 2) + 150  # + Randbereich
+        xy = []
+        for i in range(6):
+            xy.append(
+                [outter_r * np.cos(i * np.pi / 3), outter_r * np.sin(i * np.pi / 3)]
+            )
+        xy = np.array(xy)
+        xy = xy + enb[coord.cols].values[0]
+        rsd_1_hex: Polygon = Polygon(xy)
+
+        # ground truth cells
+        dpmm = sim.get_dcdMap()
+
+        data = pd.read_csv("rsd_1_with_error_marker_dzone150.csv")
+        # data = dpmm._map_p.select(
+        #         where="rsd_id=1 and simtime <= 200",
+        #     ).reset_index()
+        # data["in_rsd"] = data.apply(lambda x: rsd_1_hex.contains(Point(x["x"], x["y"])) , axis=1)
+        # data = data.sort_values(["simtime", "x", "y"])
+        # data.to_csv("rsd_1_with_error_marker_dzone150.csv")
+
+        wrong = data[~data["in_rsd"]].sort_values(
+            [
+                "simtime",
+                "ID",
+                "x",
+                "y",
+            ]
+        )
+        wrong_own_m = wrong[wrong["ID"] == wrong["source"]]
+        wrong_foreign = wrong[wrong["ID"] != wrong["source"]]
+        u = (
+            node_pos.ue.select(where="hostId=7768 and time <= 58.0")
+            .set_index(["time"])
+            .sort_index()
+        )
+
+        err_count = wrong.shape[0]
+        path = f"/mnt/data1tb/results/arc-dsa_multi_cell/s2_ttl_and_stream/simulation_runs/outputs/Sample_0_0/final_multi_enb_out/density/fig_out/err_trace.txt"
+        with open(path, "w", encoding="utf-8") as fd:
+            for row_id, (_, r) in enumerate(wrong.iterrows()):
+                print(f"{row_id}/{err_count}", file=sys.stdout)
+                print(f"{row_id}/{err_count}", file=fd)
+                plotter: MapPlotter = self.pull_error_data(
+                    r, dpmm=dpmm, node_pos=node_pos, coord=coord, out=fd
+                )
+                plotter.ax.set_title(
+                    f"Node {r.ID} at time {r.simtime} wrong RSD association for cell [{r.x}, {r.y}]"
+                )
+                path = f"/mnt/data1tb/results/arc-dsa_multi_cell/s2_ttl_and_stream/simulation_runs/outputs/Sample_0_0/final_multi_enb_out/density/fig_out/err_trace_{row_id}of{err_count}.png"
+                plotter.save_and_close(path)
+                print("", file=fd)
+        print("done.")
+        # fig, ax = self.check_ax()
+        # dfc = data[(data["simtime"] == 200) & data["in_rsd"]]
+        # dfi = data[(data["simtime"] == 200) & ~data["in_rsd"]]
+        # # ax.scatter(dfc["x"], dfc["y"], color="green", marker=".", alpha=.4, label="map data correctly labeled")
+        # # ax.scatter(dfi["x"], dfi["y"], color="red", marker=".", alpha=.4, label="map data incorrectly labeled")
+        # # ax.scatter(ue[coord.x], ue[coord.y], c=ue_rsd_colors, alpha=1., marker=".", label="ue position data")
+        # ax.scatter(u[coord.x], u[coord.y], c=u["servingEnb"].astype(int).apply(lambda x: colors[x]), marker=".")
+        # ax.scatter(wrong["x"].values[0], wrong["y"].values[0], color="red", marker=".", alpha=.5)
+
+        # # append enb hex
+        # enb_patches, hex_patches = enb_with_hex(
+        #     origin=enb[coord.cols].values,
+        #     inner_r=650,
+        #     scale=100)
+        # ax.add_collection(hex_patches)
+        # # ax.add_collection(enb_patches)
+        # ax.add_collection(
+        #     PatchCollection(
+        #         [hex_patch(origin=enb[coord.cols].values[0], outter_r=outter_r)],
+        #         facecolors="none",
+        #         edgecolors="green",
+        #     )
+        # )
+
+        # if coord.is_cartesian:
+        #     ax.xaxis.set_major_locator(MultipleLocator(500))
+        #     ax.yaxis.set_major_locator(MultipleLocator(500))
+        #     ax.xaxis.set_minor_locator(MultipleLocator(100))
+        #     ax.yaxis.set_minor_locator(MultipleLocator(100))
+
+        #     _min = (0, 500)
+        #     _max = (6300, 5300)
+        #     ax.set_xlim(_min[0], _max[0])
+        #     ax.set_ylim(_min[1], _max[1])
+        #     ax.set_aspect("equal")
+
+        # ax.legend()
+        # fig.tight_layout()
+        # fig.savefig("/mnt/data1tb/results/arc-dsa_multi_cell/s2_ttl_and_stream/simulation_runs/outputs/Sample_0_0/final_multi_enb_out/density/fig_out/trace_TEST.png")
+
+
+class MapPlotter(PlotUtil_):
+    def __init__(self, node_pos, coord, with_icon: bool = False) -> None:
+        super().__init__()
+        self.node_pos: NodePositionWithRsdHdf = node_pos
+        self.coord: CoordinateType = coord
+        self.ax = None
+        self.fig: plt.figure = None
+        self.with_icon: bool = with_icon
+
+    def __enter__(self, ax=None) -> MapPlotter:
+        f, a = self.check_ax(ax)
+        self.ax = a
+        self.fig = f
+
+        enb = self.node_pos.enb.frame()
+        enb_patches, hex_patches = enb_with_hex(
+            origin=enb[self.coord.cols].values, inner_r=650, scale=100
+        )
+        self.ax.add_collection(hex_patches)
+        self.enb_patches = enb_patches
+
+        return self
+
+    def __exit__(self, _t, value, tb):
+        if self.with_icon:
+            self.ax.add_collection(self.enb_patches)
+
+        if self.coord.is_cartesian:
+            self.ax.xaxis.set_major_locator(MultipleLocator(500))
+            self.ax.yaxis.set_major_locator(MultipleLocator(500))
+            self.ax.xaxis.set_minor_locator(MultipleLocator(100))
+            self.ax.yaxis.set_minor_locator(MultipleLocator(100))
+            self.ax.set_ylabel("North in meter")
+            self.ax.set_xlabel("East in meter")
+
+            _min = (0, 500)
+            _max = (6300, 5300)
+            self.ax.set_xlim(_min[0], _max[0])
+            self.ax.set_ylim(_min[1], _max[1])
+            self.ax.set_aspect("equal")
+        self.ax.legend()
+
+    def save_and_close(self, path):
+        self.fig.tight_layout()
+        self.fig.savefig(path)
+        plt.close(self.fig)
+        self.fig = None
+        self.ax = None
 
 
 PlotDpmMap = _PlotDpmMap()

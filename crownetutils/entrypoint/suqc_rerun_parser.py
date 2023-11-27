@@ -2,6 +2,7 @@ import argparse
 from typing import List
 
 from crownetutils.analysis.common import SuqcStudy
+from crownetutils.entrypoint.rename_suqc_context import main_rename_suqc_context
 
 
 def append_suqc_rerun_parser(
@@ -25,14 +26,54 @@ def append_suqc_rerun_parser(
         help="Number of parallel runs",
     )
     post.add_argument(
-        "--failed-only",
+        "-l",
+        "--list",
+        dest="list_only",
         action="store_true",
         default=False,
+        help="Only ist run ids of missing/failed runs",
+    )
+    post.add_argument(
+        "--filter",
+        help="List of runs. (e.g. 1,4,7-9,22-). Intervals are inclusive. Default: 'all'",
         required=False,
-        help="Tries to guess based on log file in run folders if postprocessing failed.",
+        default="all",
+    )
+    post.add_argument(
+        "--what",
+        "-w",
+        dest="what",
+        help="What should be rerun",
+        choices=["failed", "all"],
+        default="failed",
     )
     post.add_argument("--log", action="store_true", default=False, required=False)
     post.set_defaults(main_func=lambda ns: SuqcStudy.rerun_postprocessing(**vars(ns)))
+
+    suqcmove: argparse.ArgumentParser = sub.add_parser(
+        "suqc-update-context",
+        help="""A suqc Study contains absolute paths in the runContext.json to repate a 
+        simulation in case it fails. When the study directory is moved reapting simualtions 
+        or postprocessing steps is not possible. This tool will update the runContext.json to 
+        the new location of the study directory.""",
+        parents=parents,
+    )
+
+    suqcmove.add_argument(
+        "--suqc-dir", dest="path", required=True, help="Suqc Simulation folder"
+    )
+    suqcmove.add_argument("--dry-run", required=False, action="store_true", help="Show")
+    suqcmove.add_argument(
+        "-y",
+        "--yes",
+        dest="ask_user",
+        required=False,
+        action="store_false",
+        default=True,
+        help="Yes to all user input.",
+    )
+
+    suqcmove.set_defaults(main_func=lambda ns: main_rename_suqc_context(**vars(ns)))
 
     suqcrerun: argparse.ArgumentParser = sub.add_parser(
         "suqc-rerun",

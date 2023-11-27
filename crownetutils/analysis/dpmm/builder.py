@@ -340,7 +340,7 @@ class DpmmHdfBuilder(FrameConsumer):
             )
 
         if self.map_p.version >= ProviderVersion.V0_4:
-            rsd = self.sql.get_resource_sharing_domains(ids_only=True)
+            rsd = self.sql.get_resource_sharing_domains(ids_only=False)["rsd_id"]
             with self.map_p.ctx() as store:
                 store.append(
                     key=DpmmKey.RSD_ID,
@@ -473,7 +473,7 @@ class DpmmHdfBuilder(FrameConsumer):
 
         # See MissingValueImputationStrategy  configuration of builder for more information
         # imputation will sort by index [simtime, x, y]
-        _df = imputation_f.apply(_df)
+        _df = imputation_f.with_csv_id(id=id).apply(_df)
 
         # no NAN values after this point.
         if _df.isna().any(axis=0).any():

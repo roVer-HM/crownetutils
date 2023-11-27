@@ -1,13 +1,35 @@
 from __future__ import annotations
 
+import os
+import sys
 from abc import ABC
-from typing import Any, List, Protocol, runtime_checkable
+from typing import Any, List, Protocol, TextIO, runtime_checkable
 
 import numpy as np
 import pandas as pd
 
-from crownetutils.utils.logging import timing
+from crownetutils.utils.logging import logger, logging, timing
 from crownetutils.utils.misc import Timer
+
+
+class ImputationIncidentLogger:
+    def __init__(self, writer: TextIO) -> None:
+        self.writer: TextIO = writer
+
+    def log(self, s: str, end="\n") -> ImputationIncidentLogger:
+        self.writer.write(s)
+        self.writer.write(end)
+        return s
+
+
+class NullImputationIncidentLogger(ImputationIncidentLogger):
+    def __init__(
+        self,
+    ) -> None:
+        super().__init__(os.devnull)
+
+    def log(self, s: str, end="\n") -> ImputationIncidentLogger:
+        return f"{s}{end}"
 
 
 class MissingValueImputationStrategy(ABC):
@@ -19,6 +41,16 @@ class MissingValueImputationStrategy(ABC):
 
     def __init__(self) -> None:
         self._delay_sort = False
+        self.incident_log: ImputationIncidentLogger = NullImputationIncidentLogger()
+        self.csv_id = None
+
+    def with_csv_id(self, id):
+        self.csv_id = id
+        return self
+
+    def set_incident_logger(self, log: ImputationIncidentLogger):
+        self.incident_log = log
+        return self
 
     def sort_if_needed(self, df: pd.DataFrame) -> pd.DataFrame:
         if not self._delay_sort:
@@ -57,11 +89,12 @@ class ImputationStream(MissingValueImputationStrategy):
 
     def apply(self, df: pd.DataFrame, *args: Any, **kwds: Any) -> pd.DataFrame:
         with Timer(name="", label="ImputationStream") as timer:
-            for i, f in enumerate(self.imputations):
+            csv_id = self.csv_id
+            for i, imp_func in enumerate(self.imputations):
                 # do not sort if not necessary for imputation. Will be done
                 # at the end if needed.
-                df = f.delay_sort()._apply(df, *args, **kwds)
-                timer.round(f"{i}/{len(self.imputations)}: {f.name()}")
+                df = imp_func.delay_sort().with_csv_id(csv_id)._apply(df, *args, **kwds)
+                timer.round(f"{i}/{len(self.imputations)}: {imp_func.name()}")
 
             # ensure that stream of imputations sorted the provided data
             if not df.index.is_monotonic_increasing:
@@ -117,6 +150,7 @@ class ArbitraryValueImputation(MissingValueImputationStrategy):
         data_column: str = "count",
         glb_fill_value=0.0,
     ) -> None:
+        super().__init__()
         self.fill_value = fill_value
         self.glb_prefix = glb_prefix
         self.data_column = data_column
@@ -145,6 +179,7 @@ class FullRsdImputation(MissingValueImputationStrategy):
         rsd_origin_position: pd.DataFrame,
         rsd_col="rsd_id",
     ) -> None:
+        super().__init__()
         self.rsd_col = rsd_col
         self.rsd_distance = rsd_origin_position.rename(
             columns={"x": "enb_x", "y": "enb_y"}
@@ -209,7 +244,26 @@ class FullRsdImputation(MissingValueImputationStrategy):
             df = (
                 df.sort_index()
             )  # index: [time, x, y] needed to ensure times are sorted
-            owner_rsd_for_time = df.groupby("simtime")["owner_rsd_id"].first().values
+            owner_rsd_for_time = df.groupby("simtime")["owner_rsd_id"].first()
+            if owner_rsd_for_time.isna().any():
+                times_without_data = owner_rsd_for_time[
+                    owner_rsd_for_time.isna()
+                ].index.to_list()
+                num_data = df.loc[times_without_data].shape[0]
+                logger.warning(
+                    self.incident_log.log(
+                        f"node {self.csv_id}: found {len(times_without_data)} time(s) without any data. Remove rows {num_data}/{df.shape[0]} ({num_data/df.shape[0]*100:0.4f}%) "
+                    )
+                )
+                logger.warning(
+                    self.incident_log.log(
+                        f"node {self.csv_id}: violating time idencies: {times_without_data}"
+                    )
+                )
+                df = df.drop(level="simtime", labels=times_without_data)
+                owner_rsd_for_time = owner_rsd_for_time.dropna().values
+            else:
+                owner_rsd_for_time = owner_rsd_for_time.values
             time_count = df.groupby("simtime")["missing_value"].count()
             owner_rsd = np.repeat(owner_rsd_for_time, repeats=time_count)
             df["owner_rsd_id"] = owner_rsd
@@ -251,8 +305,28 @@ class OwnerPositionImputation(MissingValueImputationStrategy):
                 raise ValueError(
                     f"at least one row must not have any nan values. got {nan_cols}"
                 )
+            xy_owner = df.groupby(["simtime"])[["x_owner", "y_owner"]].first()
+            if xy_owner.isna().any().any():
+                times_without_data = xy_owner[
+                    xy_owner.isna().any(axis=1)
+                ].index.to_list()
+                num_data = df.loc[times_without_data].shape[0]
+                logger.warning(
+                    self.incident_log.log(
+                        f"node {self.csv_id}: found {len(times_without_data)} time(s) without any data. Remove rows {num_data}/{df.shape[0]} ({num_data/df.shape[0]*100:0.4f}%) "
+                    )
+                )
+                logger.warning(
+                    self.incident_log.log(
+                        f"node {self.csv_id}: violating time idencies: {times_without_data}"
+                    )
+                )
+                df = df.drop(level="simtime", labels=times_without_data)
+                xy_owner = xy_owner.dropna().values
+            else:
+                xy_owner = xy_owner.values
+
             time_count = df.groupby(["simtime"])[col_with_no_nans].count().values
-            xy_owner = df.groupby(["simtime"])[["x_owner", "y_owner"]].first().values
 
         if nan_cols[self.x_owner]:
             df["x_owner"] = np.repeat(xy_owner[:, 0], time_count)

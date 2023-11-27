@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import glob
+import inspect
 import io
 import os
 import pprint as pp
@@ -215,12 +216,23 @@ class OppSql:
                 return _con.execute(sql_str, **kwargs)
             else:
                 raise RuntimeError("Expected df or cursor as type")
+    
+    def _write(
+            self, sql_str, file="vec", **kwargs
+    ) -> None:
+        sql_file = self._file(file)
+        with sql_file() as _con:
+            _con.execute(sql_str, **kwargs)
+            _con.commit()
 
     def query_vec(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="vec", type=type, **kwargs)
 
     def query_sca(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="sca", type=type, **kwargs)
+
+    def write_sca(self, sql_str, **kwargs):
+        return self._write(sql_str, file="sca", **kwargs)
 
     @staticmethod
     def _to_sql(obj: Union[str, SqlOp], table, column, prefix="", suffix=""):
@@ -676,6 +688,50 @@ class OppSql:
                 f.writelines(lines)
             return None
 
+    def vec_data_paginate(
+        self,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        ids: List[int] | pd.DataFrame | None = None,
+        runId: int = 1,
+        vec_ids_per_page: int = 5,
+        columns: List[str] = ("vectorId", "simtimeRaw", "value"),
+        order_by: List[str] = (),
+        value_name: str = "value",
+        time_slice: slice = slice(None),
+        time_resolution=1e12,
+        index: List[str] | None = None,
+        index_sort: bool = True,
+        drop: str | List[str] | None = None,
+        **kwargs,
+    ):
+        _loc = locals()
+        sig = inspect.signature(self.vec_data_paginate)
+        sig = [
+            i[0]
+            for i in list(sig.parameters.items())
+            if i[0]
+            not in ["module_name", "vector_name", "ids", "vec_ids_per_page", "kwargs"]
+        ]
+        vec_ids_sig = {k: _loc[k] for k in sig}
+        if module_name is not None and vector_name is not None:
+            _ids = self.vec_ids(module_name, vector_name)
+        elif type(ids) == pd.DataFrame:
+            _ids = ids["vectorId"].unique()
+            if "vectorId" not in columns:
+                columns = [*columns, "vectorId"]
+        else:
+            _ids = ids
+
+        data = []
+        pages = int(np.ceil(len(_ids) / vec_ids_per_page))
+        for i in range(0, len(_ids), vec_ids_per_page):
+            print(f"query page: {int(i/vec_ids_per_page)}/{pages}")
+            page_ids = _ids[i : min(i + 5, len(_ids) - 1)]
+            o = self.vec_data(ids=page_ids, **vec_ids_sig, **kwargs)
+            data.append(o)
+        return pd.concat(data, axis=1)
+
     @timing
     def vec_data(
         self,
@@ -977,10 +1033,41 @@ class CrownetSql(OppSql):
     def module_to_host_ids(self):
         if self._module_id_map is None:
             m = self.OR([f"{self.network}.{i}[%]" for i in self.module_vectors])
+            _host_ids = self.host_ids(module_name=m)
             self._module_id_map = HostIdMap(
-                {v: k for k, v in self.host_ids(module_name=m).items()}
+                {v: k for k, v in _host_ids.items()}
             )
         return self._module_id_map
+    
+    def debug_load_host_id_map_from_data(self):
+        if len(self.module_to_host_ids().id_map) == 0:
+            logger.warning("no hostId map found create one from zero send delay. And append it to sca DB!")
+            vec_names = {
+                "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
+                "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
+            }
+            vec_data = self.vec_data_pivot(
+                module_name=self.m_app0(),
+                vector_name_map=vec_names,
+                append_index=["srcHostId"],
+            ).sort_index()
+            _d = vec_data["delay"] == 0.0
+            _dummy_to_host = {v:k for k, v in self.module_to_host_ids().id_map.items()} 
+            vec_data: pd.DataFrame = vec_data.reset_index().drop(columns=["eventNumber", "time"])[_d.values].drop_duplicates()
+            insert = []
+            for _, row in vec_data.iterrows():
+                insert.append(f"(1, '{_dummy_to_host[row['hostId']]}', 'hostId:last', {row['srcHostId']})")
+            
+            insert = ",\n".join(insert)
+            sql_str = f"INSERT INTO scalar (runId, moduleName, scalarName, scalarValue) VALUES \n {insert};"
+
+            self.write_sca(sql_str)
+
+            # update id map 
+            self._module_id_map = None
+            self.module_to_host_ids()
+            self.module_matcher = ModuleMatcher(self)
+
 
     def create_bonnmotion_trace(
         self,
@@ -1066,8 +1153,11 @@ class CrownetSql(OppSql):
             cols=("hostId", "host", "x", "y"),
         )
         enb["hostId"] = enb["hostId"].astype(int)
-
-        enb = enb.merge(rsd, how="inner", on="hostId")
+        if rsd.empty:
+            logger.warning(f"scalar name of rsd_id not found. use enb vector index +1 as rsd_id")
+            enb["rsd_id"] = enb["hostId"] + 1
+        else:
+            enb = enb.merge(rsd, how="inner", on="hostId")
         return enb
 
     def node_position(

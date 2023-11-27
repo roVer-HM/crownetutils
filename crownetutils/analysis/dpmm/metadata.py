@@ -215,6 +215,12 @@ class DpmmMetaData:
         full_df.update(df)
         return full_df
 
+    def position_to_cell(self, xy):
+        """Return cell id (lower left corner coordinates) for postion xy"""
+        x = int(xy[0] / self.cell_size) * self.cell_size
+        y = int(xy[1] / self.cell_size) * self.cell_size
+        return np.array([x, y])
+
     def create_full_index_from_df(self, df, real_coords=False):
         return self.create_full_index(
             df.index.levels[0].to_numpy(dtype=float), real_coords

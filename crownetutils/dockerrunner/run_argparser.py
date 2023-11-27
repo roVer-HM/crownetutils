@@ -292,3 +292,12 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         required=False,
         help="Name of the docker bridge network that will be created",
     )
+
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        default=False,
+        required=False,
+        action="store_true",
+        help="activate debug verbosity and fail fast with exepction chaining.",
+    )

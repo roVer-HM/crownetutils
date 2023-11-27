@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import partial
 from glob import escape
-from typing import Any, Callable, List, Protocol
+from typing import Any, Callable, List, Literal, Protocol
 
 import numpy as np
 import pandas as pd
@@ -90,6 +90,15 @@ def format_frame(
 
     return _df
 
+def combine_stats(names, *args) -> pd.DataFrame:
+    """Combine statistics from different sources (pd.Series objects). Provide list of names to use as column names"""
+    ret = []
+    if len(names) != len(args):
+        raise ValueError()
+    for d in args:
+        ret.append(d.describe())
+    ret = pd.concat(ret, axis=1).set_axis(names, axis=1)
+    return ret
 
 def save_as_tex_table(
     df: pd.DataFrame,
@@ -267,15 +276,59 @@ def append_columns(
 
 
 def index_or_col(df, name):
-    if isinstance(df.index, pd.MultiIndex):
-        if name in df.index.names:
-            return df.index.get_level_values(name)
+    if isinstance(df.index, pd.MultiIndex) and name in df.index.names:
+        return df.index.get_level_values(name)
     elif df.index.name == name:
         return df.index
+    elif isinstance(df, pd.Series) and name in df.index:
+        # frame with one row  is reduced to pd.Series with columns as index.
+        # return as list with one item
+        return [df[name]]
     elif name in df.columns:
         return df[name]
     else:
         raise ValueError(f"name {name} not found in index or columns")
+
+
+def append_interval(
+    frame: pd.DataFrame,
+    interval_range: float,
+    time_col: str = "time",
+    start_time: float = 0.0,
+    end_time: float | None = None,
+    closed: IntervalClosedType = "left",
+    interval_col: str | None = "time_bin",
+):
+    time_data = index_or_col(frame, time_col)
+    end_time = (
+        np.ceil(time_data.max() + interval_range) if end_time is None else end_time
+    )
+    bins = pd.interval_range(
+        start=start_time, end=end_time, freq=interval_range, closed=closed
+    )
+    if interval_col is None:
+        return pd.cut(time_data, bins)
+    else:
+        frame[interval_col] = pd.cut(time_data, bins)
+        return frame
+
+
+def build_interval(frame: pd.DataFrame, provider) -> pd.DataFrame:
+    m = provider.get_attribute("interval_column")
+    if all(i in frame.columns for i in [m[1], m[2]]):
+        idx = [
+            pd.Interval(v[0], v[1], closed=m[3])
+            for v in frame.loc[:, [m[1], m[2]]].values
+        ]
+        frame[m[0]] = pd.IntervalIndex(idx, closed=m[3])
+    return frame
+
+
+def get_index_name_or_names(df):
+    if isinstance(df.index, pd.MultiIndex):
+        return df.index.names
+    else:
+        return df.index.name
 
 
 def merge_on_interval(
@@ -285,9 +338,11 @@ def merge_on_interval(
     interval_col="interval",
     interval_closed_at: IntervalClosedType = "left",
     merge: bool = True,
+    copy_data: bool = True,
     **merge_args,
 ):
-    data = data.copy()
+    if copy_data:
+        data = data.copy()
     if isinstance(data.index, pd.MultiIndex):
         group_by_index = list(data.index.names)
         if index not in group_by_index:
@@ -298,8 +353,10 @@ def merge_on_interval(
 
         data[interval_col] = np.nan
         for _index, _df in data.groupby(group_by_index):
+            if isinstance(_index, tuple) and len(_index) == 1:
+                _index = _index[0]
             i_index = pd.IntervalIndex(
-                index_or_col(df_interval.loc[_index], interval_col),
+                index_or_col(df_interval.loc[_index,], interval_col),
                 closed=interval_closed_at,
             )
             data.loc[_index, [interval_col]] = pd.cut(
