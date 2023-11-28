@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from functools import partial
 from glob import escape
+import os
 from typing import Any, Callable, List, Literal, Protocol
+from crownetutils.utils.logging import logger
 
 import numpy as np
 import pandas as pd
@@ -211,12 +213,20 @@ class LazyDataFrame(object):
             sep=meta["SEP"],
             header=0,
             usecols=column_selection,
-            dtype=self.dtype,
+            # dtype=self.dtype,
             decimal=".",
             index_col=False,
             encoding="utf-8",
             comment="#",
         )
+        if any(df.isna()):
+            _s = df.shape[0]
+            rows_with_nan = df.isna().any(axis=1)
+            df = df[~rows_with_nan].copy()
+            logger.warning(f"{os.path.basename(self.path)} found {_s-df.shape[0]}/{_s} ({100*(_s-df.shape[0])/_s:.3f}%) rows with nan values. (removed.)")
+        
+        df = df.astype(self.dtype)
+
         if set_index and "IDXCOL" in meta:
             nr_row_indices = int(meta["IDXCOL"])
             if 0 < nr_row_indices <= df.shape[1]:

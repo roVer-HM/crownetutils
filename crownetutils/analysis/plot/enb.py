@@ -92,8 +92,8 @@ class _PlotEnb(PlotUtil_):
         sql: Scave.CrownetSql,
         saver: FigureSaver = FigureSaver.FIG,
     ):
-        num_enb = int(sql.get_run_config("*.numEnb"))
-        bins = int(sql.get_run_config("**.numBands"))
+        num_enb = 15#int(sql.get_run_config("*.numEnb"))
+        bins = 25#int(sql.get_run_config("**.numBands"))
         for n in range(num_enb):
             data = OppAnalysis.get_avgServedBlocksUl(sql, enb_index=n)
             fig, ax = self.plot_ts_enb_served_rb(data, time_bucket_length=1.0)

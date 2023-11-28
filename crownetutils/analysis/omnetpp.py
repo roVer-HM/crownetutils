@@ -32,6 +32,7 @@ from crownetutils.analysis.hdf.provider import (
     ProviderVersion,
 )
 from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 from crownetutils.omnetpp.scave import (
     CrownetSql,
     SqlEmptyResult,
@@ -1026,6 +1027,16 @@ class _OppAnalysis(AnalysisBase):
 
         # Resource sharing domain specific data.
         if sim.builder.map_p.version >= ProviderVersion.V0_4:
+            if not sim.builder.map_p.has_rsd_is():
+                rsd = sim.sql.get_resource_sharing_domains(ids_only=False)["rsd_id"]
+                with sim.builder.map_p.ctx() as store:
+                    store.append(
+                        key=DpmmKey.RSD_ID,
+                        value=rsd,
+                        index=False,
+                        format="table",
+                        data_columns=True,
+                    )
             rsd_list = sim.builder.map_p.get_rsd_ids()
             if sim.sql.is_count_map() and len(rsd_list) > 1:
                 group = "map_measure_by_rsd"

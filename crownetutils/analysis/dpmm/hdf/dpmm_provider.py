@@ -269,6 +269,9 @@ class DpmmProvider(IHdfProvider):
         with self.ctx(mode="r") as store:
             df = store.get(key=DpmmKey.RSD_ID)
         return df
+    
+    def has_rsd_is(self) -> bool:
+        return self.contains_group(DpmmKey.RSD_ID)
 
     def update_selection_map(self, keys):
         next_idx = max(self.selection_mapping.values()) + 1
