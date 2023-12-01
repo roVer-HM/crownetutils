@@ -5,7 +5,7 @@ from os.path import join
 from typing import Tuple
 
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, MapType
 from crownetutils.omnetpp.scave import CrownetSql
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import Project
@@ -39,7 +39,7 @@ class AnalysisBase:
         logger.warning(
             "build_from_output_folder is deprecated. Use build_from_cfg instead. Try to guess configuration ..."
         )
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             base_dir=data_root,
             hdf_file=hdf_file,
             vec_name=vec_name,

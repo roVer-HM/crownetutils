@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
 
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv
 from crownetutils.omnetpp.scave import CrownetSql
 
 
@@ -15,7 +15,7 @@ class CrownetSqlTest(unittest.TestCase):
         self.assertEqual(sql.network, "World")
 
     def test_default_with_cfg(self):
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             base_dir="/temp/foo",
             network_name="Net",
             map_app_path="map",
@@ -28,7 +28,7 @@ class CrownetSqlTest(unittest.TestCase):
         self.assertEqual(sql.network, "Net")
 
     def test_module_path_redirect_with_cfg(self):
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             base_dir="/temp/foo",
             network_name="Net",
             map_app_path="map",

@@ -1,12 +1,12 @@
 import unittest
 
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, MapType
 from crownetutils.utils.misc import Project
 
 
 class DpmmCfgTest(unittest.TestCase):
     def test_default_setup(self):
-        cfg = DpmmCfg(base_dir="/tmp/foo")
+        cfg = DpmmCfgCsv(base_dir="/tmp/foo")
         self.assertEqual(cfg.hdf_file, "data.h5")
         self.assertEqual(cfg.vec_name, "vars_rep_0.vec")
         self.assertEqual(cfg.sca_name, "vars_rep_0.sca")
@@ -25,7 +25,7 @@ class DpmmCfgTest(unittest.TestCase):
         self.assertEqual(cfg.sca_path(), "/tmp/foo/vars_rep_0.sca")
 
     def test_single_module(self):
-        cfg = DpmmCfg(base_dir="/tmp/foo", module_vectors=["bar"])
+        cfg = DpmmCfgCsv(base_dir="/tmp/foo", module_vectors=["bar"])
 
         b1 = cfg.m_beacon().info_str()
         self.assertEqual(b1, "or[World.bar[%].app[0].app]")
@@ -42,7 +42,7 @@ class DpmmCfgTest(unittest.TestCase):
         self.assertEqual(b3, "or[World.bar[13].app[1].app]")
 
     def test_paths(self):
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             base_dir="/tmp/foo",
             module_vectors=["bar"],
             map_app_path="M",
@@ -56,7 +56,7 @@ class DpmmCfgTest(unittest.TestCase):
         self.assertEqual(b2, "or[World.foo[5].B.baz]")
 
     def test_paths(self):
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             base_dir="/tmp/foo",
             module_vectors=["bar"],
             map_app_path="M",
@@ -69,7 +69,7 @@ class DpmmCfgTest(unittest.TestCase):
             pass
 
     def test_multi_module(self):
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             network_name="A",
             base_dir="/tmp/foo",
             module_vectors=["foo", "bar"],
@@ -80,7 +80,7 @@ class DpmmCfgTest(unittest.TestCase):
         self.assertEqual(b1.info_str(), "or[A.foo[%].x[0].y.app, A.bar[%].x[0].y.app]")
 
     def test_multi_module_dict_app(self):
-        cfg = DpmmCfg(
+        cfg = DpmmCfgCsv(
             network_name="A",
             base_dir="/tmp/foo",
             module_vectors=["foo", "bar"],

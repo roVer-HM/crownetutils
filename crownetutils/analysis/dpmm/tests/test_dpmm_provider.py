@@ -8,7 +8,7 @@ import pandas as pd
 from fs.tempfs import TempFS
 
 from crownetutils.analysis.dpmm.builder import parse_node_id
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.analysis.dpmm.tests.utils import (
     create_dcd_csv_dataframe,
@@ -128,7 +128,7 @@ class DpmmProviderTest(unittest.TestCase):
         mock_set_attribute2: MagicMock,
         mock_build_dataframe: MagicMock,
     ):
-        cfg = DpmmCfg.default_density_beacon_map_cfg(os.devnull)
+        cfg = DpmmCfgCsv.default_density_beacon_map_cfg(os.devnull)
         id_extractor = partial(parse_node_id, regex=cfg.get_csv_id_regex_pattern())
         dcd_path_1 = "any/path/dcdMap_42.csv"  # default naming convention
         dcd_path_2 = "any/path/dcdMap_43.csv"  # default naming convention

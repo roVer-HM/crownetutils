@@ -2,12 +2,12 @@ import re
 import unittest
 
 from crownetutils.analysis.dpmm.builder import parse_node_id
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv
 
 
 class PareNodeTest(unittest.TestCase):
     def test_parse_node_id(self):
-        default_cfg = DpmmCfg.default_density_beacon_map_cfg("/tmp/base_dir")
+        default_cfg = DpmmCfgCsv.default_density_beacon_map_cfg("/tmp/base_dir")
         node_id = 42
         correct_string = f"any/path/dcdMap_{node_id}.csv"
         p = re.compile(default_cfg.node_map_csv_id_regex)
