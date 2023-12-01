@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import contextlib
+import os
+import sqlite3 as sq
+from typing import List, Tuple
+
+import pandas as pd
+
+from crownetutils.analysis.dpmm.csv_loader import _apply_real_coords
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
+from crownetutils.analysis.dpmm.metadata import DpmmMetaData
+
+
+class DpmmSql:
+    def __init__(self, cfg: DpmmCfgDb) -> None:
+        self.cfg: DpmmCfgDb = cfg
+        self.path = os.path.join(cfg.base_dir, cfg.map_db_name)
+
+    @property
+    def tbl_metadata(self) -> str:
+        return self.cfg.tbl_metadata
+
+    @property
+    def tbl_map(self) -> str:
+        return self.cfg.tbl_map
+
+    @property
+    def tbl_map_glb(self) -> str:
+        return self.cfg.tbl_map_glb
+
+    @property
+    def tbl_alg_mapping(self) -> str:
+        return self.cfg.tbl_alg_mapping
+
+    @property
+    def tbl_glb_node_id_mapping(self) -> str:
+        return self.cfg.tbl_glb_node_id_mapping
+
+    def read_map(
+        self,
+        host_id,
+        index_types: dict,
+        col_types_dict: dict,
+        real_coords: bool = True,
+        df_filter=None,
+    ) -> Tuple[pd.DataFrame, DpmmMetaData]:
+        _cols = {**index_types, **col_types_dict}
+        cols = [f"m.{c}" for c in _cols.keys()]
+        cols = ", ".join(cols)
+        if "selection" in cols:
+            cols = cols.replace("m.selection,", "a.alg_name as 'selection',")
+        order = [f"m.{c}" for c in index_types.keys()]
+        order = ", ".join(order)
+        _sql_str = f"select {cols} from {self.tbl_map} as m  join {self.tbl_alg_mapping} a on m.selection = a.uid where m.hostId = {host_id} order by {order} asc"
+        df = self.query(_sql_str, type="df", dtype=_cols)
+        df = df.set_index(list(index_types.keys()))
+        df = df[list(col_types_dict.keys())].copy()
+        # apply given filters first (if any)
+        if df_filter is not None:
+            if type(df_filter) == list:
+                for _f in df_filter:
+                    df = _f(df)
+            else:
+                # apply early filter to remove not needed data to increase performance
+                df = df_filter(df)
+        meta = self.metadata(host_id)
+        if real_coords:
+            df = _apply_real_coords(df, meta)
+        return df, meta
+
+    def get_host_ids(self) -> List[int]:
+        _sql_str = f"select distinct m.hostId from {self.tbl_metadata} as m where m.hostId > 0 order by m.hostId asc"
+        df = self.query(_sql_str, type="df")
+        return df["hostId"].to_list()
+
+    def metadata(self, hostId) -> DpmmMetaData:
+        _sql_str = f"select m.key, m.value from {self.tbl_metadata} as m where m.hostId == {hostId}"
+        df = self.query(_sql_str, type="df")
+        m = {k: v for k, v in df.values}
+        return DpmmMetaData.from_dict(m)
+
+    def glb_metadata(self) -> DpmmMetaData:
+        return self.metadata(-1)
+
+    def read_glb_map(
+        self,
+        index_types: dict,
+        col_types_dict: dict,
+        real_coords: bool = True,
+        df_filter=None,
+    ) -> Tuple[pd.DataFrame, DpmmMetaData]:
+        _cols = {**index_types, **col_types_dict}
+        cols = [f"g.{c}" for c in _cols.keys()]
+        cols = ", ".join(cols)
+        _sql_str = f"select {cols} from {self.tbl_map_glb} as g"
+
+        df = self.query(_sql_str, type="df", dtype=_cols)
+        df = df.set_index(list(index_types.keys()))
+        # apply given filters first (if any)
+        if df_filter is not None:
+            if type(df_filter) == list:
+                for _f in df_filter:
+                    df = _f(df)
+            else:
+                # apply early filter to remove not needed data to increase performance
+                df = df_filter(df)
+        meta = self.glb_metadata()
+        if real_coords:
+            df = _apply_real_coords(df, meta)
+        return df
+
+    def read_global_position(
+        self, index_types: dict, real_coords: bool = True, df_filter=None
+    ) -> Tuple[pd.DataFrame, DpmmMetaData]:
+        i_c = [f"g.{c}" for c in list(index_types.keys())]
+        i_c = ", ".join(i_c)
+        _sql_str = f"select {i_c}, n.node_id from {self.tbl_map_glb} as g join {self.tbl_glb_node_id_mapping} as n on g.uid == n.glb_map_uid order by g.simtime, g.x, g.y asc"
+        df = self.query(_sql_str, type="df")
+        df = df.set_index(list(index_types.keys()))
+        # apply given filters first (if any)
+        if df_filter is not None:
+            if type(df_filter) == list:
+                for _f in df_filter:
+                    df = _f(df)
+            else:
+                # apply early filter to remove not needed data to increase performance
+                df = df_filter(df)
+        meta = self.glb_metadata()
+        if real_coords:
+            df = _apply_real_coords(df, meta)
+        return df.reset_index()
+
+    @contextlib.contextmanager
+    def con(self):
+        if not os.path.exists(self.path):
+            raise FileNotFoundError(self.path)
+        try:
+            _con = sq.connect(self.path)
+            yield _con
+        finally:
+            _con.close()
+
+    def query(self, sql_str, type="df", **kwargs) -> pd.DataFrame | sq.Cursor:
+        with self.con() as _con:
+            if type == "df":
+                return pd.read_sql_query(sql_str, _con, **kwargs)
+            elif type == "cursor":
+                return _con.execute(sql_str, **kwargs)
+            else:
+                raise RuntimeError("Expected df or cursor as type")

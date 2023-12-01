@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import os
 from functools import partial
 from glob import escape
-import os
 from typing import Any, Callable, List, Literal, Protocol
-from crownetutils.utils.logging import logger
 
 import numpy as np
 import pandas as pd
 from pandas._typing import IntervalClosedType
+from pandas.errors import EmptyDataError
 from pandas.io.formats.style import Styler
+
+from crownetutils.utils.logging import logger
 
 
 class EmptyFrameConsumer:
@@ -92,6 +94,7 @@ def format_frame(
 
     return _df
 
+
 def combine_stats(names, *args) -> pd.DataFrame:
     """Combine statistics from different sources (pd.Series objects). Provide list of names to use as column names"""
     ret = []
@@ -101,6 +104,7 @@ def combine_stats(names, *args) -> pd.DataFrame:
         ret.append(d.describe())
     ret = pd.concat(ret, axis=1).set_axis(names, axis=1)
     return ret
+
 
 def save_as_tex_table(
     df: pd.DataFrame,
@@ -220,12 +224,16 @@ class LazyDataFrame(object):
             comment="#",
         )
         if any(df.isna()):
+            if df.empty:
+                raise EmptyDataError()
             _s = df.shape[0]
             rows_with_nan = df.isna().any(axis=1)
             df = df[~rows_with_nan].copy()
-            logger.warning(f"{os.path.basename(self.path)} found {_s-df.shape[0]}/{_s} ({100*(_s-df.shape[0])/_s:.3f}%) rows with nan values. (removed.)")
-        
-        df = df.astype(self.dtype)
+            logger.warning(
+                f"{os.path.basename(self.path)} found {_s-df.shape[0]}/{_s} ({100*(_s-df.shape[0])/_s:.3f}%) rows with nan values. (removed.)"
+            )
+
+        df = df.astype(self.dtype)[column_selection].copy()
 
         if set_index and "IDXCOL" in meta:
             nr_row_indices = int(meta["IDXCOL"])

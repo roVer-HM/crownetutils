@@ -38,7 +38,7 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 from crownetutils.analysis.base import AnalysisBase
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, MapType
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.dockerrunner.run_argparser import read_sim_run_context
 from crownetutils.entrypoint.parser import ArgList
@@ -807,7 +807,7 @@ class Simulation:
         self.dpmm_cfg = dpmm_cfg
         if self.dpmm_cfg is None:
             logger.info("dpmm_cfg not set. Assume defaults")
-            self.dpmm_cfg: DpmmCfg = DpmmCfg(
+            self.dpmm_cfg: DpmmCfg = DpmmCfgCsv(
                 base_dir=data_root, hdf_file="data.h5", map_type=MapType.DENSITY
             )
 

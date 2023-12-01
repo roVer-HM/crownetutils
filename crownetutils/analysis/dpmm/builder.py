@@ -15,12 +15,14 @@ from pandas import IndexSlice as Idx
 
 import crownetutils.analysis.dpmm.csv_loader as DcdUtil
 from crownetutils.analysis.dpmm.dpmm import DpmMap
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, DpmmCfgDb, MapType
+from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     DpmmGlobal,
     DpmmGlobalPosition,
     create_and_save_position_and_global,
+    create_and_save_position_and_global_db,
 )
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.analysis.dpmm.imputation import (
@@ -145,14 +147,12 @@ class DpmmHdfBuilder(FrameConsumer):
         job_list = [[*i, _filter, override_existing] for i in job_list]
         pool.map(_hdf_job, job_list)
 
-    def __init__(self, cfg: DpmmCfg):  # hdf_path, map_paths, global_path, epsg=""):
+    def __init__(self, cfg: DpmmCfg):
         super().__init__()
         self.cfg = cfg
         self.sql = CrownetSql.from_dpmm_cfg(cfg)
         # paths
         self.hdf_path = self.cfg.hdf_path()
-        self.map_paths = glob.glob(os.path.join(cfg.base_dir, cfg.node_map_csv_glob))
-        self.global_path = os.path.join(cfg.base_dir, cfg.global_map_csv_name)
 
         # providers
         # self.count_p = DpmmCount(self.cfg.hdf_path("count.h5"))
@@ -298,9 +298,21 @@ class DpmmHdfBuilder(FrameConsumer):
     def create_hdf_fast(self):
         t = DcdUtil.Timer.create_and_start("create_hdf", label="")
         # 1) parse global.csv in position and global provider
-        self.position_p, self.global_p, meta = create_and_save_position_and_global(
-            self.global_path, self.hdf_path
-        )
+        if isinstance(self.cfg, DpmmCfgCsv):
+            glb_csv_path = os.path.join(self.cfg.base_dir, self.cfg.global_map_csv_name)
+            self.position_p, self.global_p, meta = create_and_save_position_and_global(
+                csv_path=glb_csv_path, hdf_path=self.hdf_path
+            )
+        elif isinstance(self.cfg, DpmmCfgDb):
+            (
+                self.position_p,
+                self.global_p,
+                meta,
+            ) = create_and_save_position_and_global_db(
+                cfg=self.cfg, hdf_path=self.hdf_path
+            )
+        else:
+            raise ValueError("expected csv for db config")
         # 2) access global_df and setup helpers for parsing map_*.csv to create
         #    map and count provider together
         self.global_df = self.global_p.get_dataframe()
@@ -311,23 +323,42 @@ class DpmmHdfBuilder(FrameConsumer):
             .sort_values()
             .to_numpy()
         )
-        # add self as frame_consumer to build count_map iteratively
-        id_extractor = partial(
-            parse_node_id, regex=re.compile(self.cfg.node_map_csv_id_regex)
-        )
-        self.map_p.create_from_csv(
-            self.map_paths,
-            id_extractor=id_extractor,
-            frame_consumer=[
-                partial(
-                    self.create_count_map,
-                    csv_version=self.map_p.version,
-                    imputation_f=self._imputation_function,
-                )
-            ],
-            global_position=self.position_df,
-            global_metadata=meta,
-        )
+        if isinstance(self.cfg, DpmmCfgCsv):
+            # add self as frame_consumer to build count_map iteratively
+            id_extractor = partial(
+                parse_node_id, regex=re.compile(self.cfg.node_map_csv_id_regex)
+            )
+            map_paths = glob.glob(
+                os.path.join(self.cfg.base_dir, self.cfg.node_map_csv_glob)
+            )
+            self.map_p.create_from_csv(
+                map_paths,
+                id_extractor=id_extractor,
+                frame_consumer=[
+                    partial(
+                        self.create_count_map,
+                        csv_version=self.map_p.version,
+                        imputation_f=self._imputation_function,
+                    )
+                ],
+                global_position=self.position_df,
+                global_metadata=meta,
+            )
+        elif isinstance(self.cfg, DpmmCfgDb):
+            self.map_p.create_from_db(
+                sql=DpmmSql(self.cfg),
+                frame_consumer=[
+                    partial(
+                        self.create_count_map,
+                        csv_version=self.map_p.version,
+                        imputation_f=self._imputation_function,
+                    )
+                ],
+                global_position=self.position_df,
+                global_metadata=meta,
+            )
+        else:
+            raise ValueError("expected csv for db config")
         # 3) append global count to count provider
         self.append_global_count()
         # 4) create index on count_map_provider
@@ -395,26 +426,7 @@ class DpmmHdfBuilder(FrameConsumer):
         }
 
     def create_hdf(self):
-        t = DcdUtil.Timer.create_and_start("create_hdf", label="")
-        print("build global")
-        self.position_p, self.global_p = create_and_save_position_and_global(
-            self.global_path, self.hdf_path
-        )
-        print("build dcd map")
-        self.map_p.create_from_csv(self.map_paths)
-        print("build count map")
-        count_df = DcdUtil.create_error_df(
-            self.map_p.get_dataframe(), self.global_p.get_dataframe()
-        )
-        self.count_p.write_dataframe(count_df)
-        t.stop()
-        print("done")
-        return {
-            "glb": self.global_p,
-            "pos": self.position_p,
-            "map": self.map_p,
-            "count": self.count_p,
-        }
+        raise DeprecationWarning("use create_hdf_fast")
 
     @timing
     def create_count_map(

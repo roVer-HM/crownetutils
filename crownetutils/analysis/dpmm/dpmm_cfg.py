@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import glob
 import json
 import os
@@ -24,17 +25,18 @@ class MapType(Enum):
 
 class DpmmCfgEncoder(json.JSONEncoder):
     @classmethod
-    def new(cls, keep_base_dir: bool):
+    def new(cls, keep_base_dir: bool, _clazz):
         """Provide pre configured callable to crete json encoder"""
 
         def func(*args, **kwargs) -> DpmmCfgEncoder:
-            return DpmmCfgEncoder(keep_base_dir, *args, **kwargs)
+            return DpmmCfgEncoder(keep_base_dir, _clazz, *args, **kwargs)
 
         return func
 
     def __init__(
         self,
         keep_base_dir: bool,
+        _clazz,
         *,
         skipkeys: bool = False,
         ensure_ascii: bool = True,
@@ -56,9 +58,10 @@ class DpmmCfgEncoder(json.JSONEncoder):
             default=default,
         )
         self.keep_base_dir = keep_base_dir
+        self._clazz = _clazz
 
     def default(self, o: Any) -> Any:
-        if isinstance(o, DpmmCfg):
+        if isinstance(o, self._clazz):
             __o = asdict(o)
             if not self.keep_base_dir:
                 __o["base_dir"] = None
@@ -71,14 +74,15 @@ class DpmmCfgEncoder(json.JSONEncoder):
 
 class DpmmCfgDecoder(json.JSONDecoder):
     @classmethod
-    def new(cls, base_dir=None) -> DpmmCfgDecoder:
+    def new(cls, _clazz, base_dir=None) -> DpmmCfgDecoder:
         def func(*args, **kwargs):
-            return DpmmCfgDecoder(base_dir, *args, **kwargs)
+            return DpmmCfgDecoder(_clazz, base_dir, *args, **kwargs)
 
         return func
 
     def __init__(
         self,
+        _clazz,
         base_dir=None,
         *,
         parse_float: Callable[[str], Any] | None = None,
@@ -96,6 +100,7 @@ class DpmmCfgDecoder(json.JSONDecoder):
             object_pairs_hook=object_pairs_hook,
         )
         self.base_dir = base_dir
+        self._clazz = _clazz
 
     def object_hook(self, obj):
         if obj["base_dir"] is None and self.base_dir is None:
@@ -108,11 +113,11 @@ class DpmmCfgDecoder(json.JSONDecoder):
             obj["map_type"] = MapType(obj["map_type"])
         except:
             ValueError(f"Did not found TypeMap {obj['map_type']}")
-        return DpmmCfg(**obj)
+        return self._clazz(**obj)
 
 
 @dataclass
-class DpmmCfg:
+class DpmmCfg(abc.ABC):
     base_dir: str
     hdf_file: str = "data.h5"
     vec_name: str = "vars_rep_0.vec"
@@ -121,9 +126,6 @@ class DpmmCfg:
 
     map_type: MapType = MapType.DENSITY
     global_map_ini_path: str = "World.globalDensityMap"
-    global_map_csv_name: str = "global.csv"
-    node_map_csv_glob: str = "dcdMap_*.csv"
-    node_map_csv_id_regex: str = r"dcdMap_(?P<node>\d+)\.csv"
     epsg_base: Project = Project.UTM_32N
 
     module_vectors: List[str] = ("misc", "pNode", "vNode")
@@ -157,9 +159,6 @@ class DpmmCfg:
     def __post_init__(self):
         self.module_vectors = list(self.module_vectors)
 
-    def get_csv_id_regex_pattern(self) -> re.Pattern:
-        return re.compile(self.node_map_csv_id_regex)
-
     def _create_sql_op(
         self, app: str | Dict[str, str], modules: List[str], node_index: int, path: str
     ):
@@ -173,9 +172,6 @@ class DpmmCfg:
                 app_str = app[m]
                 _or.append(f"{_net}.{m}[{node_index}].{app_str}{path}")
         return SqlOp.OR(_or)
-
-    def map_paths(self) -> str:
-        return glob.glob(os.path.join(self.base_dir, self.node_map_csv_glob))
 
     def hdf_path(self, file_name: str | None = None) -> str:
         if file_name is None:
@@ -219,31 +215,24 @@ class DpmmCfg:
             path=path,
         )
 
-    def as_dict(self):
+    def as_dict(self) -> dict:
         d = asdict(self)
         d["map_type"] = self.map_type.value
         return d
 
-    def to_json(self, fd: TextIO | None = None, dump_base_dir: bool = True):
-        if fd is None:
-            return json.dumps(
-                obj=self,
-                ensure_ascii=True,
-                allow_nan=True,
-                indent=2,
-                sort_keys=True,
-                cls=DpmmCfgEncoder.new(dump_base_dir),
-            )
-        else:
-            json.dump(
-                obj=self,
-                fp=fd,
-                ensure_ascii=True,
-                allow_nan=True,
-                indent=2,
-                sort_keys=True,
-                cls=DpmmCfgEncoder.new(dump_base_dir),
-            )
+    @abc.abstractmethod
+    def to_json(
+        self, fd: TextIO | None = None, dump_base_dir: bool = True
+    ) -> None | str:
+        pass
+
+    @abc.abstractclassmethod
+    def load(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfgCsv:
+        pass
+
+    @abc.abstractclassmethod
+    def from_json(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfgDb:
+        pass
 
     def save_cfg(self, path_fd: str | TextIO, dump_base_path: bool = True):
         if isinstance(path_fd, str):
@@ -256,23 +245,63 @@ class DpmmCfg:
         """Get new instance with different base directory"""
         o = asdict(self)
         o["base_dir"] = base_dir
-        return DpmmCfg(**o)
+        return self.__class__(**o)
 
-    @classmethod
-    def from_json(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfg:
-        if isinstance(str_fd, str):
-            o = json.loads(str_fd, cls=DpmmCfgDecoder.new(base_dir))
+
+@dataclass
+class DpmmCfgCsv(DpmmCfg):
+    global_map_csv_name: str = "global.csv"
+    node_map_csv_glob: str = "dcdMap_*.csv"
+    node_map_csv_id_regex: str = r"dcdMap_(?P<node>\d+)\.csv"
+
+    def get_csv_id_regex_pattern(self) -> re.Pattern:
+        return re.compile(self.node_map_csv_id_regex)
+
+    def map_paths(self) -> str:
+        return glob.glob(os.path.join(self.base_dir, self.node_map_csv_glob))
+
+    def to_json(
+        self, fd: TextIO | None = None, dump_base_dir: bool = True
+    ) -> None | str:
+        if fd is None:
+            return json.dumps(
+                obj=self,
+                ensure_ascii=True,
+                allow_nan=True,
+                indent=2,
+                sort_keys=True,
+                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgCsv),
+            )
         else:
-            o = json.load(str_fd, cls=DpmmCfgDecoder.new(base_dir))
-        return o
+            json.dump(
+                obj=self,
+                fp=fd,
+                ensure_ascii=True,
+                allow_nan=True,
+                indent=2,
+                sort_keys=True,
+                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgCsv),
+            )
 
     @classmethod
-    def load(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfg:
+    def load(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfgCsv:
         if isinstance(str_fd, str):
             with open(str_fd, "r", encoding="utf-8") as fd:
                 return cls.from_json(fd, base_dir=base_dir)
         else:
             return cls.from_json(str_fd, base_dir=base_dir)
+
+    @classmethod
+    def from_json(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfgCsv:
+        if isinstance(str_fd, str):
+            o = json.loads(
+                str_fd, cls=DpmmCfgDecoder.new(_clazz=DpmmCfgCsv, base_dir=base_dir)
+            )
+        else:
+            o = json.load(
+                str_fd, cls=DpmmCfgDecoder.new(_clazz=DpmmCfgCsv, base_dir=base_dir)
+            )
+        return o
 
     @classmethod
     def default_density_beacon_map_cfg(cls, base_dir):
@@ -285,3 +314,56 @@ class DpmmCfg:
             beacon_app_path="app[0]",
             map_app_path="app[1]",
         )
+
+
+@dataclass
+class DpmmCfgDb(DpmmCfg):
+    map_db_name: str = "global_densityMap.db"
+    tbl_metadata: str = "metadata"
+    tbl_map: str = "dcd_map"
+    tbl_map_glb: str = "dcd_map_glb"
+    tbl_alg_mapping: str = "alg_mapping"
+    tbl_glb_node_id_mapping: str = "glb_node_id_mapping"
+
+    def to_json(
+        self, fd: TextIO | None = None, dump_base_dir: bool = True
+    ) -> None | str:
+        if fd is None:
+            return json.dumps(
+                obj=self,
+                ensure_ascii=True,
+                allow_nan=True,
+                indent=2,
+                sort_keys=True,
+                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgCsv),
+            )
+        else:
+            json.dump(
+                obj=self,
+                fp=fd,
+                ensure_ascii=True,
+                allow_nan=True,
+                indent=2,
+                sort_keys=True,
+                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgCsv),
+            )
+
+    @classmethod
+    def load(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfgDb:
+        if isinstance(str_fd, str):
+            with open(str_fd, "r", encoding="utf-8") as fd:
+                return cls.from_json(fd, base_dir=base_dir)
+        else:
+            return cls.from_json(str_fd, base_dir=base_dir)
+
+    @classmethod
+    def from_json(cls, str_fd: str | TextIO, base_dir=None) -> DpmmCfgDb:
+        if isinstance(str_fd, str):
+            o = json.loads(
+                str_fd, cls=DpmmCfgDecoder.new(_clazz=DpmmCfgDb, base_dir=base_dir)
+            )
+        else:
+            o = json.load(
+                str_fd, cls=DpmmCfgDecoder.new(_clazz=DpmmCfgDb, base_dir=base_dir)
+            )
+        return o

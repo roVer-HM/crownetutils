@@ -17,6 +17,7 @@ from crownetutils.analysis.dpmm.csv_loader import (
     owner_dist_feature,
     read_csv,
 )
+from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.hdf.groups import HdfGroups
 from crownetutils.analysis.hdf.provider import (
@@ -172,6 +173,42 @@ class DpmmProvider(IHdfProvider):
     def default_index_key(self) -> str:
         return DpmmKey.SIMTIME
 
+    def create_from_db(
+        self,
+        sql: DpmmSql,
+        frame_consumer: List[FrameConsumer] = [],
+        **kwargs,
+    ) -> None:
+        host_ids = sql.get_host_ids()
+        progress = ProgressCmd(
+            prefix="read maps from db: ",
+            cycle_count=len(host_ids),
+            print_interval=0.01,
+            override_row=False,
+        )
+        for host_id in host_ids:
+            progress.incr()
+            try:
+                dcd_df = self.build_dcd_dataframe_db(sql=sql, node_id=host_id, **kwargs)
+            except EmptyDataError as e:
+                logger.warning(f"Empty DPMM file. Skip host {host_id}")
+                continue
+
+            with self.ctx() as store:
+                store.append(
+                    key=self.group,
+                    value=dcd_df,
+                    format="table",
+                    index=False,
+                    data_columns=True,
+                )
+            # send data frame to frame_consumers
+            for consumer in frame_consumer:
+                consumer(dcd_df)
+
+        self.set_selection_mapping_attribute()
+        self.set_used_selection_attribute()
+
     def create_from_csv(
         self,
         csv_paths: List[str],
@@ -211,6 +248,22 @@ class DpmmProvider(IHdfProvider):
         self.set_used_selection_attribute()
 
     @timing
+    def build_dcd_dataframe_db(self, sql: DpmmSql, node_id, **kwargs) -> pd.DataFrame:
+        meta: DpmmMetaData = sql.metadata(node_id)
+        if meta.version != self.version:
+            logger.warn(
+                f"version missmatch {meta.version}!={self.version} for node {node_id}"
+            )
+        df, meta = sql.read_map(
+            host_id=node_id,
+            index_types=DpmmKey.types_csv_index[meta.version],
+            col_types_dict=DpmmKey.types_csv_columns[meta.version],
+            real_coords=True,
+            df_filter=self.csv_filters,
+        )
+        return self._build_dcd_dataframe(df, node_id, meta, **kwargs)
+
+    @timing
     def build_dcd_dataframe(self, path: str, node_id: int, **kwargs) -> pd.DataFrame:
         _df = LazyDataFrame.from_path(path)
         meta = _df.read_meta_data()
@@ -225,6 +278,11 @@ class DpmmProvider(IHdfProvider):
             real_coords=True,
             df_filter=self.csv_filters,
         )
+        return self._build_dcd_dataframe(df, node_id, meta, **kwargs)
+
+    def _build_dcd_dataframe(
+        self, df: pd.DataFrame, node_id: int, meta: DpmmMetaData, **kwargs
+    ) -> pd.DataFrame:
         if df.empty:
             raise EmptyDataError()
         # add own node id
@@ -269,7 +327,7 @@ class DpmmProvider(IHdfProvider):
         with self.ctx(mode="r") as store:
             df = store.get(key=DpmmKey.RSD_ID)
         return df
-    
+
     def has_rsd_is(self) -> bool:
         return self.contains_group(DpmmKey.RSD_ID)
 
