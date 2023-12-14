@@ -21,7 +21,7 @@ def result_dir_with_opp(ns, working_dir) -> str:
     set result dir based on OMNeT++
     """
     config = ns["opp_args"].get_value("-c")
-    if os.path.abspath(ns["result_dir"]):
+    if os.path.isabs(ns["result_dir"]):
         return os.path.join(
             ns["result_dir"],
             f"{config}_{ns['experiment_label']}",
@@ -38,7 +38,7 @@ def result_dir_vadere_only(ns, working_dir):
     """Used with vader only setup.
     !Result directory callback
     """
-    if os.path.abspath(ns["result_dir"]):
+    if os.path.isabs(ns["result_dir"]):
         return ns["result_dir"]
     else:
         return os.path.join(working_dir, ns["result_dir"])

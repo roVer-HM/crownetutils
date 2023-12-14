@@ -15,7 +15,7 @@ from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 class DpmmSql:
     def __init__(self, cfg: DpmmCfgDb) -> None:
         self.cfg: DpmmCfgDb = cfg
-        self.path = os.path.join(cfg.base_dir, cfg.map_db_name)
+        self.path = os.path.abspath(os.path.join(cfg.base_dir, cfg.map_db_name))
 
     @property
     def tbl_metadata(self) -> str:
