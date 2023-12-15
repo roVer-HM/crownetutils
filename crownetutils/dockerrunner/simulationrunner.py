@@ -3,6 +3,7 @@ import signal
 import time
 import traceback
 from typing import Any, List
+import io
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -42,7 +43,6 @@ class BaseSimulationRunner:
         return cls(workding_dir, args=["config", "-f", config_path])
 
     def __init__(self, working_dir, args=None):
-        self.ns = parse_run_script_arguments(self, args)
         self.docker_client = DockerClient.get()  # increased timeout
         self.working_dir = working_dir
         self.vadere_runner = None
@@ -51,7 +51,7 @@ class BaseSimulationRunner:
         self.sumo_runner = None
 
         # prepare post and pre map
-        self.f_map: dict = {}
+        self.f_map: dict = {} # key: pre/post value: list of functions
         for key in [i for i in dir(self) if not i.startswith("__")]:
             __o = self.__getattribute__(key)
             if callable(__o):
@@ -63,7 +63,17 @@ class BaseSimulationRunner:
                     self.f_map[__type] = __type_list
                 except AttributeError:
                     continue
+        self.ns = parse_run_script_arguments(self, args)
 
+    def print_registered_qoi(self) -> None:
+        """Print list of registered post processing functions in order of execution."""
+        _post_f = list(self.f_map["post"])
+        _post_f.sort(key=lambda x: x[0], ascending=False)
+        s = io.StringIO()
+        s.write("Registerd post processing functions:\n")
+        for p, f in _post_f:
+            s.write(f"{p}\t{f}")
+    
     def result_base_dir(self):
         """
         get correct result dir independently of execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).

@@ -149,3 +149,31 @@ class DpmmSql:
                 return _con.execute(sql_str, **kwargs)
             else:
                 raise RuntimeError("Expected df or cursor as type")
+    
+    def create_cell_count_by_host_id_over_time_if_missing(self):
+
+        _sql = """BEGIN TRANSACTION; 
+                    CREATE TABLE IF NOT EXISTS
+                        cell_count_by_host_id_over_time as
+                    SELECT 
+                        m.simtime, m.hostId, count(m.count) as 'numberOfCells'
+                    FROM 
+                        dcd_map as m 
+                    GROUP BY 
+                        m.simtime, m.hostId
+                    ORDER BY 
+                        m.simtime asc;
+                COMIT;
+                """
+        self.query(_sql, type="cursor")
+
+
+    def get_cell_count_by_host_id_over_time(self, sql_str=None):
+        self.create_cell_count_by_host_id_over_time_if_missing()
+        if sql_str is None:
+            _sql = """select * from cell_count_by_host_id_over_time as t """
+        else:
+            _sql = sql_str
+        return self.query(_sql, type="df")
+
+
