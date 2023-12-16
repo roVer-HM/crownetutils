@@ -16,6 +16,7 @@ from pandas import IndexSlice as _i
 
 import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import Simulation
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
 from crownetutils.analysis.hdf.provider import BaseHdfProvider, HdfSelector
 from crownetutils.analysis.hdf_providers.node_position import NodePositionWithRsdHdf
 from crownetutils.analysis.hdf_providers.node_rx_data import NodeRxData
@@ -916,9 +917,10 @@ class PlotAppMisc_(PlotUtil_):
                 a2: plt.Axes = axes[i][1]
                 a3: plt.Axes = axes[i][2]
                 a4: plt.Axes = axes[i][3]
-                a5: plt.Axes = axes[i][4]
-                a6: plt.Axes = axes[i][5]
-                a7: plt.Axes = axes[i][6]
+                a4_max: plt.Axes = axes[i][4]
+                a5: plt.Axes = axes[i][5]
+                a6: plt.Axes = axes[i][6]
+                a7: plt.Axes = axes[i][7]
                 color = rsd_colors[rsd]
                 glb_count = d_sim.get_dcdMap()._map_p.select(
                     key="map_measure_by_rsd",
@@ -995,7 +997,20 @@ class PlotAppMisc_(PlotUtil_):
                     color=color,
                     alpha=0.3,
                 )
-                a4.set_ylabel("TX burst size")
+                a4.set_ylabel("TX pkt count in burst")
+
+                if isinstance(d_sim.dpmm_cfg, DpmmCfgDb):
+                    a4_max.scatter(
+                        burst_data["time"],
+                        burst_data["burst_num"],
+                        marker="3",
+                        color=color,
+                        alpha=0.3,
+                    )
+                    a4_max.set_ylabel("TX pkt count in burst")
+                else:
+                    a4_max.set_axis_off()
+                    a4_max.text(0.0, 0.4, "No Db ")
 
                 # RX
                 data_rx_by_app = node_rx.rcvd_by_app(app).select(

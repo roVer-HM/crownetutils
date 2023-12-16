@@ -1,9 +1,9 @@
+import io
 import os
 import signal
 import time
 import traceback
 from typing import Any, List
-import io
 
 import docker
 from requests.exceptions import ReadTimeout
@@ -37,6 +37,119 @@ class process_as:
         return fn
 
 
+class QoiFilter:
+    class Match:
+        def __init__(self, invert: bool = False) -> None:
+            self.invert = invert
+
+    class MatchAny(Match):
+        def __init__(self) -> None:
+            super().__init__(False)
+
+        def match(self, prio, f_name):
+            return True
+
+    class MatchName(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: str = val
+
+        def match(self, prio, f_name):
+            return self.val == f_name
+
+    class MatchPrio(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: int = val
+
+        def match(self, prio, f_name):
+            return self.val == prio
+
+    class MatchPrioInterval(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: slice = val
+
+        def match(self, prio, f_name):
+            if self.val.start is None:
+                return prio <= self.val.stop
+            elif self.val.stop is None:
+                return prio >= self.val.start
+            else:
+                return prio >= self.val.start and prio <= self.val.stop
+
+    def __init__(self, qoi) -> None:
+        self._include = []
+        self._exclude = [self.MatchAny()]  # none
+        if qoi is not None:
+            _qoi = []
+            for i in qoi:
+                if isinstance(i, list):
+                    for ii in i:
+                        _qoi.append(ii)
+                else:
+                    _qoi.append(i)
+
+            filter_list = []
+            for q in _qoi:
+                if q.startswith("!"):
+                    invert = True
+                    q = q[1:]
+                else:
+                    invert = False
+
+                try:
+                    filter_list.append(self.MatchPrio(int(q), invert=invert))
+                    continue
+                except ValueError as e:
+                    ...
+
+                q_split = q.split("-")
+                if len(q_split) == 2:
+                    if q_split[0] == "":
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(None, int(q_split[1])), invert=invert
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                    if q_split[1] == "":
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(int(q_split[0]), None), invert=invert
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                    else:
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(int(q_split[0]), int(q_split[1])),
+                                    invert=invert,
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                if q == "all":
+                    filter_list.append(self.MatchAny())
+                else:
+                    filter_list.append(self.MatchName(q, invert=invert))
+            self._include = [m for m in filter_list if m.invert == False]
+            self._exclude = [m for m in filter_list if m.invert == True]
+
+    def match(self, prio, f_name) -> bool:
+        a = any([m.match(prio, f_name) for m in self._include])
+        b = not any([m.match(prio, f_name) for m in self._exclude])
+        return a and b
+
+
 class BaseSimulationRunner:
     @classmethod
     def from_config(cls, workding_dir, config_path):
@@ -51,7 +164,7 @@ class BaseSimulationRunner:
         self.sumo_runner = None
 
         # prepare post and pre map
-        self.f_map: dict = {} # key: pre/post value: list of functions
+        self.f_map: dict = {}  # key: pre/post value: list of functions
         for key in [i for i in dir(self) if not i.startswith("__")]:
             __o = self.__getattribute__(key)
             if callable(__o):
@@ -64,16 +177,19 @@ class BaseSimulationRunner:
                 except AttributeError:
                     continue
         self.ns = parse_run_script_arguments(self, args)
+        self._qoi_filter = QoiFilter(self.ns["qoi"])
 
     def print_registered_qoi(self) -> None:
         """Print list of registered post processing functions in order of execution."""
         _post_f = list(self.f_map["post"])
-        _post_f.sort(key=lambda x: x[0], ascending=False)
+        _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
         s = io.StringIO()
-        s.write("Registerd post processing functions:\n")
+        s.write(f"{len(_post_f)} Registered post processing functions:\n")
         for p, f in _post_f:
-            s.write(f"{p}\t{f}")
-    
+            s.write(f"{p}\t{f.__name__}\n")
+        s.seek(0)
+        print(s.getvalue())
+
     def result_base_dir(self):
         """
         get correct result dir independently of execution setup (opp-vadere, opp-vadere-control, vadere-control, vadere).
@@ -130,31 +246,32 @@ class BaseSimulationRunner:
         filtered_map = [
             [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
         ]
-        filtered_map.sort(key=lambda x: x[0], reverse=True)
+        filtered_map.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
         return filtered_map
 
     def post(self):
-        method_list = self.ns["qoi"]
-        err = []
-        if method_list:
-            _post_map = self.sort_processing("post", method_list)
-            for prio, _f in _post_map:
-                print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
-                if self.ns["debug"]:
-                    _f()
-                else:
-                    try:
-                        _f()
-                    except Exception as e:
-                        _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
-                        logger.error(_err)
-                        logger.error(traceback.format_exc())
-                        err.append(f"  {_err}")
-                        break
+        _post_f = list(self.f_map["post"])
+        _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
+        post_functions = [p for p in _post_f if self._qoi_filter.match(p[0], p[1])]
 
-            if len(err) > 0:
-                err = "\n".join(err)
-                raise RuntimeError(f"Error in Postprocessing:\n{err}")
+        err = []
+        for prio, _f in post_functions:
+            print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
+            if self.ns["debug"]:
+                _f()
+            else:
+                try:
+                    _f()
+                except Exception as e:
+                    _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
+                    logger.error(_err)
+                    logger.error(traceback.format_exc())
+                    err.append(f"  {_err}")
+                    break
+
+        if len(err) > 0:
+            err = "\n".join(err)
+            raise RuntimeError(f"Error in Postprocessing:\n{err}")
 
     def pre(self):
         method_list = self.ns["pre"]

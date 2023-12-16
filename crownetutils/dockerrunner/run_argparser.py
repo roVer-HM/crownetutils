@@ -192,9 +192,8 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
     set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
 
     if ns["print_qoi"]:
-        # toprint_registered_qoido print
         runner.print_registered_qoi()
-        sys.exit(os.EX_OK) # code 0, all ok
+        sys.exit(os.EX_OK)  # code 0, all ok
 
     return ns
 
@@ -204,7 +203,11 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         "--qoi", action="append", nargs="+", help="specify qoi files", type=str
     )
     parser.add_argument(
-        "--qoi-list", dest="print_qoi", action="store_true", default=False, help="List all available quanity of intrest to be generated." 
+        "--qoi-list",
+        dest="print_qoi",
+        action="store_true",
+        default=False,
+        help="List all available quanity of intrest to be generated.",
     )
     parser.add_argument(
         "--pre",
