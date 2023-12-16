@@ -912,6 +912,7 @@ class PlotAppMisc_(PlotUtil_):
                 len(apps), num_plots, figsize=((16 / 2) * num_plots, 16), sharex=True
             )
 
+            app: SqlAppProxy
             for i, app in enumerate(apps):
                 a1: plt.Axes = axes[i][0]
                 a2: plt.Axes = axes[i][1]
@@ -999,10 +1000,11 @@ class PlotAppMisc_(PlotUtil_):
                 )
                 a4.set_ylabel("TX pkt count in burst")
 
-                if isinstance(d_sim.dpmm_cfg, DpmmCfgDb):
+                data = app.call_cb("map_size", default=None)
+                if data is not None:
                     a4_max.scatter(
-                        burst_data["time"],
-                        burst_data["burst_num"],
+                        data["simtime"],
+                        data["numberOfCells"],
                         marker="3",
                         color=color,
                         alpha=0.3,
@@ -1010,7 +1012,7 @@ class PlotAppMisc_(PlotUtil_):
                     a4_max.set_ylabel("TX pkt count in burst")
                 else:
                     a4_max.set_axis_off()
-                    a4_max.text(0.0, 0.4, "No Db ")
+                    a4_max.text(0.0, 0.4, "No data.", transform=a4_max.transAxes)
 
                 # RX
                 data_rx_by_app = node_rx.rcvd_by_app(app).select(

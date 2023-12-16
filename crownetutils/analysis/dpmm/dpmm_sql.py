@@ -166,7 +166,9 @@ class DpmmSql:
             _con.execute(_sql)
             _con.commit()
 
-    def get_cell_count_by_host_id_over_time(self, sql_str=None):
+    def get_cell_count_by_host_id_over_time(self, sql_str=None) -> pd.DataFrame:
+        """Return frame with [simtime, hostId, numberOfCells]"""
+
         self.create_cell_count_by_host_id_over_time_if_missing()
         if sql_str is None:
             _sql = """select * from cell_count_by_host_id_over_time as t """
