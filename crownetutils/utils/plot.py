@@ -441,7 +441,7 @@ class PlotUtil_:
         column: int | str = 0,
         ax: plt.Axes | None = None,
         return_data: bool = False,
-        **kwargs,
+        **plot_kwargs,
     ) -> plt.Axes:
         """Create empirical commulative density function (ECDF) of provided data.
 
@@ -454,7 +454,7 @@ class PlotUtil_:
             plt.Axes:
         """
         _x, _y = self.ecdf(data, column)
-        ax.plot(_x, _y, drawstyle="steps-pre", **kwargs)
+        ax.plot(_x, _y, drawstyle="steps-pre", **plot_kwargs)
         ax.set_ylabel("density")
 
         if return_data:

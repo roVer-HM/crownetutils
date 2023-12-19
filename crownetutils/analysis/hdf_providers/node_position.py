@@ -418,6 +418,7 @@ class NodePositionWithRsdHdf:
         coord: CoordinateType = CoordinateType.xy,
         cols=("hostId", "time", "servingEnb"),
         cmap: str | Colormap = "tab20",
+        ue_where_clause: str|None = None
     ):
         """Create line segements for rsd color coded line segement of ue traces.
 
@@ -425,7 +426,7 @@ class NodePositionWithRsdHdf:
         """
 
         segment = [*coord.cols, *[f"{c}_end" for c in coord.cols]]
-        ue = self.ue.select(columns=[*cols, *coord.cols]).sort_values(
+        ue = self.ue.select(columns=[*cols, *coord.cols], where=ue_where_clause).sort_values(
             ["hostId", "time"]
         )
         ue2 = ue[["hostId", *coord.cols]].shift(-1)

@@ -199,10 +199,11 @@ class _PlotEnb(PlotUtil_):
         coord: CoordinateType = CoordinateType.xy,
         base_cmap: str | colors.Colormap = "tab20",
         inner_r: float = 650,
+        ue_where_clause: str|None = None,
         ax: plt.Axes = None,
     ):
         trace, segments, segment_colors, rsd_color_map, cmap, norm = rsd.get_ue_traces(
-            coord, cmap=base_cmap
+            coord, cmap=base_cmap, ue_where_clause=ue_where_clause
         )
 
         enb = rsd.enb.frame()
