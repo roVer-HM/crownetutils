@@ -1004,12 +1004,14 @@ class PlotAppMisc_(PlotUtil_):
                 if data is not None:
                     a4_max.scatter(
                         data["simtime"],
-                        data["numberOfCells"],
+                        np.ceil(
+                            data["numberOfCells"] / 114
+                        ),  # at most 114 cells per packet MTU 1400 Bytes
                         marker="3",
                         color=color,
                         alpha=0.3,
                     )
-                    a4_max.set_ylabel("TX pkt count in burst")
+                    a4_max.set_ylabel("TX pkt count in burst\n(114 cells per pkt.)")
                 else:
                     a4_max.set_axis_off()
                     a4_max.text(0.0, 0.4, "No data.", transform=a4_max.transAxes)
