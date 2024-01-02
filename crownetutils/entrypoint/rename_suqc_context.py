@@ -32,7 +32,7 @@ def main_rename_suqc_context(path, ask_user, dry_run: bool, **kwargs):
     print("-" * 80)
     for _root, runs in ctx_study_root.items():
         print(f"found study root missmatch in {len(runs)}/{sim_count} simualtions:")
-        diff = ndiff([f"{study_root}\n"], [f"{_root}\n"])
+        diff = ndiff([f"{_root}\n"], [f"{study_root}\n"])
         print("".join(diff), end="")
         print("-" * 80)
         print("")
