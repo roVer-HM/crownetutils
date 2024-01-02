@@ -172,21 +172,56 @@ class NullSaver(FigureSaver):
         return
 
 
+class CallCountText:
+    """Track call count and returns value. If target count is reached null is returned."""
+
+    def __init__(self, val, count) -> None:
+        self._val = val
+        self._count = count
+
+    def peek(self) -> str:
+        """Peek at value without decrementing call count"""
+        return self._val
+
+    def __call__(self, *args: Any, **kwds: Any) -> CallCountText:
+        return self.call()
+
+    def call(self) -> CallCountText:
+        if self._count < 0:
+            # infinite count. Value will not be reset.
+            pass
+        elif self._count == 0:
+            # call count reached remove value.
+            self._val = None
+        else:
+            self._count -= 1
+
+        return self
+
+
 class FigureSaverSimple(FigureSaver):
     def __init__(
         self, override_base_path: str | None = None, figure_type: str | None = None
     ):
         self.override_base_path = override_base_path
-        self.next_name = None
-        self.next_suffix = None
+        self._next_name = CallCountText(None, count=-1)
+        self._next_suffix = CallCountText(None, count=-1)
         self.figure_type = figure_type
 
-    def with_name(self, name):
-        self.next_name = name
+    @property
+    def next_name(self):
+        return self._next_name.peek()
+
+    @property
+    def next_suffix(self):
+        return self._next_suffix.peek()
+
+    def with_name(self, name, count=1):
+        self._next_name = CallCountText(name, count=count)
         return self
 
-    def with_suffix(self, suffix):
-        self.next_suffix = suffix
+    def with_suffix(self, suffix, count=1):
+        self._next_suffix = CallCountText(suffix, count=count)
         return self
 
     @staticmethod
@@ -195,13 +230,15 @@ class FigureSaverSimple(FigureSaver):
         return f"{root}{suffix}{ext}"
 
     def __call__(self, figure, *args: Any, **kwargs):
+        self._next_name = self._next_name()
+        self._next_suffix = self._next_suffix()
+
         if len(args) < 1 and self.next_name is None:
             raise TypeError("Expected argument for path")
         if self.next_name is None:
             path = args[0]
         else:
             path = self.next_name
-            self.next_name = None
         if self.override_base_path is not None:
             if os.path.isabs(path):
                 logger.warn(
@@ -211,7 +248,6 @@ class FigureSaverSimple(FigureSaver):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if self.next_suffix is not None:
             path = self.append_suffix(path, self.next_suffix)
-            self.next_suffix = None
         if self.figure_type is not None:
             base, ext = os.path.splitext(path)
             if self.figure_type != ext:
@@ -441,7 +477,7 @@ class PlotUtil_:
         column: int | str = 0,
         ax: plt.Axes | None = None,
         return_data: bool = False,
-        **plot_kwargs,
+        **kwargs,
     ) -> plt.Axes:
         """Create empirical commulative density function (ECDF) of provided data.
 
@@ -454,7 +490,7 @@ class PlotUtil_:
             plt.Axes:
         """
         _x, _y = self.ecdf(data, column)
-        ax.plot(_x, _y, drawstyle="steps-pre", **plot_kwargs)
+        ax.plot(_x, _y, drawstyle="steps-pre", **kwargs)
         ax.set_ylabel("density")
 
         if return_data:
@@ -773,7 +809,9 @@ class PlotUtil_:
         _axis = axis.axis_name
         axis.axes.grid(True, _which, _axis)
 
-    def add_eng_formatter(self, axes: np.ndarray|List[plt.Axes], unit:str = "B", xy="y", places=2):
+    def add_eng_formatter(
+        self, axes: np.ndarray | List[plt.Axes], unit: str = "B", xy="y", places=2
+    ):
         if isinstance(axes, plt.Axes):
             if "y" in xy:
                 axes.yaxis.set_major_formatter(EngFormatter(unit, places=places))
@@ -785,7 +823,6 @@ class PlotUtil_:
         elif isinstance(axes, np.ndarray):
             for a in axes.flatten():
                 self.add_eng_formatter(a, unit, xy, places)
-
 
     def auto_major_minor_locator(
         self, ax: plt.Axes | NDArray, minor_count: int = 4, what: str = "xy"
@@ -829,7 +866,7 @@ class PlotUtil_:
         bin_size: float = 1.0,
         start: float | None = None,
         end: float | None = None,
-        add_left_rigth:bool = False,
+        add_left_rigth: bool = False,
         *,
         closed: str = "right",
         columns: None | List[str] = None,
@@ -876,7 +913,7 @@ class PlotUtil_:
         if add_left_rigth and "bin_left" not in data.columns:
             data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
             data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
-            
+
         return data
 
     @with_axis
