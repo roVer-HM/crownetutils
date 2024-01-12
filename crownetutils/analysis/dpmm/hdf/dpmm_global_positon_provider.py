@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Tuple, Union
+from crownetutils.analysis import RsdAssociationProvider
 
 import geopandas as gpd
 import pandas as pd
@@ -196,7 +197,11 @@ class DpmmGlobal(IHdfProvider):
 
 
 @timing
-def create_and_save_position_and_global_db(cfg: DpmmCfgDb, hdf_path: str):
+def create_and_save_position_and_global_db(
+    cfg: DpmmCfgDb, 
+    hdf_path: str,
+    rsd_p: RsdAssociationProvider|None = None
+    ):
     sql: DpmmSql = DpmmSql(cfg)
 
     pos = DpmmGlobalPosition(hdf_path)
@@ -223,6 +228,13 @@ def create_and_save_position_and_global_db(cfg: DpmmCfgDb, hdf_path: str):
     logger.info(
         f"global: {global_df.memory_usage(index=True).sum()/1e6} MB with shape {global_df.shape}"
     )
+    if rsd_p is not None:
+        pos = rsd_p.merge_rsd_id_on_host_time_interval(
+            data=pos, 
+            host_id_col="node_id",
+            time_col="simtime",
+            append_interval=False 
+        )
     pos.write_dataframe(position_df)
     density.write_dataframe(global_df)
     return pos, density, meta
@@ -232,6 +244,7 @@ def create_and_save_position_and_global_db(cfg: DpmmCfgDb, hdf_path: str):
 def create_and_save_position_and_global(
     csv_path: str,
     hdf_path: str,
+    rsd_p: RsdAssociationProvider|None = None,
 ) -> Tuple[DpmmGlobalPosition, DpmmGlobal, DpmmMetaData]:
     pos = DpmmGlobalPosition(hdf_path)
     density = DpmmGlobal(hdf_path)
@@ -251,6 +264,14 @@ def create_and_save_position_and_global(
     logger.info(
         f"global: {global_df.memory_usage(index=True).sum()/1e6} MB with shape {global_df.shape}"
     )
+
+    if rsd_p is not None:
+        pos = rsd_p.merge_rsd_id_on_host_time_interval(
+            data=pos, 
+            host_id_col="node_id",
+            time_col="simtime",
+            append_interval=False 
+        )
     pos.write_dataframe(position_df)
     density.write_dataframe(global_df)
     # density.repack_hdf(keep_old_file=False)

@@ -227,7 +227,7 @@ class BaseHdfProvider:
             self._hdf_path,
             new_path,
         ]
-
+        size_old_mb = os.path.getsize(self._hdf_path) / 1e6
         try:
             timer = TimeIt()
             with timer:
@@ -252,9 +252,10 @@ class BaseHdfProvider:
             with open(fd.name, "r") as f:
                 print("\n".join(f.readlines()))
         else:
-            msg = f"repack done. Took {timer.str()}."
             os.rename(self._hdf_path, old_path)
             os.rename(new_path, self._hdf_path)
+            size_new_mb = os.path.getsize(self._hdf_path) / 1e6
+            msg = f"repack done. Took {timer.str()} size {size_old_mb:,.2f}MB -> {size_new_mb:,.2f}MB. Reedzued by {size_old_mb - size_new_mb:,.2f}."
             if not keep_old_file:
                 msg = f"{msg} Removing old file."
                 os.remove(old_path)
@@ -267,6 +268,14 @@ class BaseHdfProvider:
             if _key not in hdf_file.root:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
+
+    def list_attributes(
+        self,
+    ):
+        groups = self.get_groups()
+        for g in groups:
+            with self.tables_file(self._hdf_path, "r") as hdf_file:
+                print("hi`")
 
     def get_attribute(
         self,
@@ -766,7 +775,8 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
 
     @staticmethod
     def _build_range_condition(key: str, _min: float, _max: float) -> List[str]:
-        return [f"{key}<={str(_max)}", f"{key}>={str(_min)}"]
+        # slice(a, b) -->  a <= x  < b max value not inclusive!
+        return [f"{key}<{str(_max)}", f"{key}>={str(_min)}"]
 
     @staticmethod
     def _build_exact_condition(

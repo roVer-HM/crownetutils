@@ -27,7 +27,7 @@ from typing import (
     Tuple,
     Union,
 )
-
+from PIL import Image, ImageDraw, ImageFont
 import matplotlib
 import matplotlib.patches as pltPatch
 import matplotlib.path as pltPath
@@ -229,6 +229,42 @@ class FigureSaverSimple(FigureSaver):
         pass
 
 
+def combine_images(images:List[dict], direction="horizontal", font_ttf="DejaVuSansMono.ttf'"):
+
+    for image in images:
+        image_paths = image["input"]
+        total_width = 0
+        total_heigth = 0
+        img_list = []
+        img_label = image.get("labels", [])
+        label_height = 0 if len(img_label) == 0 else 40
+        for path in image_paths:
+            i: Image = Image.open(path)
+            if direction == "horizontal":
+                total_width += i.size[0]
+                total_heigth = max(total_heigth, i.size[1] + label_height)
+            elif direction == "vertical":
+                total_width = max(total_width, i.size[0])
+                total_heigth += i.size[1] + label_height
+            img_list.append(i)
+        
+        new_im = Image.new("RGB", (total_width, total_heigth))
+
+        label: ImageDraw = ImageDraw.Draw(new_im)
+        font = ImageFont.truetype(font_ttf, 24)
+        x_off = 0
+        y_off = 0
+        for i, im in enumerate(img_list):
+            new_im.paste(im, (x_off, y_off) )
+            if direction == "horizontal":
+                if len(img_label) > 0:
+                    label.text((x_off + im.size[0]/2, im.size[1]+2), img_label[i], font=font)
+                x_off += im.size[0]
+            elif direction == "vertical":
+                y_off += im.size[1] + label_height
+
+        new_im.save(image["output_path"])
+
 class FigureSaverPdfPages:
     @classmethod
     @contextmanager
@@ -389,6 +425,7 @@ class PlotUtil_:
         random.Random(13).shuffle(self._plot_color_markers)
         random.Random(13).shuffle(self._plot_color_lines)
         self.ax_provider = self._check_ax
+        self.style = Style()
 
     def append_title(self, ax: plt.Axes, *, prefix="", suffix=""):
         """Append string at front or back of the axes title
@@ -1120,8 +1157,14 @@ class PlotHelper:
     def plot_data(self) -> pd.DataFrame:
         return self._plot_data
 
+def map_cells(cells, size, zorder=1):
+    patches = []
+    for cell in cells:
+        patches.append(pltPatch.Rectangle(cell, width=size, height=size))
 
-def enb_with_hex(origin, inner_r, scale=30):
+    return PatchCollection(patches=patches, facecolor="none", edgecolors="gray", zorder=zorder)
+
+def enb_with_hex(origin, inner_r, scale=30, zorder=1):
     if origin.shape == (2,):
         return [
             enb_patch(scale_factor=scale, pos_xy=origin),
@@ -1133,11 +1176,13 @@ def enb_with_hex(origin, inner_r, scale=30):
                 [enb_patch(scale_factor=scale, pos_xy=p) for p in origin],
                 facecolors="none",
                 edgecolors="black",
+                zorder=zorder
             ),
             PatchCollection(
                 [hex_patch(origin=p, inner_r=inner_r) for p in origin],
                 facecolors="none",
                 edgecolors="grey",
+                zorder=zorder
             ),
         ]
 

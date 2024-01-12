@@ -645,13 +645,13 @@ class PlotAppMisc_(PlotUtil_):
             .sort_index()
         )
 
-        node_count = (
-            dmap.glb_map.groupby("simtime")
-            .sum()
-            .reset_index()
-            .set_axis(["time", "value"], axis=1)
-        )
-        map_count = dmap.map_count_measure_by_rsd().loc[
+        # node_count = (
+        #     dmap.glb_map.groupby("simtime")
+        #     .sum()
+        #     .reset_index()
+        #     .set_axis(["time", "value"], axis=1)
+        # )
+        map_count = dmap.map_count_measure_by_rsd(local_data_only=True).loc[
             :, ["map_mean_count", "map_glb_count"]
         ]
         for rsd in pos.enb.frame()["rsd_id"].sort_values().to_list():

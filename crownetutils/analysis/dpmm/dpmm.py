@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from itertools import combinations
 from typing import Callable, List, Tuple, Union
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,13 +20,12 @@ from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount, DpmmCo
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.utils.dataframe import (
     FrameConsumer,
-    FrameConsumerList,
     partial_index_match,
 )
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import intersect
 from crownetutils.utils.plot import FigureSaver, PlotUtil, Style, savefigure, with_axis
-
+from crownetutils.analysis.hdf_providers.map_error_data import CellCountError, CellCountErrorBuilder, MapCountError
 
 class BaseDpmMap:
     tsc_global_id = 0
@@ -43,28 +43,6 @@ class BaseDpmMap:
         self.plot_wrapper = None
         self.style = Style()
         self.data_base_dir = data_base_dir
-
-    # def _load_or_create(self, pickle_name, create_f, *create_args):
-    #     """
-    #     Load data from hdf or create data based on :create_f:
-    #     """
-    #
-    #     # just load data with provided create function
-    #     if not self.lazy_load_from_hdf:
-    #         print("create from scratch (no hdf)")
-    #         return create_f(*create_args)
-    #
-    #     # load from hdf if exist and create if missing
-    #     hdf_path = os.path.join(self.hdf_base_path, pickle_name)
-    #     if os.path.exists(hdf_path):
-    #         print(f"load from hdf {hdf_path}")
-    #         return self.count_p.get_dataframe()
-    #     else:
-    #         print("create from scratch ...", end=" ")
-    #         data = create_f(*create_args)
-    #         print(f"write to hdf {hdf_path}")
-    #         self.count_p.write_dataframe(data)
-    #         return data
 
     def get_location(self, simtime, node_id, cell_id=False):
         try:
@@ -731,88 +709,7 @@ class DpmMap(BaseDpmMap):
         ax.legend()
         return ax.get_figure(), ax
 
-    def _map_count_measure(self, glb: pd.DataFrame, node_data: pd.DataFrame):
-        _i = pd.IndexSlice
-        nodes: pd.DataFrame = (
-            node_data.groupby(  # self.count_p[_i[:, :, :, 1:], ["count"]]  # all but ground truth
-                level=[self.tsc_id_idx_name, self.tsc_time_idx_name]
-            )  # ID|time
-            .sum()
-            .groupby(level="simtime")
-            .agg(
-                [
-                    "mean",
-                    percentile(0.5),
-                    percentile(0.25),
-                    percentile(0.75),
-                    "min",
-                    "max",
-                ]
-            )
-        )
-        nodes = nodes.rename(
-            columns={
-                "p_50": "map_median_count",
-                "mean": "map_mean_count",
-                "p_25": "map_count_p25",
-                "p_75": "map_count_p75",
-                "min": "map_count_min",
-                "max": "map_count_max",
-            }
-        )
-        nodes.columns = nodes.columns.droplevel(0)
-        glb = glb.groupby(  # self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            level=[self.tsc_time_idx_name]
-        ).sum()
-        glb.columns = ["map_glb_count"]
-
-        df = pd.concat([glb, nodes], axis=1)
-        df["map_mean_err"] = df["map_mean_count"] - df["map_glb_count"]
-        df["map_mean_sqrerr"] = np.power(df["map_mean_err"], 2)
-        df["map_median_err"] = df["map_median_count"] - df["map_glb_count"]
-        df["map_median_sqerr"] = np.power(df["map_median_err"], 2)
-
-        return df
-
-    @staticmethod
-    def create_full_time_index(
-        times: np.array, xy_index: pd.MultiIndex
-    ) -> pd.MultiIndex:
-        """Generate a 4 level index [time, x, y, ID] where each **xy pair!** is match
-        with each time index.
-
-        Args:
-            times (np.array): time index as index. Will be copied and checked for uniqueness.
-            xy_index (_type_): xy index added to time index. Will be copied and checked for uniqueness.
-            names (tuple, optional): Names of the final index. Defaults to ("simtime", "x", "y").
-        """
-        times = np.sort(np.unique(times))
-        idx_names = xy_index.names
-        for _name in idx_names:
-            if _name not in ["x", "y"]:
-                xy_index = xy_index.droplevel(_name)
-        xy_index: np.array = xy_index.unique().sort_values().to_frame().values
-
-        # tile: [a, b ,c]  --> [a, b, c, a, b c]
-        time_index_tiled = np.tile(times, reps=xy_index.shape[0])
-        # repeat (will flatten input beforehand if axis=None): [[A, B], [C, D]] -> [A A C C B B D D] such that
-        # [ all x values repeated | all y values repeated]
-        xy_repeated = np.repeat(xy_index.T, repeats=times.shape[0])
-
-        txy_index_full = np.append(
-            time_index_tiled, xy_repeated
-        )  # [times x-values y-values] shape(3*N,)
-        txy_index_full = np.append(
-            txy_index_full, np.zeros(int(txy_index_full.shape[0] / 3))
-        )  # [times x-values y-values id-values] shape(4*N,)
-
-        # input [times  x-values  y-values, id-values] -> [[times], [x-values], [y-values], [id-values]] shape(4,N)
-        txy_index_full = txy_index_full.reshape((4, -1))
-        txy_index_full = pd.MultiIndex.from_arrays(
-            txy_index_full, names=["simtime", "x", "y", "ID"]
-        )
-        return txy_index_full
-
+    # deprecated moved to MapCountError calss
     def map_count_measure_by_rsd(
         self, load_cached_version: bool = True, local_data_only: bool = False, pos=None
     ):
@@ -830,63 +727,26 @@ class DpmMap(BaseDpmMap):
                 )
         """
 
+        logger.warning("deprecated methdo. Use MapCountErr object directly. Trying to guess path and values...")
+        if load_cached_version == False:
+            raise NotImplementedError("load_caded_version=Fals not supported anymore use MapCountError class direcly")
+        hdf_path = os.path.join(
+            os.path.dirname(self._map_p.hdf_path),
+            MapCountError.default_hdf_name(self.metadata.map_type)
+        )
+        hdf =  MapCountError.get_or_create(
+            hdf_path=hdf_path,
+            map_p=self._map_p,
+            glb_pos=self.position_df,
+            rsd_p=None
+        )
         if local_data_only:
-            _key = "local_map_measure_by_rsd"
+            return  hdf.hdf_map_measure_rsd_local.frame()
         else:
-            _key = "map_measure_by_rsd"
+            return hdf.hdf_map_measure_rsd.frame()
 
-        if self._map_p.contains_group(_key) and load_cached_version:
-            return self._map_p.get_dataframe(group=_key)
 
-        # get all ground truth data and extract the unique time index needed
-        # to filter global data based on selected rsd.
-        _i = pd.IndexSlice
-        glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-        time_index = glb.index.get_level_values("simtime").unique().to_numpy()
-
-        out = []
-        rsd_ids = self._map_p.get_rsd_ids()
-        for rsd in rsd_ids:
-            logger.debug(f"process rsd_id: {rsd}")
-            if local_data_only:
-                # `cell_measurements_for_rsd` contains *ONLY* measurements concerning the selected RSD
-                # if the owner of the measurement is in the same RSD at the time of logging the measurement.
-                _where_clause = (
-                    f"{DpmmKey.RSD_ID}={rsd} and {DpmmKey.RSD_ID_OWNER}={rsd}"
-                )
-            else:
-                # `cell_measurements_for_rsd` contains measurements concerning the selected RSD
-                # *IRRESPECTIVE* of RSD the owner of the measurement is at the time of logging the measurement.
-                _where_clause = f"{DpmmKey.RSD_ID}={rsd}"
-
-            cell_measurements_for_rsd = self._map_p.select(
-                where=_where_clause, columns=["count"]
-            )
-
-            # filter (all timestamped x, y cells present in `cell_measurements_for_rsd`)
-            txy_index_full = self.create_full_time_index(
-                time_index, cell_measurements_for_rsd.index
-            )
-            glb_txy_idx = glb.index.intersection(txy_index_full)
-
-            # apply intersected index.
-            glb_rsd = glb.loc[glb_txy_idx].copy(deep=True)
-
-            _out = self._map_count_measure(glb_rsd, cell_measurements_for_rsd)
-            _out["rsd_id"] = rsd
-            out.append(_out.reset_index())
-
-        out = pd.concat(out, axis=0, ignore_index=True)
-        out = out.set_index(["simtime", "rsd_id"]).sort_index()
-        _mask_nan = out.isna().any(axis=1)
-        if any(_mask_nan):
-            _nans = out[_mask_nan]
-            logger.info(
-                f"found {_nans.shape[0]} rows with nan values. Map application did not start yet. \nDropping rows:\n{_nans}"
-            )
-            out = out[~_mask_nan]
-        return out
-
+    #deprecatead moved to MapCountError class
     def map_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
         """create map based error measure over time to indicate **total area count correctness**
 
@@ -901,16 +761,20 @@ class DpmMap(BaseDpmMap):
                 map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
                 )
         """
-        if self._map_p.contains_group("map_measure") and load_cached_version:
-            return self._map_p.get_dataframe(group="map_measure")
+        logger.warning("deprecated methdo. Use MapCountErr object directly. Trying to guess path and values...")
+        if load_cached_version == False:
+            raise NotImplementedError("load_caded_version=Fals not supported anymore use MapCountError class direcly")
+        hdf_path = os.path.join(
+            os.path.dirname(self._map_p.hdf_path),
+            MapCountError.default_hdf_name(self.metadata.map_type)
+        )
+        return MapCountError.get_or_create(
+            hdf_path=hdf_path,
+            map_p=self._map_p,
+            glb_pos=self.position_df,
+            rsd_p=None
+        ).hdf_map_measure.frame()
 
-        _i = pd.IndexSlice
-        nodes: pd.DataFrame = self.count_p[
-            _i[:, :, :, 1:], ["count"]
-        ]  # all but ground truth
-        glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-
-        return self._map_count_measure(glb, node_data=nodes)
 
     def remove_missing_values(self, df: pd.DataFrame, count_slice: slice):
         _i = pd.IndexSlice
@@ -1025,57 +889,8 @@ class DpmMap(BaseDpmMap):
         # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
         return fc(cell_base.loc[index_slice, columns])
 
-    def _cell_count_measure(self, glb: pd.DataFrame, nodes: pd.DataFrame):
-        glb = glb.droplevel("ID")
-        glb.columns = ["glb_count"]
-        glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count) aka. M
-        glb_map_sum.columns = ["num_Agents"]
 
-        # all (time, x, y, id) based count, err, squerr cell values
-        # without ground truth (see slice last slice `1:`)
-        # The measurements are summed over all nodes (this will drop the id index )
-
-        nodes["abserr"] = np.abs(nodes["err"])
-
-        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
-        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
-        cell_base: pd.DateFrame = nodes.groupby(
-            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
-        ).agg(
-            ["sum"]
-        )  # [time, x, y](...data-columns...)
-
-        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
-        # join total number of agents (aka. M) with cell based measures. See function description
-        cell_base: pd.DataFrame = cell_base.join(glb_map_sum, on="simtime")
-        cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
-        cell_base["glb_count"] = cell_base["glb_count"].fillna(value=0)
-        cell_base["num_Agents"] = cell_base["num_Agents"].fillna(value=0)
-        if cell_base.isna().any().any():
-            raise ValueError(
-                f"Found coulmns with nan values: {cell_base.isna().any(axis=0)}"
-            )
-
-        # divide by total number of nodes at each time to create mean measruements
-        cell_base["cell_mean_count_est"] = (
-            cell_base["count_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij) -> neee for metric II
-        cell_base["cell_mean_est_sqerr"] = np.power(
-            cell_base["cell_mean_count_est"] - cell_base["glb_count"], 2
-        )  # (1/M sum^M_j (Y_ij) - Y^_i)^2 -> needed for metric II
-
-        cell_base["cell_mse"] = (
-            cell_base["sqerr_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij - Y^_i)^2 -> needed for metric III
-        cell_base["cell_mean_err"] = (
-            cell_base["err_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij - Y^_i) -> optional
-        cell_base["cell_mean_abserr"] = (
-            cell_base["abserr_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j |Y_ij - Y^_i| -> optional
-
-        return cell_base
-
+    # deprecated moved to CellCountError class todo ....
     def cell_count_measure_by_rsd(
         self,
         load_cached_version: bool = True,
@@ -1084,74 +899,35 @@ class DpmMap(BaseDpmMap):
         fc: FrameConsumer = FrameConsumer.EMPTY,
         columns: slice | List[str] = slice(None),
         remove_missing_values: bool = False,
+        local_data_only: bool = False
     ) -> pd.DataFrame:
-        group_name = (
-            "cell_measures_no_missing_by_rsd"
-            if remove_missing_values
-            else "cell_measures_by_rsd"
+        logger.warning("deprecated method. Use CellCountErr object directly. Trying to guess path and values...")
+        if load_cached_version == False:
+            raise NotImplementedError("load_caded_version=False not supported anymore use MapCountError class direcly")
+        hdf_path = os.path.join(
+            os.path.dirname(self._map_p.hdf_path),
+            CellCountError.default_hdf_name(self.metadata.map_type)
         )
-        if self._map_p.contains_group(group_name) and load_cached_version:
-            return fc(
-                self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
-            )
+        builder = CellCountErrorBuilder(
+            index_slice=index_slice, 
+            xy_slice=xy_slice,
+            fc=fc,
+            columns=columns,
+            remove_missing_values=remove_missing_values
+        )
 
-        _i = pd.IndexSlice
-        # total number of nodes at each time
-        if isinstance(xy_slice, pd.MultiIndex):
-            glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            glb = partial_index_match(glb, xy_slice)
+        hdf: CellCountError = CellCountError.get_or_create(
+            hdf_path=hdf_path,
+            map_p=self._count_p,
+            builder=builder
+        )
+
+        if local_data_only:
+            return hdf.hdf_cell_measure_rsd_local.frame()
         else:
-            glb = self.count_p[
-                _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
-            ]  # only ground truth
+            return hdf.hdf_cell_measure_rsd.frame()
 
-        time_index = glb.index.get_level_values("simtime").unique().to_numpy()
-        rsd_ids = self._map_p.get_rsd_ids()
-
-        out = []
-        for rsd in rsd_ids:
-            # all (time, x, y, id) based count, err, squerr cell values
-            # without ground truth (see slice last slice `1:`)
-            # The measurements are summed over all nodes (this will drop the id index )
-            print(f"process rsd: {rsd}")
-            if isinstance(xy_slice, pd.MultiIndex):
-                nodes: pd.DateOffset = self.count_p.select(
-                    key=self.count_p.group,
-                    where=[f"{DpmmCountKey.ID}>0", f"{DpmmCountKey.RSD_ID} == {rsd}"],
-                    columns=["count", "err", "sqerr"],
-                )
-                if remove_missing_values:
-                    nodes = self.remove_missing_values(nodes, _i[:, :, :, 1:])
-                nodes = partial_index_match(nodes, xy_slice)
-            else:
-                terms = self.count_p.parse_index_slice(
-                    _i[:, xy_slice[0], xy_slice[1], 1:]
-                )[0]
-                terms.append(f"{DpmmCountKey.RSD_ID} == {rsd}")
-                nodes: pd.DataFrame = self.count_p.select(
-                    key=self.count_p.group,
-                    where=terms,
-                    columns=["count", "err", "sqerr"],
-                )
-                if remove_missing_values:
-                    nodes = self.remove_missing_values(
-                        nodes, _i[:, xy_slice[0], xy_slice[1], 1:]
-                    )
-
-            # filter global values based on cells (x, y) in current rsd
-            txy_index_full = self.create_full_time_index(time_index, nodes.index)
-            _idx = glb.index.intersection(txy_index_full)
-            glb_rsd = glb.loc[_idx].copy(deep=True)
-
-            _out = self._cell_count_measure(glb=glb_rsd, nodes=nodes)
-            _out[DpmmCountKey.RSD_ID] = rsd
-            out.append(_out.reset_index())
-
-        out = pd.concat(out, axis=0, ignore_index=True)
-        out = out.set_index([DpmmCountKey.RSD_ID, "simtime", "x", "y"]).sort_index()
-        # remove uncessary columns
-        return fc(out.loc[index_slice, columns])
-
+    # deprecated moved to CellCountError class todo....
     def cell_count_measure(
         self,
         load_cached_version: bool = True,
@@ -1161,92 +937,26 @@ class DpmMap(BaseDpmMap):
         columns: slice | List[str] = slice(None),
         remove_missing_values: bool = False,
     ) -> pd.DataFrame:
-        """create cell based error measures over time to indicate **positional correctness**
 
-        remove_missing_values: If false we use the values introduced by the
-        imputation function during creation of the count map. Missing values are
-        marked in the column 'missing_value'.
-
-        count_p contains count, err, and sqerr values at the (time, id, x, y)
-        level.  In other words the table contains these values for each node
-        (id) for a given cell (x, y) for a given time (time).  The table count_p
-        only contains communicated cells as well as over and underestimation
-        errors.
-
-        Assume cell x_i was occupied until t=10 . Then this cell is reported for
-        each time step and node. Either with err = 0 if the node sees the
-        occupant or err = -1 for nodes where the occupant is not seen and err >=
-        1 in the case some nodes see more than one node. Note that negative
-        values (underestimation) is bound by the real number of occupants in the
-        cell. On the other hand overestimation is not bound!
-
-        Assume now t > 100 and x_i is not occupied anymore and any TTL is
-        reached, thus no node should have any values for the cell x_i.  Assume
-        now that from a total of N=10 nodes one node is faulty and has a count of 1
-        for cell x_i. This count will be part of the count_p table and marked
-        with an error count of 1. The correct value of count=0 for all other
-        nodes is not stored in count_p but are implied. Thus to calculate the
-        mean absolute error of cell x_i is:
-
-                mean_abs_err = (|1| + 9*|0|)/(N=10) = 0.1
-
-        For this reason a simple count_p.groupby([...]).mean() will not work
-        because the used number of observations will be wrong because the
-        implied zero-error values are not saved in count_p. This function will
-        therefore calculate the mean errors manually by utilizing the total
-        number of nodes N for each time `t`. The numerator will be the same
-        because only zero-counts / zero-erros are implied. Any non-zero count or
-        error will be saved explicitly in count_p.
-
-            N:= set of cells (x, y) with index i
-            M:= set of agents/measuring agents (ID) with index j
-            Y^_i := (Y-Hat) ground truth for cell i. This is identical for each agents thus
-                    Y^_ij - Y^_i(j+1) for all i and j.
-
-        Returns:
-            pd.DataFrame: _description_
-        """
-        group_name = (
-            "cell_measures_no_missing" if remove_missing_values else "cell_measures"
+        logger.warning("deprecated method. Use CellCountErr object directly. Trying to guess path and values...")
+        if load_cached_version == False:
+            raise NotImplementedError("load_caded_version=False not supported anymore use MapCountError class direcly")
+        hdf_path = os.path.join(
+            os.path.dirname(self._map_p.hdf_path),
+            CellCountError.default_hdf_name(self.metadata.map_type)
         )
-        if self._map_p.contains_group(group_name) and load_cached_version:
-            return fc(
-                self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
-            )
-
-        _i = pd.IndexSlice
-        # total number of nodes at each time
-        if isinstance(xy_slice, pd.MultiIndex):
-            glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            glb = partial_index_match(glb, xy_slice)
-        else:
-            glb = self.count_p[
-                _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
-            ]  # only ground truth
-
-        # all (time, x, y, id) based count, err, squerr cell values
-        # without ground truth (see slice last slice `1:`)
-        # The measurements are summed over all nodes (this will drop the id index )
-        if isinstance(xy_slice, pd.MultiIndex):
-            nodes: pd.DataFrame = self.count_p[
-                _i[:, :, :, 1:], _i["count", "err", "sqerr"]
-            ]  # all but ground truth
-            if remove_missing_values:
-                nodes = self.remove_missing_values(nodes, _i[:, :, :, 1:])
-            nodes = partial_index_match(nodes, xy_slice)
-        else:
-            nodes: pd.DataFrame = self.count_p[
-                _i[:, xy_slice[0], xy_slice[1], 1:], _i["count", "err", "sqerr"]
-            ]  # all but ground truth
-            if remove_missing_values:
-                nodes = self.remove_missing_values(
-                    nodes, _i[:, xy_slice[0], xy_slice[1], 1:]
-                )
-
-        cell_base = self._cell_count_measure(glb=glb, nodes=nodes)
-        # remove uncessary columns
-        # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
-        return fc(cell_base.loc[index_slice, columns])
+        builder = CellCountErrorBuilder(
+            index_slice=index_slice, 
+            xy_slice=xy_slice,
+            fc=fc,
+            columns=columns,
+            remove_missing_values=remove_missing_values
+        )
+        return CellCountError.get_or_create(
+            hdf_path=hdf_path,
+            map_p=self._count_p,
+            builder=builder
+        ).hdf_map_measure.frame()
 
     def count_diff(
         self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
@@ -1339,36 +1049,38 @@ class DpmMap(BaseDpmMap):
     @savefigure
     @with_axis
     def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
-        if "data_source" in kwargs:
-            nodes = kwargs["data_source"]()
-        else:
-            nodes = self.map_count_measure()
 
-        font_dict = self.style.font_dict
-        ax.set_title("Node Count over Time", **font_dict["title"])
-        ax.set_xlabel("Time [s]", **font_dict["xlabel"])
-        ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
-        n = (
-            nodes.loc[:, ["map_median_count", "map_count_p25", "map_count_p75"]]
-            .dropna()
-            .reset_index()
-        )
-        ax.plot("simtime", "map_median_count", data=n, label="Median count")
+        raise DeprecationWarning("movde to _PlotDpmMap") 
+        # if "data_source" in kwargs:
+        #     nodes = kwargs["data_source"]()
+        # else:
+        #     nodes = self.map_count_measure()
 
-        ax.fill_between(
-            n["simtime"],
-            n["map_count_p25"],
-            n["map_count_p75"],
-            alpha=0.35,
-            interpolate=True,
-            label="[Q1;Q3]",
-        )
-        glb = nodes.loc[:, ["map_glb_count"]].dropna().reset_index()
-        ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
-        if self.style.create_legend:
-            ax.legend()
-        PlotUtil.auto_major_minor_locator(ax)
-        return ax.get_figure(), ax
+        # font_dict = self.style.font_dict
+        # ax.set_title("Node Count over Time", **font_dict["title"])
+        # ax.set_xlabel("Time [s]", **font_dict["xlabel"])
+        # ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
+        # n = (
+        #     nodes.loc[:, ["map_median_count", "map_count_p25", "map_count_p75"]]
+        #     .dropna()
+        #     .reset_index()
+        # )
+        # ax.plot("simtime", "map_median_count", data=n, label="Median count")
+
+        # ax.fill_between(
+        #     n["simtime"],
+        #     n["map_count_p25"],
+        #     n["map_count_p75"],
+        #     alpha=0.35,
+        #     interpolate=True,
+        #     label="[Q1;Q3]",
+        # )
+        # glb = nodes.loc[:, ["map_glb_count"]].dropna().reset_index()
+        # ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
+        # if self.style.create_legend:
+        #     ax.legend()
+        # PlotUtil.auto_major_minor_locator(ax)
+        # return ax.get_figure(), ax
 
     def err_box_over_time(self, bin_width=10.0):
         i = pd.IndexSlice
