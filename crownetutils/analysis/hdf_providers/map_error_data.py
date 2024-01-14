@@ -102,8 +102,8 @@ class CellEntropyValueError:
         self.hdf_path = hdf_path
 
         self._hdf_cell_entropy_measure : BaseHdfProvider= None
-        self._hdf_cell_mentropy_easure_rsd: BaseHdfProvider = None
-        self._hdf_cell_mentropy_easure_rsd_local: BaseHdfProvider = None
+        self._hdf_cell_entropy_measure_rsd: BaseHdfProvider = None
+        self._hdf_cell_entropy_measure_rsd_local: BaseHdfProvider = None
     
     @staticmethod
     def default_hdf_name(map_type=""):
@@ -217,15 +217,6 @@ class CellEntropyValueError:
         glb.columns = ["glb_count"]
 
 
-        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
-        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
-        cell_base: pd.DateFrame = nodes.groupby(
-            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
-        ).agg(
-            ["sum"]
-        )  # [time, x, y](...data-columns...)
-
-        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
         
         # Number of nodes which are active at a given time, irrespective location (i.e. cells). This is 
         # used by CellCountError due to implicit zero errors. Not used here, see CellCountError why this
@@ -250,6 +241,15 @@ class CellEntropyValueError:
         num_observations.name = "num_observations"
         
         nodes["abserr"] = np.abs(nodes["err"])
+        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
+        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
+        cell_base: pd.DateFrame = nodes.groupby(
+            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
+        ).agg(
+            ["sum"]
+        )  # [time, x, y](...data-columns...)
+
+        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
 
         cell_base: pd.DataFrame = cell_base.join(num_active_agents, on="simtime")
         cell_base: pd.DataFrame = cell_base.join(num_observations, on=["simtime", "x", "y"])
@@ -350,7 +350,7 @@ class CellEntropyValueError:
                 )
 
         
-        self.hdf_cell_entropy_measure.repack_hdf()
+        self.hdf_cell_entropy_measure.repack_hdf(keep_old_file=False)
 
 
 @dataclass
@@ -890,7 +890,7 @@ class MapCountError:
                 _glb_rsd = glb_rsd.loc[pd.IndexSlice[:, t_min:t_max], :]
             self._aggregate_time_chunk(_glb_all, _glb_rsd, data, rsd_list=rsd_list)
 
-        self.hdf_map_measure.repack_hdf() # same file only once. 
+        self.hdf_map_measure.repack_hdf(keep_old_file=False) # same file only once. 
 
 
     # todo find erronoues stuff....
