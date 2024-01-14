@@ -197,8 +197,6 @@ class DpmmProvider(IHdfProvider):
         )
         for host_id in host_ids:
             progress.incr()
-            if host_id < 50:
-                print("stop")
             try:
                 dcd_df = self.build_dcd_dataframe_db(sql=sql, node_id=host_id, **kwargs)
             except EmptyDataError as e:
