@@ -1,9 +1,9 @@
 from __future__ import annotations
-from multiprocessing import set_forkserver_preload
 
 import os
 import re
 import sys
+from multiprocessing import set_forkserver_preload
 from typing import Callable, Dict, List, Union
 
 import geopandas as gpd
@@ -160,15 +160,12 @@ class DpmmProvider(IHdfProvider):
         return HdfGroups.DCD_MAP
 
     def print_info(self):
-        
         with self.tables_file(self.hdf_path, mode="r") as hdf_file:
             attr = hdf_file.root[self.group].table.attrs
             print(f"Info for Group: {hdf_file.root['dcd_map']._v_pathname}")
             print(f"\tnumber of rows: {attr['NROWS']:,}")
             print(f"\ttime interval: {attr['time_interval']}")
             print(f"\tcell_size: {attr['cell_size']}")
-
-
 
     def index_order(self) -> Dict:
         return {

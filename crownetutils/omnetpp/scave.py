@@ -216,10 +216,8 @@ class OppSql:
                 return _con.execute(sql_str, **kwargs)
             else:
                 raise RuntimeError("Expected df or cursor as type")
-    
-    def _write(
-            self, sql_str, file="vec", **kwargs
-    ) -> None:
+
+    def _write(self, sql_str, file="vec", **kwargs) -> None:
         sql_file = self._file(file)
         with sql_file() as _con:
             _con.execute(sql_str, **kwargs)
@@ -1034,14 +1032,14 @@ class CrownetSql(OppSql):
         if self._module_id_map is None:
             m = self.OR([f"{self.network}.{i}[%]" for i in self.module_vectors])
             _host_ids = self.host_ids(module_name=m)
-            self._module_id_map = HostIdMap(
-                {v: k for k, v in _host_ids.items()}
-            )
+            self._module_id_map = HostIdMap({v: k for k, v in _host_ids.items()})
         return self._module_id_map
-    
+
     def debug_load_host_id_map_from_data(self):
         if len(self.module_to_host_ids().id_map) == 0:
-            logger.warning("no hostId map found create one from zero send delay. And append it to sca DB!")
+            logger.warning(
+                "no hostId map found create one from zero send delay. And append it to sca DB!"
+            )
             vec_names = {
                 "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
                 "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
@@ -1052,22 +1050,27 @@ class CrownetSql(OppSql):
                 append_index=["srcHostId"],
             ).sort_index()
             _d = vec_data["delay"] == 0.0
-            _dummy_to_host = {v:k for k, v in self.module_to_host_ids().id_map.items()} 
-            vec_data: pd.DataFrame = vec_data.reset_index().drop(columns=["eventNumber", "time"])[_d.values].drop_duplicates()
+            _dummy_to_host = {v: k for k, v in self.module_to_host_ids().id_map.items()}
+            vec_data: pd.DataFrame = (
+                vec_data.reset_index()
+                .drop(columns=["eventNumber", "time"])[_d.values]
+                .drop_duplicates()
+            )
             insert = []
             for _, row in vec_data.iterrows():
-                insert.append(f"(1, '{_dummy_to_host[row['hostId']]}', 'hostId:last', {row['srcHostId']})")
-            
+                insert.append(
+                    f"(1, '{_dummy_to_host[row['hostId']]}', 'hostId:last', {row['srcHostId']})"
+                )
+
             insert = ",\n".join(insert)
             sql_str = f"INSERT INTO scalar (runId, moduleName, scalarName, scalarValue) VALUES \n {insert};"
 
             self.write_sca(sql_str)
 
-            # update id map 
+            # update id map
             self._module_id_map = None
             self.module_to_host_ids()
             self.module_matcher = ModuleMatcher(self)
-
 
     def create_bonnmotion_trace(
         self,
@@ -1154,7 +1157,9 @@ class CrownetSql(OppSql):
         )
         enb["hostId"] = enb["hostId"].astype(int)
         if rsd.empty:
-            logger.warning(f"scalar name of rsd_id not found. use enb vector index +1 as rsd_id")
+            logger.warning(
+                f"scalar name of rsd_id not found. use enb vector index +1 as rsd_id"
+            )
             enb["rsd_id"] = enb["hostId"] + 1
         else:
             enb = enb.merge(rsd, how="inner", on="hostId")

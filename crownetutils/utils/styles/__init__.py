@@ -1,9 +1,9 @@
+import logging
 from copy import deepcopy
 from importlib.resources import path as resource_path
 
 import matplotlib
 import matplotlib.pyplot as plt
-import logging
 
 STYLE_SIMPLE_169 = ("crownetutils.utils.styles", "simple16x9.mplstyle")
 STYLE_TEX = ("crownetutils.utils.styles", "default_paper_tex.mplstyle")
@@ -21,8 +21,7 @@ def load_matplotlib_style(style) -> matplotlib.RcParams:
     if plt.rcParams["text.usetex"]:
         if not matplotlib.checkdep_usetex(True):
             logging.warning("tex/latex not installed set `text.usetex: False`")
-            plt.rcParams.update({'text.usetex': False})
-            
+            plt.rcParams.update({"text.usetex": False})
 
     return old
 

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from distutils.version import Version
 from typing import Dict, List, Union
-from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely.geometry import box
 
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 from crownetutils.analysis.hdf.groups import HdfGroups
 from crownetutils.analysis.hdf.operator import Operation
 from crownetutils.analysis.hdf.provider import (
@@ -41,7 +41,15 @@ class DpmmCountKey:
                 SQERR,
             ],
             ProviderVersion.V0_3: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL],
-            ProviderVersion.V0_4: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL, RSD_ID, OWNER_RSD_ID],
+            ProviderVersion.V0_4: [
+                COUNT,
+                ERR,
+                OWNER_DIST,
+                SQERR,
+                MISSING_VAL,
+                RSD_ID,
+                OWNER_RSD_ID,
+            ],
         }
     )
 
@@ -60,14 +68,13 @@ class DpmmCountKey:
 class DpmmCount(IHdfProvider):
     def __init__(self, hdf_path, version: str | None = None):
         super().__init__(hdf_path, version)
-    
+
     def get_rsd_ids(self) -> pd.Series:
         with self.ctx(mode="r") as store:
             df = store.get(key=DpmmKey.RSD_ID)
         return df
-    
+
     def print_info(self):
-        
         with self.tables_file(self.hdf_path, mode="r") as hdf_file:
             attr = hdf_file.root[self.group].table.attrs
             print(f"Info for Group: {hdf_file.root[self.group]._v_pathname}")

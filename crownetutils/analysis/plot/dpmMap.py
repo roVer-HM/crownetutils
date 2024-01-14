@@ -1,13 +1,5 @@
 """Decentralized pedestrian measurement map (DPMM) metrics. (Density or entropy alike)"""
 from __future__ import annotations
-from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
-from crownetutils.analysis.hdf_providers.map_error_data import MapCountError
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-
-import matplotlib.patches as pltPatch
-import matplotlib.path as pltPath
-import matplotlib.pyplot as plt
 
 import itertools
 import os
@@ -15,12 +7,16 @@ import sys
 from io import StringIO
 from typing import Any, List, Tuple
 
+import matplotlib.patches as pltPatch
+import matplotlib.path as pltPath
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.axes import Axes
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.collections import PatchCollection
+from matplotlib.figure import Figure
 from matplotlib.ticker import MultipleLocator
 from omnetinireader.config_parser import ObjectValue
 from pandas import IndexSlice as _i
@@ -31,6 +27,8 @@ import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import RunMap, Simulation
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
+from crownetutils.analysis.hdf_providers.map_error_data import MapCountError
 from crownetutils.analysis.hdf_providers.node_position import (
     CoordinateType,
     NodePositionWithRsdHdf,
@@ -84,7 +82,6 @@ class _PlotDpmMap(PlotUtil_):
         # msce ecdf
         self.plot_msce_ecdf(msce["cell_mse"], savefig=saver.with_name("msce_ecdf"))
 
-
     def plot_map_count_diff_by_rsd(
         self, data: MapCountError, rsd_list, saver: FigureSaver
     ):
@@ -98,41 +95,68 @@ class _PlotDpmMap(PlotUtil_):
         def max_col(data, col_s):
             cols = [c for c in data.columns if col_s in c]
             return data[cols].max().max()
-        
+
         name = saver.next_name
         font_dict = self.style.font_dict
         for rsd in rsd_list:
-            data_rsd =  data.hdf_map_measure_rsd.select(
-                where=f"{DpmmKey.RSD_ID}={rsd}",
-                columns=["map_median_count", "map_count_p25", "map_count_p75"]
-                ).dropna().reset_index()
-            glb_rsd = data.hdf_map_measure_rsd.select(
-                where=f"{DpmmKey.RSD_ID}={rsd}",
-                columns=["map_glb_count"]
-                ).dropna().reset_index()
+            data_rsd = (
+                data.hdf_map_measure_rsd.select(
+                    where=f"{DpmmKey.RSD_ID}={rsd}",
+                    columns=["map_median_count", "map_count_p25", "map_count_p75"],
+                )
+                .dropna()
+                .reset_index()
+            )
+            glb_rsd = (
+                data.hdf_map_measure_rsd.select(
+                    where=f"{DpmmKey.RSD_ID}={rsd}", columns=["map_glb_count"]
+                )
+                .dropna()
+                .reset_index()
+            )
             fig, ax = self._plot_count_diff(glb=glb_rsd, data=data_rsd)
-            ax.set_title(f"Node Count over Time RSD {rsd} (with data from all domains)", **font_dict["title"])
+            ax.set_title(
+                f"Node Count over Time RSD {rsd} (with data from all domains)",
+                **font_dict["title"],
+            )
             ax.set_xlabel("Time [s]", **font_dict["xlabel"])
             ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
 
-            data_rsd_local =  data.hdf_map_measure_rsd_local.select(
-                where=f"{DpmmKey.RSD_ID}={rsd}",
-                columns=["map_median_count", "map_count_p25", "map_count_p75"]
-                ).dropna().reset_index()
-            glb_rsd_local = data.hdf_map_measure_rsd_local.select(
-                where=f"{DpmmKey.RSD_ID}={rsd}",
-                columns=["map_glb_count"]
-                ).dropna().reset_index()
+            data_rsd_local = (
+                data.hdf_map_measure_rsd_local.select(
+                    where=f"{DpmmKey.RSD_ID}={rsd}",
+                    columns=["map_median_count", "map_count_p25", "map_count_p75"],
+                )
+                .dropna()
+                .reset_index()
+            )
+            glb_rsd_local = (
+                data.hdf_map_measure_rsd_local.select(
+                    where=f"{DpmmKey.RSD_ID}={rsd}", columns=["map_glb_count"]
+                )
+                .dropna()
+                .reset_index()
+            )
 
-            fig_loc, ax_loc = self._plot_count_diff(glb=glb_rsd_local, data=data_rsd_local)
-            ax_loc.set_title(f"Node Count over Time RSD {rsd} (with rsd local data)", **font_dict["title"])
+            fig_loc, ax_loc = self._plot_count_diff(
+                glb=glb_rsd_local, data=data_rsd_local
+            )
+            ax_loc.set_title(
+                f"Node Count over Time RSD {rsd} (with rsd local data)",
+                **font_dict["title"],
+            )
             ax_loc.set_xlabel("Time [s]", **font_dict["xlabel"])
             ax_loc.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
 
-            _max = np.array([max_col(d, "map")  for d in [data_rsd, data_rsd_local, glb_rsd, glb_rsd_local]])
+            _max = np.array(
+                [
+                    max_col(d, "map")
+                    for d in [data_rsd, data_rsd_local, glb_rsd, glb_rsd_local]
+                ]
+            )
             for a in [ax, ax_loc]:
-                a.set_ylim(0, np.floor((_max.max()+10) / 10) * 10)
-                a.set_xlim(-10, np.floor((glb_rsd["simtime"].max() + 10)/10) *10)
+                a.set_ylim(0, np.floor((_max.max() + 10) / 10) * 10)
+                a.set_xlim(-10, np.floor((glb_rsd["simtime"].max() + 10) / 10) * 10)
                 self.auto_major_minor_locator(a)
                 if self.style.create_legend:
                     a.legend()
@@ -140,11 +164,11 @@ class _PlotDpmMap(PlotUtil_):
             saver.with_name(name).with_suffix(f"_rsd_{rsd}")(fig)
             saver.with_name(name).with_suffix(f"_rsd_local_{rsd}")(fig_loc)
 
-
     @savefigure
     @with_axis
-    def plot_map_count_diff(self, data: MapCountError, *, ax=None) -> Tuple[Figure, Axes]:
-        
+    def plot_map_count_diff(
+        self, data: MapCountError, *, ax=None
+    ) -> Tuple[Figure, Axes]:
         nodes = data.hdf_map_measure
         n = (
             nodes.select(columns=["map_median_count", "map_count_p25", "map_count_p75"])
@@ -163,17 +187,17 @@ class _PlotDpmMap(PlotUtil_):
         self.auto_major_minor_locator(ax)
         return fig, ax
 
-    @with_axis 
-    def _plot_count_diff(self, glb, data, *, ax=None ) -> Tuple[Figure, Axes]:
+    @with_axis
+    def _plot_count_diff(self, glb, data, *, ax=None) -> Tuple[Figure, Axes]:
         ax.plot("simtime", "map_median_count", data=data, label="Median count")
         ax.fill_between(
-                    data["simtime"],
-                    data["map_count_p25"],
-                    data["map_count_p75"],
-                    alpha=0.35,
-                    interpolate=True,
-                    label="[Q1;Q3]",
-                )
+            data["simtime"],
+            data["map_count_p25"],
+            data["map_count_p75"],
+            alpha=0.35,
+            interpolate=True,
+            label="[Q1;Q3]",
+        )
         ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
         return ax.get_figure(), ax
 
@@ -784,7 +808,9 @@ class _PlotDpmMap(PlotUtil_):
 
 
 class MapPlotter(PlotUtil_):
-    def __init__(self, node_pos, coord, with_icon: bool = False, hex_inner_r=650) -> None:
+    def __init__(
+        self, node_pos, coord, with_icon: bool = False, hex_inner_r=650
+    ) -> None:
         super().__init__()
         self.node_pos: NodePositionWithRsdHdf = node_pos
         self.coord: CoordinateType = coord
@@ -793,16 +819,16 @@ class MapPlotter(PlotUtil_):
         self.with_icon: bool = with_icon
         self.hex_inner_r = hex_inner_r
 
-    def __call__(self, ax:plt.Axes = None) -> MapPlotter:
+    def __call__(self, ax: plt.Axes = None) -> MapPlotter:
         self.ax = ax
         return self
 
-    def add_enb_patches(self, ax:plt.Axes,  zorder=1):
+    def add_enb_patches(self, ax: plt.Axes, zorder=1):
         enb = self.node_pos.enb.frame()
         enb_patches, hex_patches = enb_with_hex(
             origin=enb[self.coord.cols].values, inner_r=self.hex_inner_r, scale=100
         )
-        ax.add_collection(hex_patches) 
+        ax.add_collection(hex_patches)
 
     def __enter__(self) -> MapPlotter:
         f, a = self.check_ax(self.ax)
@@ -836,24 +862,32 @@ class MapPlotter(PlotUtil_):
             self.ax.set_ylim(_min[1], _max[1])
             self.ax.set_aspect("equal")
         self.ax.legend(loc="lower right")
-    
 
-    def set_xy_limit(self, ax:plt.Axes, xy, offset=100):
+    def set_xy_limit(self, ax: plt.Axes, xy, offset=100):
         if isinstance(xy, pd.DataFrame):
             xy = xy[self.coord.col]
         _max = np.max(xy, axis=0)
         _min = np.min(xy, axis=0)
-        ax.set_xlim((_min[0]-offset, _max[0]+offset))
-        ax.set_ylim(_min[1]-offset, _max[1]+offset)
-    
-    def add_cell_patches(self, ax:plt.Axes, cells, size, facecolor="none", edgecolors="gray", zorder=1):
+        ax.set_xlim((_min[0] - offset, _max[0] + offset))
+        ax.set_ylim(_min[1] - offset, _max[1] + offset)
+
+    def add_cell_patches(
+        self, ax: plt.Axes, cells, size, facecolor="none", edgecolors="gray", zorder=1
+    ):
         patches = []
         if isinstance(cells, pd.DataFrame):
-            cells = pd.MultiIndex(cells[self.coord.cols], names=["x", "y"]).unique().to_frame().values
+            cells = (
+                pd.MultiIndex(cells[self.coord.cols], names=["x", "y"])
+                .unique()
+                .to_frame()
+                .values
+            )
         for cell in cells:
             patches.append(pltPatch.Rectangle(cell, width=size, height=size))
 
-        cell_patches = PatchCollection(patches=patches, facecolor=facecolor, edgecolors=edgecolors, zorder=zorder)
+        cell_patches = PatchCollection(
+            patches=patches, facecolor=facecolor, edgecolors=edgecolors, zorder=zorder
+        )
         ax.add_collection(cell_patches)
 
     def save_and_close(self, path):

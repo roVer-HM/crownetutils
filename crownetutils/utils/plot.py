@@ -27,7 +27,7 @@ from typing import (
     Tuple,
     Union,
 )
-from PIL import Image, ImageDraw, ImageFont
+
 import matplotlib
 import matplotlib.patches as pltPatch
 import matplotlib.path as pltPath
@@ -49,6 +49,7 @@ from matplotlib.ticker import (
 )
 from mpl_toolkits import axes_grid1
 from numpy.typing import NDArray
+from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import Polygon
 
 import crownetutils.utils.logging as _log
@@ -265,8 +266,9 @@ class FigureSaverSimple(FigureSaver):
         pass
 
 
-def combine_images(images:List[dict], direction="horizontal", font_ttf="DejaVuSansMono.ttf'"):
-
+def combine_images(
+    images: List[dict], direction="horizontal", font_ttf="DejaVuSansMono.ttf'"
+):
     for image in images:
         image_paths = image["input"]
         total_width = 0
@@ -283,7 +285,7 @@ def combine_images(images:List[dict], direction="horizontal", font_ttf="DejaVuSa
                 total_width = max(total_width, i.size[0])
                 total_heigth += i.size[1] + label_height
             img_list.append(i)
-        
+
         new_im = Image.new("RGB", (total_width, total_heigth))
 
         label: ImageDraw = ImageDraw.Draw(new_im)
@@ -291,15 +293,20 @@ def combine_images(images:List[dict], direction="horizontal", font_ttf="DejaVuSa
         x_off = 0
         y_off = 0
         for i, im in enumerate(img_list):
-            new_im.paste(im, (x_off, y_off) )
+            new_im.paste(im, (x_off, y_off))
             if direction == "horizontal":
                 if len(img_label) > 0:
-                    label.text((x_off + im.size[0]/2, im.size[1]+2), img_label[i], font=font)
+                    label.text(
+                        (x_off + im.size[0] / 2, im.size[1] + 2),
+                        img_label[i],
+                        font=font,
+                    )
                 x_off += im.size[0]
             elif direction == "vertical":
                 y_off += im.size[1] + label_height
 
         new_im.save(image["output_path"])
+
 
 class FigureSaverPdfPages:
     @classmethod
@@ -1194,12 +1201,16 @@ class PlotHelper:
     def plot_data(self) -> pd.DataFrame:
         return self._plot_data
 
+
 def map_cells(cells, size, zorder=1):
     patches = []
     for cell in cells:
         patches.append(pltPatch.Rectangle(cell, width=size, height=size))
 
-    return PatchCollection(patches=patches, facecolor="none", edgecolors="gray", zorder=zorder)
+    return PatchCollection(
+        patches=patches, facecolor="none", edgecolors="gray", zorder=zorder
+    )
+
 
 def enb_with_hex(origin, inner_r, scale=30, zorder=1):
     if origin.shape == (2,):
@@ -1213,13 +1224,13 @@ def enb_with_hex(origin, inner_r, scale=30, zorder=1):
                 [enb_patch(scale_factor=scale, pos_xy=p) for p in origin],
                 facecolors="none",
                 edgecolors="black",
-                zorder=zorder
+                zorder=zorder,
             ),
             PatchCollection(
                 [hex_patch(origin=p, inner_r=inner_r) for p in origin],
                 facecolors="none",
                 edgecolors="grey",
-                zorder=zorder
+                zorder=zorder,
             ),
         ]
 

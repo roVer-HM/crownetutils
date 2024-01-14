@@ -8,13 +8,13 @@ import pickle
 import re
 from functools import partial
 from typing import Union
-from crownetutils.analysis import RsdAssociationProvider
 
 import numpy as np
 import pandas as pd
 from pandas import IndexSlice as Idx
 
 import crownetutils.analysis.dpmm.csv_loader as DcdUtil
+from crownetutils.analysis import RsdAssociationProvider
 from crownetutils.analysis.dpmm.dpmm import DpmMap
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, DpmmCfgDb, MapType
 from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
@@ -157,7 +157,7 @@ class DpmmHdfBuilder(FrameConsumer):
 
         # providers
         # self.count_p = DpmmCount(self.cfg.hdf_path("count.h5"))
-        self.rsd_association_provider: RsdAssociationProvider|None = None
+        self.rsd_association_provider: RsdAssociationProvider | None = None
         self.count_p = DpmmCount(self.hdf_path)
         self.map_p = DpmmProvider(self.hdf_path)
         self.position_p = DpmmGlobalPosition(self.hdf_path)
@@ -194,7 +194,7 @@ class DpmmHdfBuilder(FrameConsumer):
 
     def set_map_type(self, t: MapType):
         self._map_type = t
-    
+
     def set_rsd_association_provider(self, p: RsdAssociationProvider) -> DpmmHdfBuilder:
         self.rsd_association_provider = p
         return self
@@ -307,7 +307,9 @@ class DpmmHdfBuilder(FrameConsumer):
         if isinstance(self.cfg, DpmmCfgCsv):
             glb_csv_path = os.path.join(self.cfg.base_dir, self.cfg.global_map_csv_name)
             self.position_p, self.global_p, meta = create_and_save_position_and_global(
-                csv_path=glb_csv_path, hdf_path=self.hdf_path, rsd_p=self.rsd_association_provider
+                csv_path=glb_csv_path,
+                hdf_path=self.hdf_path,
+                rsd_p=self.rsd_association_provider,
             )
         elif isinstance(self.cfg, DpmmCfgDb):
             (
@@ -317,7 +319,7 @@ class DpmmHdfBuilder(FrameConsumer):
             ) = create_and_save_position_and_global_db(
                 cfg=self.cfg,
                 hdf_path=self.hdf_path,
-                rsd_p=self.rsd_association_provider
+                rsd_p=self.rsd_association_provider,
             )
         else:
             raise ValueError("expected csv for db config")

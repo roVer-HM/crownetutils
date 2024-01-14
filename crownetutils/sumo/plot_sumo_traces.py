@@ -1,14 +1,14 @@
 import glob
-from itertools import repeat
 import os
 from functools import partial
-from matplotlib.axes._axes import Axes
-from matplotlib.figure import Figure
+from itertools import repeat
 
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from matplotlib.axes._axes import Axes
 from matplotlib.collections import LineCollection, PatchCollection
+from matplotlib.figure import Figure
 from matplotlib.ticker import MultipleLocator
 
 from crownetutils.sumo import SimDir
@@ -81,15 +81,11 @@ def save_descriptive_stats(
 
 
 def nearest_enb(trace, enb):
+    t = np.tile(trace, enb.shape[0]).reshape((-1, 3))
 
-    t =  np.tile(trace, enb.shape[0]).reshape((-1,3))
+    min_idx = np.linalg.norm(t[:, 1:] - enb, axis=1).argmin()
 
-    min_idx = np.linalg.norm(
-        t[:, 1:] - enb,
-        axis=1
-    ).argmin()
-
-    return np.concatenate([ trace, [min_idx]])
+    return np.concatenate([trace, [min_idx]])
 
 
 def plot_trace(ax: plt.Axes, traces, enb, inner_r):
@@ -103,12 +99,15 @@ def plot_trace(ax: plt.Axes, traces, enb, inner_r):
 
     # indexed_segment_start = segments.reset_index()[["index", "p1_x", "p2_x"]].values
     # args_iter = zip(indexed_segment_start, repeat(enb[["base_x", "base_y"]].values))
-        
+
     # out = run_args_map(nearest_enb, list(args_iter), pool_size=8)
 
     lc = segments[["p1_x", "p1_y", "p2_x", "p2_y"]].values.reshape((-1, 2, 2))
     ax.add_collection(LineCollection(lc))
-    patches = [enb_with_hex(p, inner_r=inner_r, scale=200) for p in enb[["base_x", "base_y"]].values]
+    patches = [
+        enb_with_hex(p, inner_r=inner_r, scale=200)
+        for p in enb[["base_x", "base_y"]].values
+    ]
     ax.add_collection(
         PatchCollection(patches=[p[0] for p in patches], facecolors="black")
     )

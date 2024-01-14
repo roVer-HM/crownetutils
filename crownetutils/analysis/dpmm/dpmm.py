@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import os
 from itertools import combinations
 from typing import Callable, List, Tuple, Union
-import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,14 +18,18 @@ from pandas import IndexSlice as Idx
 from crownetutils.analysis.dpmm.csv_loader import DpmmMetaData
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount, DpmmCountKey
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
-from crownetutils.utils.dataframe import (
-    FrameConsumer,
-    partial_index_match,
+from crownetutils.analysis.hdf_providers.map_error_data import (
+    CellCountError,
+    CellCountErrorBuilder,
+    CellEntropyValueError,
+    CellEntropyValueErrorBuilder,
+    MapCountError,
 )
+from crownetutils.utils.dataframe import FrameConsumer, partial_index_match
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import intersect
 from crownetutils.utils.plot import FigureSaver, PlotUtil, Style, savefigure, with_axis
-from crownetutils.analysis.hdf_providers.map_error_data import CellCountError, CellCountErrorBuilder, CellEntropyValueError, CellEntropyValueErrorBuilder, MapCountError
+
 
 class BaseDpmMap:
     tsc_global_id = 0
@@ -727,26 +731,26 @@ class DpmMap(BaseDpmMap):
                 )
         """
 
-        logger.warning("deprecated methdo. Use MapCountErr object directly. Trying to guess path and values...")
+        logger.warning(
+            "deprecated methdo. Use MapCountErr object directly. Trying to guess path and values..."
+        )
         if load_cached_version == False:
-            raise NotImplementedError("load_caded_version=Fals not supported anymore use MapCountError class direcly")
+            raise NotImplementedError(
+                "load_caded_version=Fals not supported anymore use MapCountError class direcly"
+            )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
-            MapCountError.default_hdf_name(self.metadata.map_type)
+            MapCountError.default_hdf_name(self.metadata.map_type),
         )
-        hdf =  MapCountError.get_or_create(
-            hdf_path=hdf_path,
-            map_p=self._map_p,
-            glb_pos=self.position_df,
-            rsd_p=None
+        hdf = MapCountError.get_or_create(
+            hdf_path=hdf_path, map_p=self._map_p, glb_pos=self.position_df, rsd_p=None
         )
         if local_data_only:
-            return  hdf.hdf_map_measure_rsd_local.frame()
+            return hdf.hdf_map_measure_rsd_local.frame()
         else:
             return hdf.hdf_map_measure_rsd.frame()
 
-
-    #deprecatead moved to MapCountError class
+    # deprecatead moved to MapCountError class
     def map_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
         """create map based error measure over time to indicate **total area count correctness**
 
@@ -761,22 +765,22 @@ class DpmMap(BaseDpmMap):
                 map_mean_err, map_mean_sqrerr, map_median_err, map_median_sqerr
                 )
         """
-        logger.warning("deprecated methdo. Use MapCountErr object directly. Trying to guess path and values...")
+        logger.warning(
+            "deprecated methdo. Use MapCountErr object directly. Trying to guess path and values..."
+        )
         if load_cached_version == False:
-            raise NotImplementedError("load_caded_version=Fals not supported anymore use MapCountError class direcly")
+            raise NotImplementedError(
+                "load_caded_version=Fals not supported anymore use MapCountError class direcly"
+            )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
-            MapCountError.default_hdf_name(self.metadata.map_type)
+            MapCountError.default_hdf_name(self.metadata.map_type),
         )
         return MapCountError.get_or_create(
-            hdf_path=hdf_path,
-            map_p=self._map_p,
-            glb_pos=self.position_df,
-            rsd_p=None
+            hdf_path=hdf_path, map_p=self._map_p, glb_pos=self.position_df, rsd_p=None
         ).hdf_map_measure.frame()
 
-
-    #deprecated
+    # deprecated
     def cell_value_measure(
         self,
         load_cached_version: bool = True,
@@ -785,25 +789,26 @@ class DpmMap(BaseDpmMap):
         fc: FrameConsumer = FrameConsumer.EMPTY,
         columns: slice | List[str] = slice(None),
     ) -> pd.DataFrame:
-        logger.warning("deprecated method. Use CellEntropyValueError object directly. Trying to guess path and values...")
+        logger.warning(
+            "deprecated method. Use CellEntropyValueError object directly. Trying to guess path and values..."
+        )
         if load_cached_version == False:
-            raise NotImplementedError("load_caded_version=False not supported anymore use CellEntropyValueError class direcly")
+            raise NotImplementedError(
+                "load_caded_version=False not supported anymore use CellEntropyValueError class direcly"
+            )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
-            CellEntropyValueError.default_hdf_name(self.metadata.map_type)
+            CellEntropyValueError.default_hdf_name(self.metadata.map_type),
         )
         builder = CellEntropyValueErrorBuilder(
-            index_slice=index_slice, 
+            index_slice=index_slice,
             xy_slice=xy_slice,
             fc=fc,
             columns=columns,
         )
         return CellEntropyValueError.get_or_create(
-            hdf_path=hdf_path,
-            map_p=self._count_p,
-            builder=builder
+            hdf_path=hdf_path, map_p=self._count_p, builder=builder
         ).hdf_map_measure.frame()
-
 
     # deprecated moved to CellCountError class todo ....
     def cell_count_measure_by_rsd(
@@ -814,27 +819,29 @@ class DpmMap(BaseDpmMap):
         fc: FrameConsumer = FrameConsumer.EMPTY,
         columns: slice | List[str] = slice(None),
         remove_missing_values: bool = False,
-        local_data_only: bool = False
+        local_data_only: bool = False,
     ) -> pd.DataFrame:
-        logger.warning("deprecated method. Use CellCountErr object directly. Trying to guess path and values...")
+        logger.warning(
+            "deprecated method. Use CellCountErr object directly. Trying to guess path and values..."
+        )
         if load_cached_version == False:
-            raise NotImplementedError("load_caded_version=False not supported anymore use MapCountError class direcly")
+            raise NotImplementedError(
+                "load_caded_version=False not supported anymore use MapCountError class direcly"
+            )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
-            CellCountError.default_hdf_name(self.metadata.map_type)
+            CellCountError.default_hdf_name(self.metadata.map_type),
         )
         builder = CellCountErrorBuilder(
-            index_slice=index_slice, 
+            index_slice=index_slice,
             xy_slice=xy_slice,
             fc=fc,
             columns=columns,
-            remove_missing_values=remove_missing_values
+            remove_missing_values=remove_missing_values,
         )
 
         hdf: CellCountError = CellCountError.get_or_create(
-            hdf_path=hdf_path,
-            map_p=self._count_p,
-            builder=builder
+            hdf_path=hdf_path, map_p=self._count_p, builder=builder
         )
 
         if local_data_only:
@@ -852,25 +859,26 @@ class DpmMap(BaseDpmMap):
         columns: slice | List[str] = slice(None),
         remove_missing_values: bool = False,
     ) -> pd.DataFrame:
-
-        logger.warning("deprecated method. Use CellCountErr object directly. Trying to guess path and values...")
+        logger.warning(
+            "deprecated method. Use CellCountErr object directly. Trying to guess path and values..."
+        )
         if load_cached_version == False:
-            raise NotImplementedError("load_caded_version=False not supported anymore use MapCountError class direcly")
+            raise NotImplementedError(
+                "load_caded_version=False not supported anymore use MapCountError class direcly"
+            )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
-            CellCountError.default_hdf_name(self.metadata.map_type)
+            CellCountError.default_hdf_name(self.metadata.map_type),
         )
         builder = CellCountErrorBuilder(
-            index_slice=index_slice, 
+            index_slice=index_slice,
             xy_slice=xy_slice,
             fc=fc,
             columns=columns,
-            remove_missing_values=remove_missing_values
+            remove_missing_values=remove_missing_values,
         )
         return CellCountError.get_or_create(
-            hdf_path=hdf_path,
-            map_p=self._count_p,
-            builder=builder
+            hdf_path=hdf_path, map_p=self._count_p, builder=builder
         ).hdf_map_measure.frame()
 
     def count_diff(
@@ -964,8 +972,7 @@ class DpmMap(BaseDpmMap):
     @savefigure
     @with_axis
     def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
-
-        raise NotImplementedError("movde to _PlotDpmMap") 
+        raise NotImplementedError("movde to _PlotDpmMap")
         # if "data_source" in kwargs:
         #     nodes = kwargs["data_source"]()
         # else:

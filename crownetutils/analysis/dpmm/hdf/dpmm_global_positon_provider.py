@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from typing import Dict, List, Tuple, Union
-from crownetutils.analysis import RsdAssociationProvider
 
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, box
 
+from crownetutils.analysis import RsdAssociationProvider
 from crownetutils.analysis.dpmm.csv_loader import read_csv
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
 from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
@@ -198,10 +198,8 @@ class DpmmGlobal(IHdfProvider):
 
 @timing
 def create_and_save_position_and_global_db(
-    cfg: DpmmCfgDb, 
-    hdf_path: str,
-    rsd_p: RsdAssociationProvider|None = None
-    ):
+    cfg: DpmmCfgDb, hdf_path: str, rsd_p: RsdAssociationProvider | None = None
+):
     sql: DpmmSql = DpmmSql(cfg)
 
     pos = DpmmGlobalPosition(hdf_path)
@@ -230,10 +228,7 @@ def create_and_save_position_and_global_db(
     )
     if rsd_p is not None:
         pos = rsd_p.merge_rsd_id_on_host_time_interval(
-            data=pos, 
-            host_id_col="node_id",
-            time_col="simtime",
-            append_interval=False 
+            data=pos, host_id_col="node_id", time_col="simtime", append_interval=False
         )
     pos.write_dataframe(position_df)
     density.write_dataframe(global_df)
@@ -244,7 +239,7 @@ def create_and_save_position_and_global_db(
 def create_and_save_position_and_global(
     csv_path: str,
     hdf_path: str,
-    rsd_p: RsdAssociationProvider|None = None,
+    rsd_p: RsdAssociationProvider | None = None,
 ) -> Tuple[DpmmGlobalPosition, DpmmGlobal, DpmmMetaData]:
     pos = DpmmGlobalPosition(hdf_path)
     density = DpmmGlobal(hdf_path)
@@ -267,10 +262,7 @@ def create_and_save_position_and_global(
 
     if rsd_p is not None:
         pos = rsd_p.merge_rsd_id_on_host_time_interval(
-            data=pos, 
-            host_id_col="node_id",
-            time_col="simtime",
-            append_interval=False 
+            data=pos, host_id_col="node_id", time_col="simtime", append_interval=False
         )
     pos.write_dataframe(position_df)
     density.write_dataframe(global_df)

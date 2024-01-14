@@ -24,6 +24,7 @@ from crownetutils.analysis.common import (
     SimulationGroup,
 )
 from crownetutils.analysis.dpmm.dpmm import percentile
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 from crownetutils.analysis.hdf.provider import (
     BaseHdfProvider,
     HdfGroupDataFactory,
@@ -32,7 +33,6 @@ from crownetutils.analysis.hdf.provider import (
     ProviderVersion,
 )
 from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
-from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 from crownetutils.omnetpp.scave import (
     CrownetSql,
     SqlEmptyResult,
@@ -996,7 +996,9 @@ class _OppAnalysis(AnalysisBase):
         self,
         sim: Simulation,
     ):
-        raise NotImplementedError("Logic moved to classed MapCountError, CellCountError and CellEntropyValueError.")
+        raise NotImplementedError(
+            "Logic moved to classed MapCountError, CellCountError and CellEntropyValueError."
+        )
 
     @timing
     def get_data_001(self, sim: Simulation):

@@ -6,32 +6,33 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
-import sys 
+import sys
+
 sys.path.insert(0, os.path.abspath("../.."))
 
 print(sys.path)
 
-project = 'CrownetUtils'
-copyright = '2023, Stefan Schuhbäck'
-author = 'Stefan Schuhbäck'
-release = '2.1.15'
+project = "CrownetUtils"
+copyright = "2023, Stefan Schuhbäck"
+author = "Stefan Schuhbäck"
+release = "2.1.15"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.intersphinx',
-    'sphinx.ext.autosummary',
-    'sphinx.ext.napoleon',   
-    'sphinx.ext.doctest', 
+    "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.doctest",
 ]
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
 
-templates_path = ['_templates']
+templates_path = ["_templates"]
 exclude_patterns = []
 
-intersphinx_mapping = {'python': ('https://docs.python.org/3', None)}
+intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
 # Napoleon settings
 napoleon_google_docstring = True
@@ -52,5 +53,5 @@ napoleon_attr_annotations = True
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'nature'
-html_static_path = ['_static']
+html_theme = "nature"
+html_static_path = ["_static"]

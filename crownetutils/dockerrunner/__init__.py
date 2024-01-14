@@ -35,7 +35,7 @@ class SimulationDispatcher(Protocol):
     def run_postprocessing_only(self) -> int:
         """Do not execute the simulations but execute post processing of each run."""
         ...
-    
+
     def print_registered_qoi(self) -> None:
         """Print list of registered post processing functions in order of execution."""
         ...
