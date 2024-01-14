@@ -255,7 +255,7 @@ class BaseHdfProvider:
             os.rename(self._hdf_path, old_path)
             os.rename(new_path, self._hdf_path)
             size_new_mb = os.path.getsize(self._hdf_path) / 1e6
-            msg = f"repack done. Took {timer.str()} size {size_old_mb:,.2f}MB -> {size_new_mb:,.2f}MB. Reedzued by {size_old_mb - size_new_mb:,.2f}."
+            msg = f"repack done. Took {timer.str()} size {size_old_mb:,.2f}MB -> {size_new_mb:,.2f}MB."
             if not keep_old_file:
                 msg = f"{msg} Removing old file."
                 os.remove(old_path)

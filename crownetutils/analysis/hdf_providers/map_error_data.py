@@ -24,6 +24,20 @@ def percentile(n):
     _percentil.__name__ = f"p_{n*100:2.0f}"
     return _percentil
 
+def check_measure_data_for_nans_and_assert(cell_base):
+    is_na_col = cell_base.isna().any(axis=0)
+    if any(is_na_col):
+        raise ValueError(f"Found coulmns with nan values: \n {is_na_col}")
+    
+    assert_obs_v_agents = cell_base["num_observations"] <= cell_base["num_active_agents"]
+    if not assert_obs_v_agents.all():
+        count = len(assert_obs_v_agents[~assert_obs_v_agents])
+        if count < 10:
+            raise ValueError(f"found {count} rows where num_observations <= num_active_agents which should not be:\n{cell_base[~assert_obs_v_agents]}")
+        else:
+            raise ValueError(f"found {count} rows where num_observations <= num_active_agents which should not be")
+
+
 def create_time_chunk_intervall(nrows, average_chunk_size_bytes, time_interval, bytes_per_row) -> float|None:
     """create complete 'simtime' chunks based on average_chunk_size in bytes. This method assumes roughly equal 
     data over time. This is obviosly woring but a good gess to keep chunksizing easy. 
@@ -49,10 +63,10 @@ def create_time_chunk_intervall(nrows, average_chunk_size_bytes, time_interval, 
 
     return time_chunk
 
-def remove_missing_values(self, df: pd.DataFrame, count_slice: slice):
-    _i = pd.IndexSlice
-    mask = ~self.count_p[count_slice, _i["missing_value"]].iloc[:, 0].values
-    return df[mask].copy()
+def remove_missing_values(df: pd.DataFrame):
+    mask = df["missing_value"].values
+    return df[~mask].copy()
+
 
 @dataclass
 class CellEntropyValueErrorBuilder:
@@ -123,6 +137,7 @@ class CellEntropyValueError:
         hdf_path, 
         count_p: DpmmCount, 
         builder: CellEntropyValueErrorBuilder|None = None,
+        with_rsd: bool = True
     ) -> CellEntropyValueError:
         obj: CellEntropyValueError = cls(hdf_path)
         build_new = False
@@ -140,7 +155,7 @@ class CellEntropyValueError:
                 os.remove(hdf_path)
             if builder is None:
                 builder = CellCountErrorBuilder()
-            obj._create_hdf(count_p, builder)
+            obj._create_hdf(count_p, builder, with_rsd)
         
         return obj
     
@@ -156,15 +171,25 @@ class CellEntropyValueError:
             ]  # only ground truth
         return glb
 
-        #todo: move to procesing 
-        glb = glb.droplevel("ID")
-        glb.columns = ["glb_count"]
 
 
     def load_data(self, count_p: DpmmCount, time_slice: slice, builder:CellEntropyValueErrorBuilder) -> pd.DataFrame:
         #todo: use code from DpmMap.cell_value_measure. move metric calc to extra 
-        #todo: add rsd_id / owner_rsd_id columns!!!
-        pass
+
+        # all (time, x, y, id) based count, err, squerr cell values
+        # without ground truth (see slice last slice `1:`)
+        # The measurements are summed over all nodes (this will drop the id index )
+        _i = pd.IndexSlice
+        cols = _i["count", "err", "sqerr", "rsd_id", "owner_rsd_id", "missing_value"]
+        if isinstance(builder.xy_slice, pd.MultiIndex):
+            nodes: pd.DataFrame = count_p[ _i[time_slice, :, :, 1:], cols ]  # all but ground truth
+            nodes = remove_missing_values(nodes)
+            nodes = partial_index_match(nodes, builder.xy_slice)
+        else:
+            nodes: pd.DataFrame = count_p[ _i[time_slice, builder.xy_slice[0], builder.xy_slice[1], 1:], cols ]  # all but ground truth
+            nodes = remove_missing_values( nodes)
+        
+        return nodes
     
     def time_chunked_stream(self, count_p:DpmmCount, time_chunk_size, time_interval, builder:CellEntropyValueErrorBuilder):
         if time_chunk_size is None:
@@ -188,15 +213,91 @@ class CellEntropyValueError:
                 yield glb, data
     
     def _aggregate_time_chunk(self, glb:pd.DataFrame, nodes:pd.DataFrame, builder: CellEntropyValueErrorBuilder) -> pd.DataFrame:
-        # todo: move aggregation code here. Will work on all data and rsd junks the same way
-        pass
-    
+        glb = glb.droplevel("ID")
+        glb.columns = ["glb_count"]
+
+
+        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
+        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
+        cell_base: pd.DateFrame = nodes.groupby(
+            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
+        ).agg(
+            ["sum"]
+        )  # [time, x, y](...data-columns...)
+
+        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
+        
+        # Number of nodes which are active at a given time, irrespective location (i.e. cells). This is 
+        # used by CellCountError due to implicit zero errors. Not used here, see CellCountError why this
+        # was used there. It still will be used for assertion test num_observerations <= num_active_agents.
+        num_active_agents = (nodes
+                             .index.copy()
+                             .droplevel(["x", "y"])
+                             .unique()
+                             .to_frame()
+                             .reset_index(drop=True)
+                             .groupby("simtime")
+                             .count()
+                             .set_axis(["num_active_agents"], axis=1)
+                            )
+        # Number of observations is total number of agents which contributed a cell based measures for the 
+        # triplet (time, x, y). This would be the eqal to directly use the 'mean' aggregated above instead 
+        # of 'sum'. I do this separately to have the same structure as as CellCountError. 
+        num_observations = ( nodes
+                            .groupby(["simtime", "x", "y"])["count"]
+                            .count()
+        )
+        num_observations.name = "num_observations"
+        
+        nodes["abserr"] = np.abs(nodes["err"])
+
+        cell_base: pd.DataFrame = cell_base.join(num_active_agents, on="simtime")
+        cell_base: pd.DataFrame = cell_base.join(num_observations, on=["simtime", "x", "y"])
+        # no nans expeceted due to used imputation. 
+        cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
+
+        check_measure_data_for_nans_and_assert(cell_base) 
+
+
+
+        # divide by total number of nodes at each time to create mean measruements
+        cell_base["cell_mean_count_est"] = (
+            cell_base["count_sum"] / cell_base["num_observations"]
+        )  # 1/M sum^M_j (Y_ij) -> neee for metric II
+        cell_base["cell_mean_est_sqerr"] = np.power(
+            cell_base["cell_mean_count_est"] - cell_base["glb_count"], 2
+        )  # (1/M sum^M_j (Y_ij) - Y^_i)^2 -> needed for metric II
+
+        cell_base["cell_mse"] = (
+            cell_base["sqerr_sum"] / cell_base["num_observations"]
+        )  # 1/M sum^M_j (Y_ij - Y^_i)^2 -> needed for metric III
+        cell_base["cell_mean_err"] = (
+            cell_base["err_sum"] / cell_base["num_observations"]
+        )  # 1/M sum^M_j (Y_ij - Y^_i) -> optional
+        cell_base["cell_mean_abserr"] = (
+            cell_base["abserr_sum"] / cell_base["num_observations"]
+        )  # 1/M sum^M_j |Y_ij - Y^_i| -> optional
+
+        return cell_base
+
     def _aggregate_time_chunk_rsd(self, hdf:BaseHdfProvider, mask, glb:pd.DataFrame, data:pd.DataFrame, rsd:int, builder: CellEntropyValueErrorBuilder):
-        # filter using mask and extract correct ground truth
-        pass
+        # select subset of cell that belong to provided rsd. 
+        idx_ = data[mask].index.droplevel("ID").unique().to_frame().reset_index(drop=True)
+        idx_["ID"] = 0
+        idx_ = pd.MultiIndex.from_frame(idx_).sort_values()
+        in_glb = glb.index.intersection(idx_, sort=True)
+        _glb = glb.loc[in_glb].copy()
+
+        _data = data.loc[mask, ["err", "count", "sqerr"]].copy()
+        df_aggregate = self._aggregate_time_chunk(_glb, _data, builder)
+        df_aggregate[DpmmCountKey.RSD_ID] = rsd
+        df_aggregate = df_aggregate.reset_index().set_index([DpmmCountKey.RSD_ID, "simtime", "x", "y"]).sort_index()
+        # todo builder.fc not planned to work on chunks!!!!
+        df_aggregate = df_aggregate.loc[:, builder.columns]
+        hdf.write_frame( group=hdf.group, frame=df_aggregate)
     
     @timing
-    def _create_hdf(self, count_p: DpmmCount, builder: CellEntropyValueErrorBuilder):
+    def _create_hdf(self, count_p: DpmmCount, builder: CellEntropyValueErrorBuilder, with_rsd: bool):
 
         count_p.print_info()
         time_interval = count_p.get_attribute("time_interval")
@@ -206,6 +307,13 @@ class CellEntropyValueError:
             time_interval=time_interval,
             bytes_per_row=48, #4xfloat64 and 4xint32
         )
+
+        rsd_list = []
+        if with_rsd:
+            try:
+                rsd_list = count_p.get_rsd_ids()
+            except Exception as e:
+                raise ValueError(f"CellEntropyValueError schould be build with RSD support but retrieving the rsd list faield with: {e}")
 
         for glb, data in self.time_chunked_stream(count_p, time_chunk_size, time_interval, builder):
             # all RSD combined 
@@ -218,7 +326,6 @@ class CellEntropyValueError:
             del aggregate_all
             aggregate_all = None
 
-            rsd_list = count_p.get_rsd_ids() 
             for rsd in rsd_list:
                 # rsd_all 
                 mask = data["rsd_id"] == rsd
@@ -329,6 +436,7 @@ class CellCountError:
         hdf_path, 
         count_p: DpmmCount, 
         builder: CellCountErrorBuilder|None = None,
+        with_rsd: bool = True
     ) -> CellCountError:
         obj: CellCountError = cls(hdf_path)
         build_new = False
@@ -346,7 +454,7 @@ class CellCountError:
                 os.remove(hdf_path)
             if builder is None:
                 builder = CellCountErrorBuilder()
-            obj._create_hdf(count_p, builder)
+            obj._create_hdf(count_p, builder, with_rsd)
         
         return obj
     
@@ -384,21 +492,21 @@ class CellCountError:
         # all (time, x, y, id) based count, err, squerr cell values
         # without ground truth (see slice last slice `1:`)
         # The measurements are summed over all nodes (this will drop the id index )
+        if builder.remove_missing_values:
+            cols = _i["count", "err", "sqerr", "rsd_id", "owner_rsd_id", "missing_value"]
+        else:
+            cols = _i["count", "err", "sqerr", "rsd_id", "owner_rsd_id"]
+
         if isinstance(builder.xy_slice, pd.MultiIndex):
-            nodes: pd.DataFrame = count_p[
-                _i[time_slice, :, :, 1:], _i["count", "err", "sqerr", "rsd_id", "owner_rsd_id"]
-            ]  # all but ground truth
+            nodes: pd.DataFrame = count_p[ _i[time_slice, :, :, 1:], cols ]  # all but ground truth
             if builder.remove_missing_values:
-                nodes = remove_missing_values(nodes, _i[time_slice, :, :, 1:])
+                nodes = remove_missing_values(nodes)
+            nodes = nodes.drop(columns=["missing_value"])
             nodes = partial_index_match(nodes, builder.xy_slice)
         else:
-            nodes: pd.DataFrame = count_p[
-                _i[time_slice, builder.xy_slice[0], builder.xy_slice[1], 1:], _i["count", "err", "sqerr", "rsd_id", "owner_rsd_id"]
-            ]  # all but ground truth
+            nodes: pd.DataFrame = count_p[ _i[time_slice, builder.xy_slice[0], builder.xy_slice[1], 1:], cols ]  # all but ground truth
             if builder.remove_missing_values:
-                nodes = remove_missing_values(
-                    nodes, _i[time_slice, builder.xy_slice[0], builder.xy_slice[1], 1:]
-                )
+                nodes = remove_missing_values( nodes)
         
         return nodes
 
@@ -457,18 +565,13 @@ class CellCountError:
                              .set_axis(["num_active_agents"], axis=1)
                             )
         # Furthermore, I add the number of observerations per (time, x, y) triblet. This would 
-        # be equal to the number of active agents, when implicit zero-error-values would be 
-        # explicit. I use the num_observerations <= num_active_agents as an assertion to ensure 
-        # correctnetss. 
+        # be equal to the number of active agents, when implicit zero-error-values would not be 
+        # missing. I use the num_observerations <= num_active_agents as an assertion to ensure 
+        # correctnets. 
         num_observations: pd.Series = nodes.groupby(
             [self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
             )["count"].count()
         num_observations.name = "num_observations"
-
-
-        # all (time, x, y, id) based count, err, squerr cell values
-        # without ground truth (see slice last slice `1:`)
-        # The measurements are summed over all nodes (this will drop the id index )
 
         nodes["abserr"] = np.abs(nodes["err"])
 
@@ -488,17 +591,7 @@ class CellCountError:
         cell_base["glb_count"] = cell_base["glb_count"].fillna(value=0) # nan expected add 0
         #cell_base["num_Agents"] = cell_base["num_Agents"].fillna(value=0) # see comment above. should not be nan
         
-        is_na_col = cell_base.isna().any(axis=0)
-        if any(is_na_col):
-            raise ValueError(f"Found coulmns with nan values: \n {is_na_col}")
-        
-        assert_obs_v_agents = cell_base["num_observations"] <= cell_base["num_active_agents"]
-        if not assert_obs_v_agents.all():
-            count = len(assert_obs_v_agents[~assert_obs_v_agents])
-            if count < 10:
-                raise ValueError(f"found {count} rows where num_observations <= num_active_agents which should not be:\n{cell_base[~assert_obs_v_agents]}")
-            else:
-                raise ValueError(f"found {count} rows where num_observations <= num_active_agents which should not be")
+        check_measure_data_for_nans_and_assert(cell_base)
 
 
         # divide by total number of nodes at each time to create mean measruements
@@ -542,6 +635,7 @@ class CellCountError:
             self, 
             count_p: DpmmCount, 
             builder: CellCountErrorBuilder,
+            with_rsd: bool = True
             ):
 
         count_p.print_info()
@@ -553,9 +647,17 @@ class CellCountError:
             bytes_per_row=48, #4xfloat64 and 4xint32
         )
 
+        rsd_list = []
+        if with_rsd:
+            try:
+                rsd_list = count_p.get_rsd_ids()
+            except Exception as e:
+                raise ValueError(f"CellCountError schould be build with RSD support but retrieving the rsd list faield with: {e}")
+
+
         for glb, data in self.time_chunked_stream(count_p, time_chunk_size, time_interval, builder):
             # all RSD combined 
-            aggregate_all = self._aggregate_time_chunk(glb, data[["err", "sqerr", "count", "missing_value"]].copy(), builder)
+            aggregate_all = self._aggregate_time_chunk(glb, data[["err", "sqerr", "count"]].copy(), builder)
             aggregate_all = builder.fc(aggregate_all.loc[builder.index_slice, builder.columns])
             self.hdf_cell_measure.write_frame(
                 group=self.hdf_cell_measure.group, 
@@ -564,7 +666,6 @@ class CellCountError:
             del aggregate_all
             aggregate_all = None
 
-            rsd_list = count_p.get_rsd_ids() 
             for rsd in rsd_list:
                 # rsd_all 
                 mask = data["rsd_id"] == rsd
@@ -588,7 +689,7 @@ class CellCountError:
                     builder=builder
                 )
 
-        self.hdf_cell_measure.repack_hdf() # same file only repack once 
+        self.hdf_cell_measure.repack_hdf(keep_old_file=False) # same file only repack once 
 
 
 class MapCountError:
@@ -623,7 +724,13 @@ class MapCountError:
 
 
     @classmethod
-    def get_or_create(cls, hdf_path, map_p: DpmmProvider, glb_pos: DpmmGlobalPosition, rsd_p:RsdAssociationProvider|None = None):
+    def get_or_create(
+        cls, 
+        hdf_path, 
+        map_p: DpmmProvider, 
+        glb_pos: DpmmGlobalPosition, 
+        rsd_p:RsdAssociationProvider|None = None, 
+        with_rsd: bool = True):
         obj: MapCountError = cls(hdf_path)
         build_new = False
         if os.path.exists(hdf_path):
@@ -638,7 +745,7 @@ class MapCountError:
         if build_new:
             if os.path.exists(hdf_path):
                 os.remove(hdf_path)
-            obj._create_count_error_hdf(map_p, glb_pos, rsd_p)
+            obj._create_count_error_hdf(map_p, glb_pos, with_rsd, rsd_p)
         
         return obj
         
@@ -725,7 +832,7 @@ class MapCountError:
                 end = start + chunk_size
                 yield n
 
-    def _aggregate_time_chunk(self, glb, glb_rsd, data:pd.DataFrame, rsd_list):
+    def _aggregate_time_chunk(self, glb:pd.DataFrame, glb_rsd:pd.DataFrame, data:pd.DataFrame, rsd_list:List[int]):
         # all data, no distinction for rsd
         data_all = self._aggregate_group(glb, node_data=data["count"])
         self.hdf_map_measure.write_frame(group=self.g_error_count_all, frame=data_all)
@@ -744,10 +851,14 @@ class MapCountError:
             del data_rsd_local
 
     @timing
-    def _create_count_error_hdf(self, map_p: DpmmProvider, glb_pos: DpmmGlobalPosition, rsd_p:RsdAssociationProvider|None = None):
+    def _create_count_error_hdf(
+        self, 
+        map_p: DpmmProvider, 
+        glb_pos: DpmmGlobalPosition,
+        with_rsd: bool,
+        rsd_p:RsdAssociationProvider|None = None):
 
         glb_all, glb_rsd = self._pull_ground_truth_data(glb_pos, rsd_p)
-        rsd_list = map_p.get_rsd_ids() 
 
         map_p.print_info()
         time_interval = map_p.get_attribute("time_interval")
@@ -757,6 +868,13 @@ class MapCountError:
             time_interval=time_interval,
             bytes_per_row=48, #4xfloat64 and 4xint32
         )
+
+        rsd_list = []
+        if with_rsd:
+            try:
+                rsd_list = map_p.get_rsd_ids()
+            except Exception as e:
+                raise ValueError(f"CellEntropyValueError schould be build with RSD support but retrieving the rsd list faield with: {e}")
 
         for data in self.time_chunked_stream(map_p, time_chunk_size, time_interval):
             if time_chunk_size is None:

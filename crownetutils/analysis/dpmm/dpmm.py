@@ -25,7 +25,7 @@ from crownetutils.utils.dataframe import (
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import intersect
 from crownetutils.utils.plot import FigureSaver, PlotUtil, Style, savefigure, with_axis
-from crownetutils.analysis.hdf_providers.map_error_data import CellCountError, CellCountErrorBuilder, MapCountError
+from crownetutils.analysis.hdf_providers.map_error_data import CellCountError, CellCountErrorBuilder, CellEntropyValueError, CellEntropyValueErrorBuilder, MapCountError
 
 class BaseDpmMap:
     tsc_global_id = 0
@@ -776,11 +776,7 @@ class DpmMap(BaseDpmMap):
         ).hdf_map_measure.frame()
 
 
-    def remove_missing_values(self, df: pd.DataFrame, count_slice: slice):
-        _i = pd.IndexSlice
-        mask = ~self.count_p[count_slice, _i["missing_value"]].iloc[:, 0].values
-        return df[mask].copy()
-
+    #deprecated
     def cell_value_measure(
         self,
         load_cached_version: bool = True,
@@ -789,105 +785,24 @@ class DpmMap(BaseDpmMap):
         fc: FrameConsumer = FrameConsumer.EMPTY,
         columns: slice | List[str] = slice(None),
     ) -> pd.DataFrame:
-        """compare with cell_count_measure
-        This method handles arbitrary measurements with removed missing values.
-
-        Args:
-            load_cached_version (bool, optional): _description_. Defaults to True.
-            index_slice (slice | Tuple, optional): _description_. Defaults to slice(None).
-            xy_slice (Tuple, optional): _description_. Defaults to (slice(None), slice(None)).
-            columns (slice | List[str], optional): _description_. Defaults to slice(None).
-
-        Raises:
-            ValueError: _description_
-
-        Returns:
-            _type_: _description_
-        """
-        group_name = "cell_measures"
-        if self._map_p.contains_group(group_name) and load_cached_version:
-            return fc(
-                self._map_p.get_dataframe(group=group_name).loc[index_slice, columns]
-            )
-
-        _i = pd.IndexSlice
-        # ground truth of nodes at each time where at least one agent was present at some earlier time
-        if isinstance(xy_slice, pd.MultiIndex):
-            glb = self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-            glb = partial_index_match(glb, xy_slice)
-        else:
-            glb = self.count_p[
-                _i[:, xy_slice[0], xy_slice[1], 0], _i["count"]
-            ]  # only ground truth
-        glb = glb.droplevel("ID")
-        glb.columns = ["glb_count"]
-
-        # all (time, x, y, id) based count, err, squerr cell values
-        # without ground truth (see slice last slice `1:`)
-        # The measurements are summed over all nodes (this will drop the id index )
-        if isinstance(xy_slice, pd.MultiIndex):
-            nodes: pd.DataFrame = self.count_p[
-                _i[:, :, :, 1:], _i["count", "err", "sqerr"]
-            ]  # all but ground truth
-            nodes = self.remove_missing_values(nodes, _i[:, :, :, 1:])
-            nodes = partial_index_match(nodes, xy_slice)
-        else:
-            nodes: pd.DataFrame = self.count_p[
-                _i[:, xy_slice[0], xy_slice[1], 1:], _i["count", "err", "sqerr"]
-            ]  # all but ground truth
-            nodes = self.remove_missing_values(
-                nodes, _i[:, xy_slice[0], xy_slice[1], 1:]
-            )
-
-        nodes["abserr"] = np.abs(nodes["err"])
-
-        # metric III 1/N sum^N_i[ 1/M sum^M_j (Y_ij - Y^_i)^2 ]
-        # create sum: sum^M_j[*]  with [*] is nodes["sqerr"] = (Y_ij - Y^_i)^2 and nodes["count"] = (Y_ij)
-        cell_base: pd.DateFrame = nodes.groupby(
-            level=[self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
-        ).agg(
-            ["sum"]
-        )  # [time, x, y](...data-columns...)
-
-        cell_base.columns = [f"{a}_{b}" for a, b in cell_base.columns]
-        # join total number of agents (aka. M) with cell based measures.
-        # Compared to cell_count_measurement only the number of agents are used which did have an explicit
-        # measurement of the cell.
-        num_agents = (
-            nodes.iloc[:, [0]]
-            .groupby(["simtime", "x", "y"])
-            .count()
-            .set_axis(["num_Agents"], axis=1)
+        logger.warning("deprecated method. Use CellEntropyValueError object directly. Trying to guess path and values...")
+        if load_cached_version == False:
+            raise NotImplementedError("load_caded_version=False not supported anymore use CellEntropyValueError class direcly")
+        hdf_path = os.path.join(
+            os.path.dirname(self._map_p.hdf_path),
+            CellEntropyValueError.default_hdf_name(self.metadata.map_type)
         )
-        # cell_base: pd.DataFrame = cell_base.join(glb_map_sum, on="simtime")
-        cell_base: pd.DataFrame = cell_base.join(num_agents, on=["simtime", "x", "y"])
-        cell_base: pd.DataFrame = cell_base.join(glb, on=["simtime", "x", "y"])
-        if cell_base.isna().any().any():
-            raise ValueError(
-                f"Found coulmns with nan values: {cell_base.isna().any(axis=0)}"
-            )
-
-        # divide by total number of nodes at each time to create mean measruements
-        cell_base["cell_mean_count_est"] = (
-            cell_base["count_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij) -> neee for metric II
-        cell_base["cell_mean_est_sqerr"] = np.power(
-            cell_base["cell_mean_count_est"] - cell_base["glb_count"], 2
-        )  # (1/M sum^M_j (Y_ij) - Y^_i)^2 -> needed for metric II
-
-        cell_base["cell_mse"] = (
-            cell_base["sqerr_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij - Y^_i)^2 -> needed for metric III
-        cell_base["cell_mean_err"] = (
-            cell_base["err_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j (Y_ij - Y^_i) -> optional
-        cell_base["cell_mean_abserr"] = (
-            cell_base["abserr_sum"] / cell_base["num_Agents"]
-        )  # 1/M sum^M_j |Y_ij - Y^_i| -> optional
-
-        # remove uncessary columns
-        # cell_base = cell_base.drop(columns=["err_sum", "count_sum", "sqerr_sum", "abserr_sum"])
-        return fc(cell_base.loc[index_slice, columns])
+        builder = CellEntropyValueErrorBuilder(
+            index_slice=index_slice, 
+            xy_slice=xy_slice,
+            fc=fc,
+            columns=columns,
+        )
+        return CellEntropyValueError.get_or_create(
+            hdf_path=hdf_path,
+            map_p=self._count_p,
+            builder=builder
+        ).hdf_map_measure.frame()
 
 
     # deprecated moved to CellCountError class todo ....
@@ -1050,7 +965,7 @@ class DpmMap(BaseDpmMap):
     @with_axis
     def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
 
-        raise DeprecationWarning("movde to _PlotDpmMap") 
+        raise NotImplementedError("movde to _PlotDpmMap") 
         # if "data_source" in kwargs:
         #     nodes = kwargs["data_source"]()
         # else:

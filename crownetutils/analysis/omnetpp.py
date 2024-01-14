@@ -996,78 +996,7 @@ class _OppAnalysis(AnalysisBase):
         self,
         sim: Simulation,
     ):
-        map = sim.get_dcdMap()
-        if sim.sql.is_count_map():
-            # MapMeasure (Count)
-            group = "map_measure"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                map_measure = map.map_count_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=map_measure)
-
-            # CellMeasure (Count)
-            group = "cell_measures"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                cell_measure = map.cell_count_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=cell_measure)
-        else:
-            # CellMeasure (Entropy)
-            group = "cell_measures"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                cell_measure = map.cell_value_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=cell_measure)
-
-        # Resource sharing domain specific data.
-        if sim.builder.map_p.version >= ProviderVersion.V0_4:
-            if not sim.builder.map_p.has_rsd_is():
-                rsd = sim.sql.get_resource_sharing_domains(ids_only=False)["rsd_id"]
-                with sim.builder.map_p.ctx() as store:
-                    store.append(
-                        key=DpmmKey.RSD_ID,
-                        value=rsd,
-                        index=False,
-                        format="table",
-                        data_columns=True,
-                    )
-            rsd_list = sim.builder.map_p.get_rsd_ids()
-            if sim.sql.is_count_map() and len(rsd_list) > 1:
-                group = "map_measure_by_rsd"
-                if _hdf.contains_group(group):
-                    print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-                else:
-                    map_measure_rsd = map.map_count_measure_by_rsd(
-                        load_cached_version=False, local_data_only=False
-                    )
-                    _hdf.write_frame(group=group, frame=map_measure_rsd)
-
-                group = "local_map_measure_by_rsd"
-                if _hdf.contains_group(group):
-                    print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-                else:
-                    map_measure_rsd = map.map_count_measure_by_rsd(
-                        load_cached_version=False, local_data_only=True
-                    )
-                    _hdf.write_frame(group=group, frame=map_measure_rsd)
-
-                group = "cell_measures_by_rsd"
-                if _hdf.contains_group(group):
-                    print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-                else:
-                    cell_measure_rsd = map.cell_count_measure_by_rsd(
-                        load_cached_version=False
-                    )
-                    _hdf.write_frame(group=group, frame=cell_measure_rsd)
-
-            elif sim.sql.is_entropy_map() and len(rsd_list) > 1:
-                pass  # todo by rsd for density maps
+        raise NotImplementedError("Logic moved to classed MapCountError, CellCountError and CellEntropyValueError.")
 
     @timing
     def get_data_001(self, sim: Simulation):
