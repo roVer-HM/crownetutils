@@ -8,6 +8,7 @@ import pickle
 import re
 from functools import partial
 from typing import Union
+from crownetutils.analysis import RsdAssociationProvider
 
 import numpy as np
 import pandas as pd
@@ -156,6 +157,7 @@ class DpmmHdfBuilder(FrameConsumer):
 
         # providers
         # self.count_p = DpmmCount(self.cfg.hdf_path("count.h5"))
+        self.rsd_association_provider: RsdAssociationProvider|None = None
         self.count_p = DpmmCount(self.hdf_path)
         self.map_p = DpmmProvider(self.hdf_path)
         self.position_p = DpmmGlobalPosition(self.hdf_path)
@@ -192,6 +194,10 @@ class DpmmHdfBuilder(FrameConsumer):
 
     def set_map_type(self, t: MapType):
         self._map_type = t
+    
+    def set_rsd_association_provider(self, p: RsdAssociationProvider) -> DpmmHdfBuilder:
+        self.rsd_association_provider = p
+        return self
 
     @property
     def map_type(self) -> MapType:
@@ -297,11 +303,11 @@ class DpmmHdfBuilder(FrameConsumer):
 
     def create_hdf_fast(self):
         t = DcdUtil.Timer.create_and_start("create_hdf", label="")
-        # 1) parse global.csv in position and global provider
+        # 1a) parse global.csv in position and global provider
         if isinstance(self.cfg, DpmmCfgCsv):
             glb_csv_path = os.path.join(self.cfg.base_dir, self.cfg.global_map_csv_name)
             self.position_p, self.global_p, meta = create_and_save_position_and_global(
-                csv_path=glb_csv_path, hdf_path=self.hdf_path
+                csv_path=glb_csv_path, hdf_path=self.hdf_path, rsd_p=self.rsd_association_provider
             )
         elif isinstance(self.cfg, DpmmCfgDb):
             (
@@ -309,7 +315,9 @@ class DpmmHdfBuilder(FrameConsumer):
                 self.global_p,
                 meta,
             ) = create_and_save_position_and_global_db(
-                cfg=self.cfg, hdf_path=self.hdf_path
+                cfg=self.cfg,
+                hdf_path=self.hdf_path,
+                rsd_p=self.rsd_association_provider
             )
         else:
             raise ValueError("expected csv for db config")

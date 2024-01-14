@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from distutils.version import Version
 from typing import Dict, List, Union
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 
 import geopandas as gpd
 import numpy as np
@@ -29,6 +30,7 @@ class DpmmCountKey:
     MISSING_VAL = "missing_value"
     # v 0.4
     RSD_ID = "rsd_id"
+    OWNER_RSD_ID = "owner_rsd_id"
 
     columns = VersionDict(
         {
@@ -39,7 +41,7 @@ class DpmmCountKey:
                 SQERR,
             ],
             ProviderVersion.V0_3: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL],
-            ProviderVersion.V0_4: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL, RSD_ID],
+            ProviderVersion.V0_4: [COUNT, ERR, OWNER_DIST, SQERR, MISSING_VAL, RSD_ID, OWNER_RSD_ID],
         }
     )
 
@@ -58,6 +60,20 @@ class DpmmCountKey:
 class DpmmCount(IHdfProvider):
     def __init__(self, hdf_path, version: str | None = None):
         super().__init__(hdf_path, version)
+    
+    def get_rsd_ids(self) -> pd.Series:
+        with self.ctx(mode="r") as store:
+            df = store.get(key=DpmmKey.RSD_ID)
+        return df
+    
+    def print_info(self):
+        
+        with self.tables_file(self.hdf_path, mode="r") as hdf_file:
+            attr = hdf_file.root[self.group].table.attrs
+            print(f"Info for Group: {hdf_file.root[self.group]._v_pathname}")
+            print(f"\tnumber of rows: {attr['NROWS']:,}")
+            print(f"\ttime interval: {attr['time_interval']}")
+            print(f"\tcell_size: {attr['cell_size']}")
 
     def group_key(self) -> str:
         return HdfGroups.COUNT_MAP

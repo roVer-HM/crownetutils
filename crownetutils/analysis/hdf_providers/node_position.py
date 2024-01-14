@@ -275,7 +275,7 @@ class NodePositionWithRsdHdf:
         host_id_col: str | int = "hostId",
         time_col="time",
         append_interval: bool = False,
-    ):
+    ) -> pd.DataFrame:
         old_index = get_index_name_or_names(data)
         if isinstance(host_id_col, int):
             interval = self.host_time_interval.select(where=f"index == {host_id_col}")
