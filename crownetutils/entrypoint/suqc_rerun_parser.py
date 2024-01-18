@@ -47,7 +47,33 @@ def append_suqc_rerun_parser(
         choices=["failed", "all"],
         default="failed",
     )
-    post.add_argument("--log", action="store_true", default=False, required=False)
+
+    post.add_argument(
+        "--qoi",
+        action="append",
+        nargs="+",
+        help="Override qoi argument given in the context file of each run with these here",
+        default="all",
+        required=False,
+        type=str,
+    )
+
+    post.add_argument(
+        "--log",
+        action="store_true",
+        default=False,
+        required=False,
+        help="If flag present each subprocess will create a separate logfile with the verbosity set by -v, -vv, -vvv",
+    )
+
+    post.add_argument(
+        "--verbose",
+        "-v",
+        dest="verbose",
+        action="count",
+        default=0,
+        help="Set verbosity of command. From warnings and errors only (-v) to debug output (-vvv)",
+    )
     post.set_defaults(main_func=lambda ns: SuqcStudy.rerun_postprocessing(**vars(ns)))
 
     suqcmove: argparse.ArgumentParser = sub.add_parser(

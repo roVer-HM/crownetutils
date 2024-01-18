@@ -18,6 +18,7 @@ from crownetutils.dockerrunner.simulators.controllerrunner import ControlRunner
 from crownetutils.dockerrunner.simulators.omnetrunner import OppRunner
 from crownetutils.dockerrunner.simulators.sumorunner import SumoRunner
 from crownetutils.dockerrunner.simulators.vadererunner import VadereRunner
+from crownetutils.entrypoint.parser import QoiFilter
 from crownetutils.utils.logging import logger
 from crownetutils.utils.path import PathHelper
 
@@ -35,119 +36,6 @@ class process_as:
         fn.__setattr__("prio", self.prio)
         fn.__setattr__("type", self.type)
         return fn
-
-
-class QoiFilter:
-    class Match:
-        def __init__(self, invert: bool = False) -> None:
-            self.invert = invert
-
-    class MatchAny(Match):
-        def __init__(self) -> None:
-            super().__init__(False)
-
-        def match(self, prio, f_name):
-            return True
-
-    class MatchName(Match):
-        def __init__(self, val, invert: bool = False) -> None:
-            super().__init__(invert)
-            self.val: str = val
-
-        def match(self, prio, f_name):
-            return self.val == f_name
-
-    class MatchPrio(Match):
-        def __init__(self, val, invert: bool = False) -> None:
-            super().__init__(invert)
-            self.val: int = val
-
-        def match(self, prio, f_name):
-            return self.val == prio
-
-    class MatchPrioInterval(Match):
-        def __init__(self, val, invert: bool = False) -> None:
-            super().__init__(invert)
-            self.val: slice = val
-
-        def match(self, prio, f_name):
-            if self.val.start is None:
-                return prio <= self.val.stop
-            elif self.val.stop is None:
-                return prio >= self.val.start
-            else:
-                return prio >= self.val.start and prio <= self.val.stop
-
-    def __init__(self, qoi) -> None:
-        self._include = []
-        self._exclude = [self.MatchAny()]  # none
-        if qoi is not None:
-            _qoi = []
-            for i in qoi:
-                if isinstance(i, list):
-                    for ii in i:
-                        _qoi.append(ii)
-                else:
-                    _qoi.append(i)
-
-            filter_list = []
-            for q in _qoi:
-                if q.startswith("!"):
-                    invert = True
-                    q = q[1:]
-                else:
-                    invert = False
-
-                try:
-                    filter_list.append(self.MatchPrio(int(q), invert=invert))
-                    continue
-                except ValueError as e:
-                    ...
-
-                q_split = q.split("-")
-                if len(q_split) == 2:
-                    if q_split[0] == "":
-                        try:
-                            filter_list.append(
-                                self.MatchPrioInterval(
-                                    slice(None, int(q_split[1])), invert=invert
-                                )
-                            )
-                            continue
-                        except ValueError as e:
-                            ...
-                    if q_split[1] == "":
-                        try:
-                            filter_list.append(
-                                self.MatchPrioInterval(
-                                    slice(int(q_split[0]), None), invert=invert
-                                )
-                            )
-                            continue
-                        except ValueError as e:
-                            ...
-                    else:
-                        try:
-                            filter_list.append(
-                                self.MatchPrioInterval(
-                                    slice(int(q_split[0]), int(q_split[1])),
-                                    invert=invert,
-                                )
-                            )
-                            continue
-                        except ValueError as e:
-                            ...
-                if q == "all":
-                    filter_list.append(self.MatchAny())
-                else:
-                    filter_list.append(self.MatchName(q, invert=invert))
-            self._include = [m for m in filter_list if m.invert == False]
-            self._exclude = [m for m in filter_list if m.invert == True]
-
-    def match(self, prio, f_name) -> bool:
-        a = any([m.match(prio, f_name) for m in self._include])
-        b = not any([m.match(prio, f_name) for m in self._exclude])
-        return a and b
 
 
 class BaseSimulationRunner:
@@ -176,15 +64,35 @@ class BaseSimulationRunner:
                     self.f_map[__type] = __type_list
                 except AttributeError:
                     continue
-        self.ns = parse_run_script_arguments(self, args)
-        self._qoi_filter = QoiFilter(self.ns["qoi"])
+        # namespace set though set_options by the parser
+        parse_run_script_arguments(self, args)
+        if getattr(self, "ns", None):
+            raise ValueError(
+                "ns (namespace) not set. Did you call set_options on the SimulationDispatcher?"
+            )
 
-    def print_registered_qoi(self) -> None:
+        if getattr(self, "ns", None):
+            raise ValueError(
+                "qoi_filter not set. Did you call set_options on the SimulationDispatcher?"
+            )
+
+    def set_options(self, namespace: dict) -> None:
+        self.ns = namespace
+        self.qoi_filter: QoiFilter = self.ns["qoi_filter"]
+
+    def print_registered_qoi(self, apply_filter: bool = True) -> None:
         """Print list of registered post processing functions in order of execution."""
         _post_f = list(self.f_map["post"])
         _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
+        if apply_filter:
+            _post_f = [p for p in _post_f if self.qoi_filter.match(p[0], p[1])]
         s = io.StringIO()
-        s.write(f"{len(_post_f)} Registered post processing functions:\n")
+        if apply_filter:
+            s.write(
+                f"{len(_post_f)} Registered post processing functions (filtered):\n"
+            )
+        else:
+            s.write(f"{len(_post_f)} Registered post processing functions (all):\n")
         for p, f in _post_f:
             s.write(f"{p}\t{f.__name__}\n")
         s.seek(0)
@@ -252,7 +160,7 @@ class BaseSimulationRunner:
     def post(self):
         _post_f = list(self.f_map["post"])
         _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
-        post_functions = [p for p in _post_f if self._qoi_filter.match(p[0], p[1])]
+        post_functions = [p for p in _post_f if self.qoi_filter.match(p[0], p[1])]
 
         err = []
         for prio, _f in post_functions:

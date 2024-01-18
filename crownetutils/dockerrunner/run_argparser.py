@@ -11,8 +11,14 @@ from crownetutils.dockerrunner.simulators.controllerrunner import add_control_ar
 from crownetutils.dockerrunner.simulators.omnetrunner import add_omnet_arguments
 from crownetutils.dockerrunner.simulators.sumorunner import add_sumo_arguments
 from crownetutils.dockerrunner.simulators.vadererunner import add_vadere_arguments
-from crownetutils.entrypoint.parser import SubstituteAction
-from crownetutils.utils.logging import levels, logger, set_format, set_level
+from crownetutils.entrypoint.parser import QoiFilter, SubstituteAction
+from crownetutils.utils.logging import (
+    add_file_handler,
+    levels,
+    logger,
+    set_format,
+    set_level,
+)
 
 
 def result_dir_with_opp(ns, working_dir) -> str:
@@ -188,11 +194,18 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
         return read_sim_run_context(runner, cfg_json)
 
     level_idx = ns["verbose"]
-    set_level(levels[level_idx])
-    set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
+    log_level = levels[level_idx]
+    log_format = "%(asctime)s:%(module)s:%(levelname)s> %(message)s"
+    if ns["log_file"] is not None:
+        add_file_handler(ns["log_file"])
+    set_level(log_level)
+    set_format(log_format)
 
-    if ns["print_qoi"]:
-        runner.print_registered_qoi()
+    ns.setdefault("qoi_filter", QoiFilter(ns["qoi"]))
+    runner.set_options(ns)
+
+    if ns["print_qoi"] or ns["print_qoi_all"]:
+        runner.print_registered_qoi(apply_filter=not ns["print_qoi_all"])
         sys.exit(os.EX_OK)  # code 0, all ok
 
     return ns
@@ -200,14 +213,25 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
 
 def _add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
-        "--qoi", action="append", nargs="+", help="specify qoi files", type=str
+        "--qoi",
+        action="append",
+        nargs="+",
+        help="Specify qoi files. Allows list of ids (1,4,7) as well as id ranges (2-5) inclusive. Defaults to all",
+        type=str,
     )
     parser.add_argument(
         "--qoi-list",
         dest="print_qoi",
         action="store_true",
         default=False,
-        help="List all available quanity of intrest to be generated.",
+        help="List all quantity of interest to be generated after applying filter provided with --qoi.",
+    )
+    parser.add_argument(
+        "--qoi-list-all",
+        dest="print_qoi_all",
+        action="store_true",
+        default=False,
+        help="List all available quantity of interest (implies --qoi all).",
     )
     parser.add_argument(
         "--pre",
@@ -239,6 +263,14 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         default=False,
         required=False,
         help="If true save docker stats for containers in result dir <result>/container_stats_<name>.out",
+    )
+
+    parser.add_argument(
+        "--write-log-to-file",
+        dest="log_file",
+        default=None,
+        required=False,
+        help="Write log messages to file provided file. This switch has no effect on the stdout log messages. To turn them off use the --silent. Default: None",
     )
 
     parser.add_argument(

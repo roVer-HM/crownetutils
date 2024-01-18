@@ -159,13 +159,13 @@ class DpmmProvider(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.DCD_MAP
 
-    def print_info(self):
+    def print_info(self, fd=sys.stdout):
         with self.tables_file(self.hdf_path, mode="r") as hdf_file:
             attr = hdf_file.root[self.group].table.attrs
-            print(f"Info for Group: {hdf_file.root['dcd_map']._v_pathname}")
-            print(f"\tnumber of rows: {attr['NROWS']:,}")
-            print(f"\ttime interval: {attr['time_interval']}")
-            print(f"\tcell_size: {attr['cell_size']}")
+            print(f"Info for Group: {hdf_file.root['dcd_map']._v_pathname}", file=fd)
+            print(f"\tnumber of rows: {attr['NROWS']:,}", file=fd)
+            print(f"\ttime interval: {attr['time_interval']}", file=fd)
+            print(f"\tcell_size: {attr['cell_size']}", file=fd)
 
     def index_order(self) -> Dict:
         return {

@@ -281,3 +281,121 @@ class ArgList:
 
     def to_string(self, sep=" "):
         return sep.join(self.to_list())
+
+
+class QoiFilter:
+    class Match:
+        def __init__(self, invert: bool = False) -> None:
+            self.invert = invert
+
+    class MatchAny(Match):
+        def __init__(self) -> None:
+            super().__init__(False)
+
+        def match(self, prio, f_name):
+            return True
+
+    class MatchName(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: str = val
+
+        def match(self, prio, f_name):
+            return self.val == f_name
+
+    class MatchPrio(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: int = val
+
+        def match(self, prio, f_name):
+            return self.val == prio
+
+    class MatchPrioInterval(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: slice = val
+
+        def match(self, prio, f_name):
+            if self.val.start is None:
+                return prio <= self.val.stop
+            elif self.val.stop is None:
+                return prio >= self.val.start
+            else:
+                return prio >= self.val.start and prio <= self.val.stop
+
+    def split_comma(self, q: str):
+        if "," in q:
+            return q.strip().split(",")
+        return [q]
+
+    def __init__(self, qoi) -> None:
+        self._include = []
+        self._exclude = [self.MatchAny()]  # none
+        if qoi is not None:
+            _qoi = []
+            for i in qoi:
+                if isinstance(i, list):
+                    for ii in i:
+                        _qoi.extend(self.split_comma(ii))
+                else:
+                    _qoi.extend(self.split_comma(i))
+
+            filter_list = []
+            for q in _qoi:
+                if q.startswith("!"):
+                    invert = True
+                    q = q[1:]
+                else:
+                    invert = False
+
+                try:
+                    filter_list.append(self.MatchPrio(int(q), invert=invert))
+                    continue
+                except ValueError as e:
+                    ...
+
+                q_split = q.split("-")
+                if len(q_split) == 2:
+                    if q_split[0] == "":
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(None, int(q_split[1])), invert=invert
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                    if q_split[1] == "":
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(int(q_split[0]), None), invert=invert
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                    else:
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(int(q_split[0]), int(q_split[1])),
+                                    invert=invert,
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                if q == "all":
+                    filter_list.append(self.MatchAny())
+                else:
+                    filter_list.append(self.MatchName(q, invert=invert))
+            self._include = [m for m in filter_list if m.invert == False]
+            self._exclude = [m for m in filter_list if m.invert == True]
+
+    def match(self, prio, f_name) -> bool:
+        a = any([m.match(prio, f_name) for m in self._include])
+        b = not any([m.match(prio, f_name) for m in self._exclude])
+        return a and b

@@ -61,6 +61,7 @@ class DpmmCountProviderTest(unittest.TestCase):
             DpmmCountKey.SQERR,
             DpmmCountKey.MISSING_VAL,
             DpmmCountKey.RSD_ID,
+            DpmmCountKey.OWNER_RSD_ID,
         ]
         result_grp_key = self.provider.group_key()
         result_index_order = self.provider.index_order()

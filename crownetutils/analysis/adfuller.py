@@ -20,7 +20,6 @@ def adf_test(data: pd.Series):
     out["tMax"] = data.index.max()
     for k, v in df_test[4].items():
         out[f"Critical Value ({k})"] = v
-    # print(out)
     return out
 
 

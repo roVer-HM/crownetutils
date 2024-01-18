@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from distutils.version import Version
 from typing import Dict, List, Union
 
@@ -74,13 +75,13 @@ class DpmmCount(IHdfProvider):
             df = store.get(key=DpmmKey.RSD_ID)
         return df
 
-    def print_info(self):
+    def print_info(self, fd=sys.stdout):
         with self.tables_file(self.hdf_path, mode="r") as hdf_file:
             attr = hdf_file.root[self.group].table.attrs
-            print(f"Info for Group: {hdf_file.root[self.group]._v_pathname}")
-            print(f"\tnumber of rows: {attr['NROWS']:,}")
-            print(f"\ttime interval: {attr['time_interval']}")
-            print(f"\tcell_size: {attr['cell_size']}")
+            print(f"Info for Group: {hdf_file.root[self.group]._v_pathname}", file=fd)
+            print(f"\tnumber of rows: {attr['NROWS']:,}", file=fd)
+            print(f"\ttime interval: {attr['time_interval']}", file=fd)
+            print(f"\tcell_size: {attr['cell_size']}", file=fd)
 
     def group_key(self) -> str:
         return HdfGroups.COUNT_MAP

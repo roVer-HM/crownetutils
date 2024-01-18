@@ -322,7 +322,7 @@ class IHDFProviderTest(unittest.TestCase):
         key = DpmmCountKey.SIMTIME
         _min = 0
         _max = 5
-        expected_condition = [f"{key}<={str(_max)}", f"{key}>={str(_min)}"]
+        expected_condition = [f"{key}<{str(_max)}", f"{key}>={str(_min)}"]
         result_condition = self.provider._build_range_condition(key, _min, _max)
         self.assertEqual(expected_condition, result_condition)
 

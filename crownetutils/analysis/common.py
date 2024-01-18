@@ -38,7 +38,13 @@ from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConf
 from crownetutils.analysis.base import AnalysisBase
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import (
+    DpmmCfg,
+    DpmmCfgBuilder,
+    DpmmCfgCsv,
+    DpmmCfgDb,
+    MapType,
+)
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.dockerrunner.run_argparser import read_sim_run_context
 from crownetutils.entrypoint.parser import ArgList
@@ -460,6 +466,14 @@ class RunContext:
         def run_postprocessing_only(self) -> int:
             raise NotImplementedError
 
+        def print_registered_qoi(self) -> None:
+            """Print list of registered post processing functions in order of execution."""
+            raise NotImplementedError
+
+        def set_options(self, namespace: dict) -> None:
+            """provide Dispatcher with configuration dictionary"""
+            raise NotImplementedError
+
     @classmethod
     def from_path(cls, path):
         with open(path, "r", encoding="utf-8") as fd:
@@ -647,7 +661,7 @@ class RunContext:
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
         print(f"run command:\n\t\t{cmd}")
-        if args["log"]:
+        if "log" in args and args["log"]:
             os.makedirs(os.path.dirname(args["cwd"]), exist_ok=True)
             fd = open(os.path.join(args["cwd"], "log.out"), "w")
             out = fd
@@ -806,10 +820,20 @@ class Simulation:
         self._sql = None
         self.dpmm_cfg = dpmm_cfg
         if self.dpmm_cfg is None:
-            logger.info("dpmm_cfg not set. Assume defaults")
-            self.dpmm_cfg: DpmmCfg = DpmmCfgCsv(
-                base_dir=data_root, hdf_file="data.h5", map_type=MapType.DENSITY
+            self.dpmm_cfg: DpmmCfg = DpmmCfgBuilder.load_cfg(
+                data_root, error_on_nan=False
             )
+            if self.dpmm_cfg is not None:
+                logger.info(
+                    f"found config of type {type(self.dpmm_cfg)} for map type {self.dpmm_cfg.map_type.name}"
+                )
+            else:
+                logger.warning(
+                    f"No config file found guess some default config for data root: {data_root}"
+                )
+                self.dpmm_cfg: DpmmCfg = DpmmCfgCsv(
+                    base_dir=data_root, hdf_file="data.h5", map_type=MapType.DENSITY
+                )
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} object at {hex(id(self))} {self.label} ({self.study_id()}[{self.global_id()}])>"
@@ -1196,7 +1220,6 @@ class SuqcStudy:
         run = self.runs[key]
         ctx = RunContext.from_path(join(run["run"], "runContext.json"))
         lbl = f"{self.name}_{self.run_prefix}_{key[0]}_{key[1]}"
-        print(lbl)
         return Simulation.from_context(ctx, lbl, id_offset)
 
     def get_run_context(
@@ -1254,13 +1277,28 @@ class SuqcStudy:
 
         args = []
         for sim in sims:
-            _arg = sim.run_context.create_postprocessing_args()
-            _arg["log"] = log
+            _arg = sim.run_context.create_postprocessing_args(
+                qoi_default=kwargs.get("qoi", "all")
+            )
+            if log:
+                _arg = cls.update_log_args(_arg, **kwargs)
             args.append(_arg)
-            print(_arg)
         with get_context("spawn").Pool(processes=jobs) as pool:
             ret = pool.map(func=RunContext.exec_runscript, iterable=args)
         return all(ret)
+
+    @staticmethod
+    def update_log_args(main_args, **kwargs):
+        cmd = ArgList.from_flat_list(main_args["args"])
+        result_dir = cmd.get_value("--resultdir")
+        log_file = os.path.join(result_dir, "out.log")
+        cmd.add_override("--write-log-to-file", log_file)
+        v = kwargs.get("verbose", 0)
+        if v > 0:
+            v = "v" * v
+            cmd.add_override(f"-{v}")
+        main_args["args"] = cmd.to_list()
+        return main_args
 
     @classmethod
     def rerun_simulations(

@@ -17,7 +17,7 @@ from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.utils.dataframe import FrameConsumer, partial_index_match
-from crownetutils.utils.logging import logger, timing
+from crownetutils.utils.logging import LogWriter, logger, timing
 
 
 def percentile(n):
@@ -174,10 +174,16 @@ class CellEntropyValueError:
 
         if build_new:
             if os.path.exists(hdf_path):
+                logger.info(
+                    "Found hdf-file with mismatching groups. Delete file and recreate."
+                )
                 os.remove(hdf_path)
             if builder is None:
                 builder = CellCountErrorBuilder()
+            logger.info(f"Create hdf {hdf_path}")
             obj._create_hdf(count_p, builder, with_rsd)
+        else:
+            logger.info(f"Nothing to do. Hdf file exist {hdf_path}")
 
         return obj
 
@@ -246,8 +252,8 @@ class CellEntropyValueError:
                 data = self.load_data(count_p, time_slice, builder)
                 s1 = sys.getsizeof(data) / 1e6
                 s2 = sys.getsizeof(glb) / 1e6
-                print(
-                    f"simtime range: ({start}, {end}] retriving {data.shape[0]:,} rows took {it.default_timer() - ts:2.2f} seconds for {(s1 + s2):,.2f}MB (sizeoff data+glb)"
+                logger.info(
+                    f"simtime range: ({start}, {end}] retrieving {data.shape[0]:,} rows took {it.default_timer() - ts:2.2f} seconds for {(s1 + s2):,.2f}MB (sizeof data+glb)"
                 )
                 start = end
                 end = start + time_chunk_size
@@ -355,7 +361,7 @@ class CellEntropyValueError:
     def _create_hdf(
         self, count_p: DpmmCount, builder: CellEntropyValueErrorBuilder, with_rsd: bool
     ):
-        count_p.print_info()
+        count_p.print_info(fd=LogWriter.info2())
         time_interval = count_p.get_attribute("time_interval")
         time_chunk_size = create_time_chunk_intervall(
             nrows=count_p.get_attribute("NROWS"),
@@ -744,7 +750,7 @@ class CellCountError:
     def _create_hdf(
         self, count_p: DpmmCount, builder: CellCountErrorBuilder, with_rsd: bool = True
     ):
-        count_p.print_info()
+        count_p.print_info(fd=LogWriter.info2())
         time_interval = count_p.get_attribute("time_interval")
         time_chunk_size = create_time_chunk_intervall(
             nrows=count_p.get_attribute("NROWS"),
@@ -1016,7 +1022,7 @@ class MapCountError:
     ):
         glb_all, glb_rsd = self._pull_ground_truth_data(glb_pos, rsd_p)
 
-        map_p.print_info()
+        map_p.print_info(fd=LogWriter.info2())
         time_interval = map_p.get_attribute("time_interval")
         time_chunk_size = create_time_chunk_intervall(
             nrows=map_p.get_attribute("NROWS"),

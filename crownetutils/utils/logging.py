@@ -1,4 +1,5 @@
 import logging
+import os
 import timeit as it
 from functools import wraps
 
@@ -32,21 +33,64 @@ def set_default():
     return _l
 
 
-def set_level(lvl):
-    logger.setLevel(lvl)
-
-
-def set_format(f):
-    _f = logging.Formatter(f)
-    logger.handlers[0].setFormatter(_f)
-
-
 levels = [logging.ERROR, logging.WARN, logging.INFO, logging.DEBUG]
 
 logger = set_default()
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger.setLevel(logging.INFO)
+
+
+def set_level(lvl):
+    for h in logger.handlers:
+        h.setLevel(lvl)
+
+
+def set_format(f):
+    _f = logging.Formatter(f)
+    for h in logger.handlers:
+        h.setFormatter(_f)
+
+
+def add_file_handler(log_file):
+    file_handler = logging.FileHandler(os.path.abspath(log_file), mode="w")
+    logger.addHandler(file_handler)
+
+
+class LogWriter:
+    def __init__(self, log, level, stacklevel_offset=2) -> None:
+        """Wrap logger in a write interface. Use this where a file descriptor is needed to
+        be redirected to the log framework. Use stacklevel to indicate h
+
+        Args:
+            log (_type_): logger
+            level (_type_): level of logger
+            stacklevel_offset (int, optional): Number of frames to ignore in the call stack to find the
+            correct model which should be displayed . Defaults to 2.
+        """
+        self.log = log
+        self.level = level
+        self.stacklevel_offset = stacklevel_offset
+
+    def write(self, data: str):
+        for l in data.strip().splitlines():
+            self.log.log(self.level, l.rstrip(), stacklevel=self.stacklevel_offset)
+
+    def flush(self):
+        pass
+
+    @classmethod
+    def info(cls, stacklevel=2):
+        return cls(logger, logging.INFO, stacklevel_offset=stacklevel)
+
+    @classmethod
+    def info2(cls):
+        """remove 2 levels from call stack"""
+        return cls(logger, logging.INFO, stacklevel_offset=3)
+
+    @classmethod
+    def debug(cls, stacklevel=2):
+        return cls(logger, logging.DEBUG, stacklevel_offset=stacklevel)
 
 
 def timing(func):

@@ -112,39 +112,35 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         test_err_dataframe = provider.select_err_range(err, err + _range)
         test_owner_dataframe = provider.select_owner_dist_range(owner, owner + _range)
         test_sqerr_dataframe = provider.select_sqerr_range(sqerr, sqerr + _range)
-        test_multiple_items_in_range = provider.select_simtime_range(42, 43)
+        test_multiple_items_in_range = provider.select_simtime_range(
+            42, 44
+        )  # int based time !
 
         self.assertTrue(
-            self.sample_dataframe[simtime : simtime + 1 + _range].equals(
+            self.sample_dataframe[simtime : simtime + _range].equals(
                 test_simtime_dataframe
             )
         )
         self.assertTrue(
-            self.sample_dataframe[int(x) : int(x) + 1 + _range].equals(test_x_dataframe)
+            self.sample_dataframe[int(x) : int(x) + _range].equals(test_x_dataframe)
         )
         self.assertTrue(
-            self.sample_dataframe[int(y) : int(y) + 1 + _range].equals(test_y_dataframe)
+            self.sample_dataframe[int(y) : int(y) + _range].equals(test_y_dataframe)
         )
         self.assertTrue(
-            self.sample_dataframe[id : id + 1 + _range].equals(test_id_dataframe)
+            self.sample_dataframe[id : id + _range].equals(test_id_dataframe)
         )
         self.assertTrue(
-            self.sample_dataframe[count : count + 1 + _range].equals(
-                test_count_dataframe
-            )
+            self.sample_dataframe[count : count + _range].equals(test_count_dataframe)
         )
         self.assertTrue(
-            self.sample_dataframe[err : err + 1 + _range].equals(test_err_dataframe)
+            self.sample_dataframe[err : err + _range].equals(test_err_dataframe)
         )
         self.assertTrue(
-            self.sample_dataframe[owner : owner + 1 + _range].equals(
-                test_owner_dataframe
-            )
+            self.sample_dataframe[owner : owner + _range].equals(test_owner_dataframe)
         )
         self.assertTrue(
-            self.sample_dataframe[sqerr : sqerr + 1 + _range].equals(
-                test_sqerr_dataframe
-            )
+            self.sample_dataframe[sqerr : sqerr + _range].equals(test_sqerr_dataframe)
         )
         self.assertTrue(
             self.sample_dataframe.iloc[[42, 43, 44, 45, 46, 47, 48, 49, 50]].equals(
@@ -161,9 +157,9 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         self.assertTrue(case_1.equals(sample_1))
         self.assertTrue(case_1_pd.equals(sample_1))
 
-        case_2 = provider[0:10]  # ['simtime<=10', 'simtime>=0']
-        case_2_pd = provider[_I[0:10]]  # ['simtime<=10', 'simtime>=0']
-        sample_2 = self.sample_dataframe.iloc[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]
+        case_2 = provider[0:10]  # ['simtime<10', 'simtime>=0']
+        case_2_pd = provider[_I[0:10]]  # ['simtime<10', 'simtime>=0']
+        sample_2 = self.sample_dataframe.iloc[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
         self.assertTrue(case_2.equals(case_2_pd))
         self.assertTrue(case_2.equals(sample_2))
         self.assertTrue(case_2_pd.equals(sample_2))
@@ -207,12 +203,12 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
             self.assertTrue("To many values in tuple." in str(context.exception))
 
         case_8 = provider[
-            42, 42.0:43.0, 42.0:43.0, 43
+            42, 42.0:43.0, 42.0:43.1, 43
         ]  # ['simtime=42', x='43', y=43', ID='43']
         case_8_pd = provider[
-            _I[42, 42.0:43.0, 42.0:43.0, 43]
+            _I[42, 42.0:43.0, 42.0:43.1, 43]  # include 43.0 for y but not for x
         ]  # ['simtime=42', x='43', y=43', ID='43']
-        sample_8 = self.sample_dataframe.iloc[[43, 45, 47, 49]]
+        sample_8 = self.sample_dataframe.iloc[[43, 45]]
         self.assertTrue(case_8.equals(case_8_pd))
         self.assertTrue(case_8.equals(sample_8))
         self.assertTrue(case_8_pd.equals(sample_8))
@@ -244,10 +240,21 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
         case_2 = provider[0:10, "sqerr"]  # ['simtime<=10', 'simtime>=0']['sqerr']
         case_2_pd = provider[
             _I[0:10], _I["sqerr"]
-        ]  # ['simtime<=10', 'simtime>=0']['sqerr']
-        sample_2 = self.sample_dataframe.iloc[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]][
-            ["sqerr"]
-        ]
+        ]  # ['simtime<10', 'simtime>=0']['sqerr']
+        sample_2 = self.sample_dataframe.iloc[
+            [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+            ]
+        ][["sqerr"]]
         self.assertTrue(case_2.equals(case_2_pd))
         self.assertTrue(case_2.equals(sample_2))
         self.assertTrue(case_2_pd.equals(sample_2))
@@ -306,12 +313,12 @@ class IHDFProviderGoldenSampleTest(unittest.TestCase):
             self.assertTrue("To many values in tuple." in str(e))
 
         case_8 = provider[
-            (42, slice(42.0, 43.0, 1), slice(42.0, 43.0, 1), 43), "count"
+            (42, slice(42.0, 43.0, 1), slice(42.0, 43.1, 1), 43), "count"
         ]  # ['simtime=42', x='43', y=43', ID='43']['count']
         case_8_pd = provider[
-            _I[42, 42.0:43.0, 42.0:43.0, 43], _I["count"]
+            _I[42, 42.0:43.0, 42.0:43.1, 43], _I["count"]
         ]  # ['simtime=42', x='43', y=43', ID='43']['count']
-        sample_8 = self.sample_dataframe.iloc[[43, 45, 47, 49]][["count"]]
+        sample_8 = self.sample_dataframe.iloc[[43, 45]][["count"]]
         self.assertTrue(case_8.equals(case_8_pd))
         self.assertTrue(case_8.equals(sample_8))
         self.assertTrue(case_8_pd.equals(sample_8))

@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import InitVar, asdict, dataclass, field
 from enum import Enum
+from io import StringIO
 from typing import Any, Dict, List, TextIO
 
 from crownetutils.omnetpp.sql import SqlOp
@@ -367,3 +368,79 @@ class DpmmCfgDb(DpmmCfg):
                 str_fd, cls=DpmmCfgDecoder.new(_clazz=DpmmCfgDb, base_dir=base_dir)
             )
         return o
+
+
+class DpmmCfgBuilder:
+    @classmethod
+    def load_density_cfg(cls, path) -> DpmmCfg:
+        b = cls()
+        return b.load_cfg_from_base_dir(base_dir=path, map_type=MapType.DENSITY)
+
+    @classmethod
+    def load_entropy_cfg(cls, path) -> DpmmCfg:
+        b = cls()
+        return b.load_cfg_from_base_dir(base_dir=path, map_type=MapType.ENTROPY)
+
+    @classmethod
+    def load_cfg(cls, path, error_on_nan: bool = False):
+        cfg = None
+        try:
+            cfg = cls.load_density_cfg(path)
+        except FileNotFoundError:
+            try:
+                cfg = cls.load_entropy_cfg(path)
+            except FileNotFoundError:
+                pass
+
+        if cfg is None and error_on_nan:
+            raise FileNotFoundError(
+                f"Cannot find config file {MapType.DENSITY.name}.cfg or {MapType.ENTROPY.name}.cfg at {path}"
+            )
+
+        return cfg
+
+    def __init__(self) -> None:
+        pass
+
+    def _load_json(self, base_dir):
+        with open(base_dir, mode="r", encoding="utf-8") as fd:
+            return json.load(fd)
+
+    def save_in_root(self, cfg: DpmmCfg):
+        """Save configuration in base path directory with map type name. Remove base path to allow base path
+        to be moved. Base path can be reconstructed from saved file path
+
+        Args:
+            cfg (DpmmCfg): _description_
+        """
+        map_type = cfg.map_type.name
+        cfg.save_cfg(path_fd=cfg.path(f"{map_type}.cfg"), dump_base_path=False)
+
+    def load_cfg_from_base_dir(self, base_dir, map_type: MapType) -> DpmmCfg:
+        j = self._load_json(base_dir=f"{base_dir}/{map_type.name}.cfg")
+        if "map_db_name" in j.keys():
+            fd = StringIO(json.dumps(j))
+            cfg = DpmmCfgDb.load(fd, base_dir=base_dir)
+        elif "global_map_csv_name" in j.keys():
+            fd = StringIO(json.dumps(j))
+            cfg = DpmmCfgCsv.load(fd, base_dir=base_dir)
+        else:
+            raise ValueError(
+                "Provided json does not fit DpmmCfgDb or DpmmCfgCsv. got {j}"
+            )
+
+        return cfg
+
+    def load_db_cfg_from_base_dir(self, base_dir, map_type: MapType) -> DpmmCfgDb:
+        cfg = self.load_cfg_from_base_dir(base_dir, map_type)
+        if isinstance(cfg, DpmmCfgDb):
+            return cfg
+
+        raise ValueError("got cfg type {type(cfg)} instead of DpmmCfgDb")
+
+    def load_csv_cfg_from_base_dir(self, base_dir, map_type: MapType) -> DpmmCfgCsv:
+        cfg = self.load_cfg_from_base_dir(base_dir, map_type)
+        if isinstance(cfg, DpmmCfgCsv):
+            return cfg
+
+        raise ValueError("got cfg type {type(cfg)} instead of DpmmCfgCsv")
