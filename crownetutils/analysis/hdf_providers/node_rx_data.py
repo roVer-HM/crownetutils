@@ -38,24 +38,24 @@ class NodeRxData:
         override_existing: bool = True,
     ) -> NodeRxData:
         obj: NodeRxData = cls(hdf_path, apps, node_pos)
-        if obj.hdf.hdf_file_exists and obj._check_hdf_consitency():
+        if obj.hdf.hdf_file_exists and obj._check_hdf_consistency():
             logger.info(
-                "found existing hdf file with matching paramter setup. No build requiered."
+                f"found existing {cls.__name__} file with matching parameter setup. No build required."
             )
             return obj
         else:
             if obj.hdf.hdf_file_exists:
                 if not override_existing:
                     raise ValueError(
-                        "found existing hdf file with inconsitent paramters but override_existing is false."
+                        f"found existing {cls.__name__} file with inconsistent parameters but override_existing is false."
                     )
                 else:
                     logger.info(
-                        "found existing hdf file with inconsitent paramter  and override_existing=True. Delete old file and build new one."
+                        f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
             else:
-                logger.info("no hdf file found. Build hdf...")
+                logger.info(f"no {cls.__name__} file found. Build hdf...")
             with Timer():
                 obj._build()
             return obj
@@ -99,7 +99,7 @@ class NodeRxData:
         ret = pd.concat(ret, axis=0, verify_integrity=False)
         return ret
 
-    def _check_hdf_consitency(self) -> bool:
+    def _check_hdf_consistency(self) -> bool:
         if not self.hdf.hdf_file_exists:
             return False
         for app in self.apps:

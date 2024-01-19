@@ -1,7 +1,8 @@
 import logging
 import os
 import timeit as it
-from functools import wraps
+from functools import update_wrapper, wraps
+from typing import Any
 
 
 class NoConnectionPoolFilter(logging.Filter):
@@ -99,7 +100,10 @@ def timing(func):
         ts = it.default_timer()
         logger.debug(f"{func.__name__}>")
         result = func(*args, **kwargs)
-        logger.info(f"{func.__name__}: took {it.default_timer() - ts:2.4f} seconds")
+        logger.debug(
+            f"{func.__name__}: took {it.default_timer() - ts:2,.2f} seconds",
+            stacklevel=2,
+        )
         return result
 
     return _timing

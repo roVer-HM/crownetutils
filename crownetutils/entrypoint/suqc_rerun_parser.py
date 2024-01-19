@@ -53,7 +53,6 @@ def append_suqc_rerun_parser(
         action="append",
         nargs="+",
         help="Override qoi argument given in the context file of each run with these here",
-        default="all",
         required=False,
         type=str,
     )

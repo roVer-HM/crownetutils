@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import datetime
 import enum
 import json
@@ -443,6 +444,9 @@ class RunMap(dict):
 
 class RunContext:
     class _dummy_runner:
+        def __init__(self) -> None:
+            self.ns = None
+
         def run_simulation_omnet(self) -> int:
             raise NotImplementedError
 
@@ -472,7 +476,7 @@ class RunContext:
 
         def set_options(self, namespace: dict) -> None:
             """provide Dispatcher with configuration dictionary"""
-            raise NotImplementedError
+            self.ns = namespace
 
     @classmethod
     def from_path(cls, path):
@@ -637,17 +641,36 @@ class RunContext:
         sample = self.args.get_value("--resultdir")
         return sample.split(os.sep)[-1]
 
+    @staticmethod
+    def flatt_list(data):
+        while isinstance(data, list):
+            r = []
+            for i in data:
+                if isinstance(i, list):
+                    r.extend(i)
+                else:
+                    r.append(i)
+            data = r
+        return data
+
     def create_postprocessing_args(self, qoi_default="all"):
+        a: ArgList = copy.copy(self.args)
+        a.add_override("--qoi", qoi_default)
+
+        args = ["post-processing"]
+        qoi = a.get_value("--qoi")
+        if isinstance(qoi, list):
+            for q in qoi:
+                args.extend(["--qoi", q])
+        else:
+            args.extend(["--qoi", qoi])
+
+        args.extend(["--resultdir", self.resultdir])
+
         return {
             "cwd": self.cwd,
             "script_name": self.data.get("script", "run_script.py"),
-            "args": [
-                "post-processing",
-                "--qoi",
-                self.args.get_value("--qoi", qoi_default),
-                "--resultdir",
-                self.resultdir,
-            ],
+            "args": args,
         }
 
     def create_run_config_args(self):
@@ -660,7 +683,8 @@ class RunContext:
     @staticmethod
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
-        print(f"run command:\n\t\t{cmd}")
+        cmd_s = " ".join(cmd)
+        print(f"run command:\n\t\t{cmd_s}")
         if "log" in args and args["log"]:
             os.makedirs(os.path.dirname(args["cwd"]), exist_ok=True)
             fd = open(os.path.join(args["cwd"], "log.out"), "w")
@@ -683,7 +707,7 @@ class RunContext:
             print(f"Simulation failed: {cmd}")
             return_code = -1
         finally:
-            if args["log"]:
+            if "log" in args and args["log"]:
                 fd.close()
         print(f"done: {cmd}")
         return return_code

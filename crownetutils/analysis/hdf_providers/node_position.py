@@ -173,17 +173,17 @@ class NodePositionWithRsdHdf:
             if same:
                 # hdf file exists and contains all data with same parameters
                 logger.info(
-                    "found existing hdf file with match paramter setup. No build requiered."
+                    f"found existing {cls.__name__} file with match parameter setup. No build required."
                 )
                 ret = obj
             else:
                 if override_existing is False:
                     raise ValueError(
-                        f"File {hdf_path} already exists but paramter settings missmatch and override is false"
+                        f"File {hdf_path} already exists but parameter settings mismatch and override is false"
                     )
                 else:
                     logger.info(
-                        "found existing hdf file with paramter missmatch. Remove file and rebuild."
+                        "found existing hdf file with parameter mismatch. Remove file and rebuild."
                     )
                     os.remove(hdf_path)
                     obj._build_hdf()

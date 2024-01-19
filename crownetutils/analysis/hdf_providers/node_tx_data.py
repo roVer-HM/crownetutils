@@ -161,33 +161,33 @@ class NodeTxData:
         hdf_path: str,
         apps: List[SqlAppProxy],
         node_pos: NodePositionWithRsdHdf = None,
-        append_max_app_bandwdith: bool = True,
+        append_max_app_bandwidth: bool = True,
         override_existing: bool = True,
     ) -> NodeTxData:
         obj: NodeTxData = cls(hdf_path, apps)
-        if obj.hdf.hdf_file_exists and obj._check_if_hdf_consitent():
+        if obj.hdf.hdf_file_exists and obj._check_if_hdf_consistent():
             logger.info(
-                "found existing hdf file with matching paramter setup. No build requiered."
+                f"found existing {cls.__name__} file with matching parameter setup. No build required."
             )
             return obj
         else:
             if obj.hdf.hdf_file_exists:
                 if not override_existing:
                     raise ValueError(
-                        "found existing hdf file with inconsitent paramters but override_existing is false."
+                        f"found existing {cls.__name__} file with inconsistent parameters but override_existing is false."
                     )
                 else:
                     logger.info(
-                        "found existing hdf file with inconsitent paramter  and override_existing=True. Delete old file and build new one."
+                        f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
             else:
-                logger.info("no hdf file found. Build hdf...")
+                logger.info(f"no {cls.__name__} file found. Build hdf...")
             with Timer():
                 obj._build(node_pos=node_pos)
             return obj
 
-    def _check_if_hdf_consitent(self):
+    def _check_if_hdf_consistent(self):
         if not self.hdf.hdf_file_exists:
             return False
         for app in self.apps:

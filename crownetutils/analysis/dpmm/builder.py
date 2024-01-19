@@ -210,6 +210,7 @@ class DpmmHdfBuilder(FrameConsumer):
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
         override_hdf=False,
+        repack_on_build: bool = True,
     ) -> DpmmProviders:
         if not self.hdf_exist or override_hdf:
             try:
@@ -221,6 +222,8 @@ class DpmmHdfBuilder(FrameConsumer):
             # append filters before processing
             self.map_p.csv_filters.extend(self.single_df_filters)
             self.create_hdf_fast()
+            if repack_on_build:
+                self.map_p.repack_hdf(keep_old_file=False)
 
         metadata = DpmmMetaData(
             cell_size=self.position_p.get_attribute("cell_size"),

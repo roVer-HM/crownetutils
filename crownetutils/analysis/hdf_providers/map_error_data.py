@@ -175,7 +175,7 @@ class CellEntropyValueError:
         if build_new:
             if os.path.exists(hdf_path):
                 logger.info(
-                    "Found hdf-file with mismatching groups. Delete file and recreate."
+                    f"Found {cls.__name__} file with mismatching groups. Delete file and recreate."
                 )
                 os.remove(hdf_path)
             if builder is None:
@@ -183,7 +183,9 @@ class CellEntropyValueError:
             logger.info(f"Create hdf {hdf_path}")
             obj._create_hdf(count_p, builder, with_rsd)
         else:
-            logger.info(f"Nothing to do. Hdf file exist {hdf_path}")
+            logger.info(
+                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+            )
 
         return obj
 
@@ -528,6 +530,10 @@ class CellCountError:
             if builder is None:
                 builder = CellCountErrorBuilder()
             obj._create_hdf(count_p, builder, with_rsd)
+        else:
+            logger.info(
+                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+            )
 
         return obj
 
@@ -869,6 +875,10 @@ class MapCountError:
             if os.path.exists(hdf_path):
                 os.remove(hdf_path)
             obj._create_count_error_hdf(map_p, glb_pos, with_rsd, rsd_p)
+        else:
+            logger.info(
+                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+            )
 
         return obj
 

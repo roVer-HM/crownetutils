@@ -336,7 +336,7 @@ class DpmmCfgDb(DpmmCfg):
                 allow_nan=True,
                 indent=2,
                 sort_keys=True,
-                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgCsv),
+                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgDb),
             )
         else:
             json.dump(
@@ -346,7 +346,7 @@ class DpmmCfgDb(DpmmCfg):
                 allow_nan=True,
                 indent=2,
                 sort_keys=True,
-                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgCsv),
+                cls=DpmmCfgEncoder.new(dump_base_dir, _clazz=DpmmCfgDb),
             )
 
     @classmethod

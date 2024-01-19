@@ -336,10 +336,12 @@ class OppSql:
         with timer:
             with self.vec_con() as c:
                 for s in index_sql:
-                    logger.info(f"execute: {s}")
+                    logger.debug(f"execute: {s}")
                     ret = c.execute(s).fetchall()
-                    logger.info(f"Done in {timer.round_str()} with return value: {ret}")
-        logger.info(f"indices create in {timer.str()}")
+                    logger.debug(
+                        f"Done in {timer.round_str()} with return value: {ret}"
+                    )
+        logger.debug(f"indices create in {timer.str()}")
 
     def vector_exists(
         self,

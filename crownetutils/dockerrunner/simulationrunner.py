@@ -2,6 +2,7 @@ import io
 import os
 import signal
 import time
+import timeit as it
 import traceback
 from typing import Any, List
 
@@ -66,12 +67,12 @@ class BaseSimulationRunner:
                     continue
         # namespace set though set_options by the parser
         parse_run_script_arguments(self, args)
-        if getattr(self, "ns", None):
+        if getattr(self, "ns", None) is None:
             raise ValueError(
                 "ns (namespace) not set. Did you call set_options on the SimulationDispatcher?"
             )
 
-        if getattr(self, "ns", None):
+        if getattr(self, "qoi_filter", None) is None:
             raise ValueError(
                 "qoi_filter not set. Did you call set_options on the SimulationDispatcher?"
             )
@@ -116,7 +117,6 @@ class BaseSimulationRunner:
             raise RuntimeError(f"Error in Simulation. Error code = {ret}")
         logger.info("execute post hooks")
         self.post()
-        logger.info("done")
 
     @staticmethod
     def _to_int_if_possible(qoi: List[str]) -> List[Any]:
@@ -163,20 +163,31 @@ class BaseSimulationRunner:
         post_functions = [p for p in _post_f if self.qoi_filter.match(p[0], p[1])]
 
         err = []
+        total_post_timer = it.default_timer()
         for prio, _f in post_functions:
-            print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
+            ts = it.default_timer()
+            logger.info(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
             if self.ns["debug"]:
                 _f()
+                logger.info(
+                    f"post: '{_f.__name__}' with prio: {prio} took {it.default_timer() - ts:2,.2f} seconds to finish."
+                )
             else:
                 try:
                     _f()
+                    logger.info(
+                        f"post: '{_f.__name__}' with prio: {prio} took {it.default_timer() - ts:2,.2f} seconds to finish."
+                    )
                 except Exception as e:
-                    _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
+                    _err = f"Error while executing post processing {prio}:{_f.__name__} with runtime of {it.default_timer() - ts:2,.2f} seconds >> {e}"
                     logger.error(_err)
                     logger.error(traceback.format_exc())
                     err.append(f"  {_err}")
                     break
 
+        logger.info(
+            f"post: total postprocessing took {it.default_timer() - total_post_timer:2,.2f} seconds."
+        )
         if len(err) > 0:
             err = "\n".join(err)
             raise RuntimeError(f"Error in Postprocessing:\n{err}")
