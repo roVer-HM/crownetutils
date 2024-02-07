@@ -72,7 +72,7 @@ def read_sim_run_context(runner: Any, cfg_json: dict) -> Dict:
             f"Parse loop detected. The config file cannot contain the 'config' subcommand. [{cmd_args}]"
         )
 
-    logger.info(f"Load config {cmd_args}")
+    logger.debug(f"Load config {cmd_args}")
     return parse_run_script_arguments(runner=runner, args=cmd_args)
 
 
@@ -216,7 +216,7 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         "--qoi",
         action="append",
         nargs="+",
-        help="Specify qoi files. Allows list of ids (1,4,7) as well as id ranges (2-5) inclusive. Defaults to all",
+        help="Specify qoi files. Allows list of ids (1,4,7) as well as id ranges (2-5) inclusive. Defaults to none. Use 'all' to execute all",
         type=str,
     )
     parser.add_argument(

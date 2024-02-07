@@ -241,7 +241,7 @@ class PlotAppTxInterval_(PlotUtil_):
     def plot_app_tx_throughput(
         self,
         hdf: NodeTxData,
-        rsd_ids: List[int],
+        rsd_colors: dict,
         target_rates_in_Bps: dict,
         bin_size: float = 10.0,
         saver: FigureSaver | None = None,
@@ -255,15 +255,17 @@ class PlotAppTxInterval_(PlotUtil_):
         )
 
         t_max = 0
-        for rsd in rsd_ids:
-            data = hdf.get_tx_throuput_diff_by_app(
+        if 0 in rsd_colors:
+            del rsd_colors[0]
+        for rsd, color in rsd_colors.items():
+            data = hdf.get_tx_throughput_diff_by_app(
                 target_rates=target_rates_in_Bps,
                 bin_size=bin_size,
-                throughput_unit=1000,  # in kilo bytes (applied to targetrates and data)
+                throughput_unit=1000,  # in kilo bytes (applied to target rates and data)
                 serving_enb=rsd,
             ).reset_index()
             for ax, (app, target_rate) in zip(axes, target_rates_in_Bps.items()):
-                ax.plot("time", app, data=data, label=f"rsd {rsd}")
+                ax.plot("time", app, data=data, label=f"rsd {rsd}", color=color)
 
             _time_max = data["time"].max()
             if _time_max > t_max:
@@ -882,15 +884,15 @@ class PlotAppMisc_(PlotUtil_):
         apps: List[SqlAppProxy],
         rsd_filter: List[int],
     ):
-        """Generates a matrix of plots for debuging appliation dealys for *one* RSD.
+        """Generates a matrix of plots for debugging application delays for *one* RSD.
         Each row depicts one application provided by `apps`. The generated figures in each
         column are:
           1. Transmission intervals over time (raw data, scatter)
-          2. Number of nodes used to calcualted tx inteval over time(raw data, scatter and ground truth)
+          2. Number of nodes used to calculated tx interval over time(raw data, scatter and ground truth)
           3. Size of transmitted messages in bytes (i.e. burst of one or more packets) ove time (raw data, scatter)
           4. Size of burst (i.e. number of packets in one burst) over time (raw data, scatter)
-          5. Size of mean message size, calcuated as exponential moving average in each node over time.
-             This message size is used in the calcuation of the tx interval in figure 1
+          5. Size of mean message size, calculated as exponential moving average in each node over time.
+             This message size is used in the calculation of the tx interval in figure 1
           6. Received data at application layer in one second over time. todo: why is this so low??
           7. Number of different data sources over one second over time.
 

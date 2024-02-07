@@ -945,6 +945,19 @@ class _OppAnalysis(AnalysisBase):
         hdf_group_base: str = "tx_throughput",
         throughput_unit: float = 1000.0,
     ):
+        """_summary_
+
+        Args:
+            sql (Scave.CrownetSql): _description_
+            freq (float, optional): _description_. Defaults to 1.0.
+            tx_byte_data (pd.DataFrame | None, optional): _description_. Defaults to None.
+            hdf (BaseHdfProvider | None, optional): _description_. Defaults to None.
+            hdf_group_base (str, optional): _description_. Defaults to "tx_throughput".
+            throughput_unit (float, optional): _description_. Defaults to 1000.0.
+
+        Returns:
+            _type_: _description_
+        """
         hdf_group = f"{hdf_group_base}{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group):
             return hdf.get_dataframe(hdf_group)

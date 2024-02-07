@@ -629,7 +629,7 @@ class CellCountError:
                 data = self.load_data(count_p, time_slice, builder)
                 s1 = sys.getsizeof(data) / 1e6
                 s2 = sys.getsizeof(glb) / 1e6
-                print(
+                logger.info(
                     f"simtime range: ({start}, {end}] retriving {data.shape[0]:,} rows took {it.default_timer() - ts:2.2f} seconds for {(s1 + s2):,.2f}MB (sizeoff data+glb)"
                 )
                 start = end
@@ -985,7 +985,7 @@ class MapCountError:
                     columns=["count", "rsd_id", "owner_rsd_id"],
                 )
                 size = sys.getsizeof(n) / 1e6
-                print(
+                logger.info(
                     f"simtime range: ({start}, {end}] retriving {n.shape[0]:,} rows took {it.default_timer() - ts:2.2f} seconds for {size:,.2f}MB (sizeoff)"
                 )
                 start = end

@@ -3,6 +3,8 @@ from __future__ import annotations
 import contextlib
 import os
 import sqlite3 as sq
+import sys
+import timeit as it
 from typing import List, Tuple
 
 import pandas as pd
@@ -10,6 +12,34 @@ import pandas as pd
 from crownetutils.analysis.dpmm.csv_loader import _apply_real_coords
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
+from crownetutils.utils.logging import logger, timing
+
+
+class TimeChunks:
+    def __init__(self, name, start, end, size) -> None:
+        self.start = start
+        self.end = end
+        self.size = size
+        self.chunks = []
+        _s = start
+        while _s < end:
+            self.chunks.append(Chunk(name, _s, _s + size))
+            _s += size
+
+    def __len__(self):
+        return len(self.chunks)
+
+    def __iter__(self):
+        return iter(self.chunks)
+
+
+class Chunk:
+    def __init__(self, name, *args) -> None:
+        self.name = name
+        self.args = args
+
+    def __str__(self) -> str:
+        return f"{self.name} chunk with args: {self.args}"
 
 
 class DpmmSql:
@@ -82,6 +112,55 @@ class DpmmSql:
 
     def glb_metadata(self) -> DpmmMetaData:
         return self.metadata(-1)
+
+    def dmap_row_count(self) -> int:
+        q = self.query("SELECT count(*) from dcd_map;")
+        return q.values[0][0]
+
+    @timing
+    def append_dmap_time_index_if_missing(self):
+        index_sql = [
+            "CREATE INDEX IF NOT EXISTS dcd_map_idx_simtime ON dcd_map (simtime);",
+        ]
+        with self.con() as c:
+            for s in index_sql:
+                logger.debug(f"execute: {s}")
+                ret = c.execute(s).fetchall()
+
+    def chunk_query(
+        self,
+        sql_template: str,
+        chunk_provider,
+        journal: str = "MEMORY",
+        cache_size_kb: int = 2e6,
+        mmap=0,
+    ) -> pd.DataFrame:
+        with self.con() as _con:
+            r = _con.execute(f"PRAGMA cache_size;").fetchall()
+            print(r)
+            r = _con.execute(f"PRAGMA cache_size = -10000;").fetchall()
+            print(r)
+            r = _con.execute(f"PRAGMA cache_size;").fetchall()
+            print(r)
+            if mmap > 0:
+                r = _con.execute(f"PRAGMA mmap_size;").fetchall()
+                print(f"mmap old {r}")
+                r = _con.execute(f"PRAGMA mmap_size = {mmap};").fetchall()
+                print(f"mmap new {r}")
+            # r = _con.execute(f"PRAGMA journal_mode = {journal};").fetchall()
+
+            for chunk in chunk_provider:
+                ts = it.default_timer()
+                logger.debug(f"run query with chunk values: {chunk}")
+                sql_str = sql_template.format(*chunk.args)
+                # sql_str = sql_template.format(0, 5)
+                # print(sql_str)
+                df = pd.read_sql_query(sql_str, _con)
+                s1 = sys.getsizeof(df) / 1e6
+                logger.debug(
+                    f"query took {it.default_timer() - ts:2,.2f} seconds to load {df.shape[0]} rows with {s1:,.2f}MB"
+                )
+                yield df, chunk
 
     def read_glb_map(
         self,

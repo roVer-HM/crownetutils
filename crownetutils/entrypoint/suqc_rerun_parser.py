@@ -133,6 +133,13 @@ def append_suqc_rerun_parser(
         help="Only ist run ids of missing/failed runs",
     )
     suqcrerun.add_argument(
+        "--no-postprocessing",
+        dest="do_postprocessing",
+        action="store_false",
+        default=True,
+        help="If flag is set do not run post-processing. This will override any '--qoi' settings found in configs.",
+    )
+    suqcrerun.add_argument(
         "--filter",
         help="List of runs. (e.g. 1,4,7-9,22-). Intervals are inclusive. Default: 'all'",
         required=False,

@@ -4,6 +4,7 @@ import os
 from itertools import product
 from typing import List
 
+import numpy as np
 import pandas as pd
 
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
@@ -77,12 +78,62 @@ class NodeTxData:
         return ret
 
     def tx_bytes(self, app: str | SqlAppProxy) -> BaseHdfProvider:
+        """HdfProvider of the form [hostId, time, tx_bytes, servingEnb] (no index)
+
+        Only contains data for the provided application. No aggregation applied. For group information
+        see 'print_hdf_info()'. `hostId` , `time` do not build a unique index. See tx_burst where packets
+        from the same time are aggregated into messages (i.e. bursts)
+
+        Call .frame() method for all data or use IndexSlicing [] or the .select()
+        method for on disk filtering.
+
+        Args:
+            app (str | SqlAppProxy): group identifier which yields group name as shown in print_hdf_info()
+
+        Returns:
+            BaseHdfProvider: HdfProvider configured with provided application and group.
+        """
         return BaseHdfProvider(self.hdf_path, group=self.g(app, "tx_bytes"))
 
     def tx_burst(self, app: str | SqlAppProxy) -> BaseHdfProvider:
+        """HdfProvider of the form (hostId, time)[burst_num, burst_size, servingEnb]
+
+        Only contains data for the provided application. Contains sum-aggregated packets. For group information
+        see 'print_hdf_info()'.
+
+        `burst_num`:    number of packets contained in one message (i.e. burst)
+        `burst_size`:   Total size of burst in bytes. (sum-aggregate of tx_bytes over the key hostId, time )
+
+        Call .frame() method for all data or use IndexSlicing [] or the .select()
+        method for on disk filtering.
+
+        Args:
+            app (str | SqlAppProxy): group identifier which yields group name as shown in print_hdf_info()
+
+        Returns:
+            BaseHdfProvider: HdfProvider configured with provided application and group.
+        """
         return BaseHdfProvider(self.hdf_path, group=self.g(app, "tx_burst"))
 
     def tx_interval(self, app: str | SqlAppProxy) -> BaseHdfProvider:
+        """HdfProvider of the form (hostId, time)[tx_interval_det, tx_interval, member_count, servingEnb]
+
+        Only contains data for the provided application. No aggregation applied. For group information
+        see 'print_hdf_info()'.
+        `tx_interval_det`:  Deterministic transmission interval calculated based on average message size and number
+                            of competing nodes for shared resources
+        `tx_interval`:      Smeared transmission interval used. (Mitigate synchronization)
+        `member_count`:     Number nodes competing for resources at this time.
+
+        Call .frame() method for all data or use IndexSlicing [] or the .select()
+        method for on disk filtering.
+
+        Args:
+            app (str | SqlAppProxy): group identifier which yields group name as shown in print_hdf_info()
+
+        Returns:
+            BaseHdfProvider: HdfProvider configured with provided application and group.
+        """
         return BaseHdfProvider(self.hdf_path, group=self.g(app, "tx_interval"))
 
     def tx_bytes_per_app(
@@ -117,6 +168,72 @@ class NodeTxData:
         )
         return ret
 
+    def get_information_transfer_per_burst(
+        self,
+        app: str | SqlAppProxy,
+        map_size_data: pd.Da.DataFrame,
+        time_range_start: float = 0.0,
+        time_range_end: float = -1.0,
+        bin_size: float = 1.0,
+        where=None,
+        map_header_bytes: int = 30,
+        cell_bytes: int = 12,
+    ) -> pd.DataFrame:
+        """Create time series of burst size combined with total map size and information transfer per burst ratio.
+
+        Frame structure: (hostId, time)["burst_num", "burst_size", "servingEnb", "cells_per_burst", "map_size", "information_transfer_per_burst"]
+
+        with information_transfer_per_burst = cells_per_burst / map_size
+
+        Args:
+            app (str | SqlAppProxy): Application to use
+            map_size_data (pd.Da.DataFrame): frame with map size for each hostId at each time
+            time_range_start (float, optional): Time range start . Defaults to 0.0.
+            time_range_end (float, optional): Time range end. If < 0 it will be max("simtime") + bin_size. Defaults to -1.0.
+            bin_size (float, optional): size of interval index applied on map_size_data. Defaults to 1.0.
+            where (_type_, optional): HDF filter for application data. Defaults to None.
+            map_header_bytes (int, optional): Size of map header for each packet. Defaults to 30.
+            cell_bytes (int, optional): Size of cell encoded in map packet. Defaults to 12.
+
+        Returns:
+            pd.DataFrame:
+        """
+
+        if time_range_end < time_range_start:
+            time_range_end = map_size_data["simtime"].max() + bin_size
+
+        bins = pd.interval_range(
+            start=time_range_start, end=time_range_end, freq=bin_size, closed="right"
+        )
+        map_size_data["time_interval"] = pd.cut(map_size_data["simtime"], bins=bins)
+
+        burst = self.tx_burst(app=app).select(where=where)
+        burst["cells_per_burst"] = (
+            burst["burst_size"] - burst["burst_num"] * map_header_bytes
+        ) / cell_bytes
+        burst["time_interval"] = pd.cut(burst.index.get_level_values("time"), bins=bins)
+        burst = burst.reset_index().set_index(["hostId", "time_interval"]).sort_index()
+
+        burst = pd.merge(burst, map_size_data, on=["hostId", "time_interval"]).dropna()
+        burst = burst.rename(columns={"numberOfCells": "map_size"})
+
+        # total map size is only reported at 1 second intervals. The map size at
+        # times between these intervals can vary. Ensure that at least
+        # cell_per_burst number of cells are present.
+        burst["map_size"] = (
+            np.concatenate([burst["map_size"].values, burst["cells_per_burst"].values])
+            .reshape((2, -1))
+            .T.max(axis=1)
+        )
+
+        burst["information_transfer_per_burst"] = (
+            burst["cells_per_burst"] / burst["map_size"]
+        )
+
+        burst = burst.set_index(["hostId", "time"]).sort_index()
+        burst = burst.drop(columns=["simtime", "time_interval"])
+        return burst
+
     def get_target_rates(self, bps_to_multiplier: float = 1) -> dict:
         apps = self.hdf.get_groups()
         target_rates = {
@@ -125,13 +242,24 @@ class NodeTxData:
         }
         return target_rates
 
-    def get_tx_throuput_diff_by_app(
+    def get_tx_throughput_diff_by_app(
         self,
         target_rates: dict = None,
         bin_size: float = 10.0,
         throughput_unit: float = 1000.0,
         serving_enb: int | None = None,
     ):
+        """_summary_
+
+        Args:
+            target_rates (dict, optional): _description_. Defaults to None.
+            bin_size (float, optional): _description_. Defaults to 10.0.
+            throughput_unit (float, optional): _description_. Defaults to 1000.0.
+            serving_enb (int | None, optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
         if serving_enb is not None:
             serving_enb = f"servingEnb={serving_enb}"
 

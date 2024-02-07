@@ -416,13 +416,12 @@ class DpmmCfgBuilder:
         map_type = cfg.map_type.name
         cfg.save_cfg(path_fd=cfg.path(f"{map_type}.cfg"), dump_base_path=False)
 
-    def load_cfg_from_base_dir(self, base_dir, map_type: MapType) -> DpmmCfg:
-        j = self._load_json(base_dir=f"{base_dir}/{map_type.name}.cfg")
-        if "map_db_name" in j.keys():
-            fd = StringIO(json.dumps(j))
+    def load_from_json(self, obj: dict, base_dir) -> DpmmCfg:
+        if "map_db_name" in obj.keys():
+            fd = StringIO(json.dumps(obj))
             cfg = DpmmCfgDb.load(fd, base_dir=base_dir)
-        elif "global_map_csv_name" in j.keys():
-            fd = StringIO(json.dumps(j))
+        elif "global_map_csv_name" in obj.keys():
+            fd = StringIO(json.dumps(obj))
             cfg = DpmmCfgCsv.load(fd, base_dir=base_dir)
         else:
             raise ValueError(
@@ -430,6 +429,10 @@ class DpmmCfgBuilder:
             )
 
         return cfg
+
+    def load_cfg_from_base_dir(self, base_dir, map_type: MapType) -> DpmmCfg:
+        j = self._load_json(base_dir=f"{base_dir}/{map_type.name}.cfg")
+        return self.load_from_json(j, base_dir=base_dir)
 
     def load_db_cfg_from_base_dir(self, base_dir, map_type: MapType) -> DpmmCfgDb:
         cfg = self.load_cfg_from_base_dir(base_dir, map_type)

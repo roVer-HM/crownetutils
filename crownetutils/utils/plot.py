@@ -79,6 +79,54 @@ def percentile(n: int) -> Callable[[Any], Any]:
     return percentile_
 
 
+def calc_box_stats() -> Callable[[Any], Any]:
+    def _calc_box_stats(x, **kwargs):
+        if x.empty:
+            return np.nan
+
+        _x: pd.Series = x.sort_values().values
+        q1 = np.percentile(_x, 25)
+        q2 = np.percentile(_x, 50)
+        q3 = np.percentile(_x, 75)
+
+        outliers = []
+        iqr = q3 - q1
+        lower_w = q1 - 1.5 * iqr
+        lower_out_mask = _x < lower_w
+        if lower_out_mask.any():
+            # found outliers
+            outliers.append(list(_x[lower_out_mask]))
+            lower_w = _x[~lower_out_mask][
+                0
+            ]  # set whisker to lowest value in data that is not an outlier!
+        else:
+            # no outliers set whisker to lower value
+            lower_w = _x[0]
+            outliers.append([])
+
+        upper_w = q3 + 1.5 * iqr
+        upper_out_mask = _x > upper_w
+        if upper_out_mask.any():
+            outliers.append(list(_x[upper_out_mask]))
+            upper_w = _x[~upper_out_mask][-1]
+        else:
+            upper_w = _x[-1]
+            outliers.append([])
+
+        return {
+            "q1": q1,
+            "q3": q3,
+            "iqr": iqr,
+            "median": q2,
+            "lower_w": lower_w,
+            "upper_w": upper_w,
+            "outliers": outliers,
+        }
+
+    _calc_box_stats.__name__ = "box_stats"
+    return _calc_box_stats
+
+
 def with_axis(func):
     """Decorator that injects an keyword argument 'ax' of the
     type `plt.Axes` if missing.
@@ -101,6 +149,96 @@ def with_axis(func):
         return func(self, *func_args, **func_kwargs)
 
     return with_axis_impl
+
+
+class GridPlot:
+    """Create Grid based figure with provided rows and columns.
+    This class provides iterators starting at the lowerLeft or
+    upper right. The lowerLeftOrigin is the default behavior for
+    grid based resource domains.
+
+    """
+
+    @classmethod
+    def grid_3x5(cls, colors, **fig_kwargs):
+        if len(colors) != 15:
+            raise ValueError("Need 15 colors")
+
+        return cls(rows=3, columns=5, colors=colors, **fig_kwargs)
+
+    def __init__(self, rows, columns, colors, **fig_kwargs) -> None:
+        self.rows = rows
+        self.columns = columns
+        self.colors = colors
+        self.fig_args = fig_kwargs
+
+    def __len__(self):
+        return self.rows * self.columns
+
+    def __iter__(self):
+        return GridPlotIter.lowerLeftOrig
+
+    def iter_lowerLeftOrig(self) -> GridPlotIter:
+        return GridPlotIter.lowerLeftOrig(self)
+
+    def iter_upperLeftOrig(self) -> GridPlotIter:
+        return GridPlotIter.upperLeftOrig(self)
+
+
+class GridPlotIter:
+    """Iterator which provides the triplet [plt.Figure, plt.Axes, color]
+
+    Returns:
+        _type_: _description_
+    """
+
+    @classmethod
+    def lowerLeftOrig(cls, o: GridPlot):
+        fig, axes = plt.subplots(o.rows, o.columns, **o.fig_args)
+        axes_order = axes[::-1].flatten()
+        return cls(o, fig, axes, axes_order)
+
+    @classmethod
+    def upperLeftOrig(cls, o: GridPlot):
+        fig, axes = plt.subplots(o.rows, o.columns)
+        axes_order = axes
+        return cls(o, fig, axes, axes_order)
+
+    def __init__(self, o: GridPlot, fig, axes, axes_order) -> None:
+        self.o: GridPlot = o
+        self.fig: plt.Figure = fig
+        self.axes: plt.Axes = axes
+        self._order = axes_order
+        self.curr = 0
+
+    def lower_axes(self) -> List[plt.Axes]:
+        return self.axes[-1]
+
+    def left_axes(self) -> List[plt.Axes]:
+        return self.axes[:, 0]
+
+    def get_rsd(self, rsd):
+        color = self.o.colors[rsd]
+        _curr = rsd - 1
+        ax = self._order[_curr]
+        return self.fig, ax, color
+
+    def __next__(self):
+        if self.curr >= len(self):
+            raise StopIteration()
+        color = self.o.colors[self.curr + 1]
+        ax = self._order[self.curr]
+        self.curr += 1
+        return self.fig, ax, color
+
+    def __iter__(self):
+        return self
+
+    def __len__(self):
+        return len(self.o)
+
+    def close(self):
+        plt.close(self.fig)
 
 
 def savefigure(func):
@@ -289,13 +427,13 @@ def combine_images(
         new_im = Image.new("RGB", (total_width, total_heigth))
 
         label: ImageDraw = ImageDraw.Draw(new_im)
-        font = ImageFont.truetype(font_ttf, 24)
         x_off = 0
         y_off = 0
         for i, im in enumerate(img_list):
             new_im.paste(im, (x_off, y_off))
             if direction == "horizontal":
                 if len(img_label) > 0:
+                    font = ImageFont.truetype(font_ttf, 24)
                     label.text(
                         (x_off + im.size[0] / 2, im.size[1] + 2),
                         img_label[i],
@@ -1114,6 +1252,14 @@ class PlotUtil_:
             l_new.append(l[i])
             i += 2
         return h_new, l_new
+
+    def title_stats(
+        self, data: pd.Series, mean_fmt: str = ",.2f", std_fmt: str = ",.2f"
+    ) -> str:
+        desc = data.describe()
+        m = format(desc["mean"], mean_fmt)
+        s = format(desc["std"], std_fmt)
+        return f"{m}\u00b1{s}"
 
 
 PlotUtil = PlotUtil_()

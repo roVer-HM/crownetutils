@@ -370,9 +370,10 @@ class RunMap(dict):
                     ctx=data[0], label=data[1], id_offset=data[2]
                 )
                 if len(data) > 3:
-                    __o = data[3]
-                    __o["map_type"] = MapType(__o["map_type"])
-                    sim.dpmm_cfg = DpmmCfg(**__o)
+                    _obj = data[3]
+                    sim.dpmm_cfg = DpmmCfgBuilder().load_from_json(
+                        obj=_obj, base_dir=_obj.get("base_dir", "None")
+                    )
                 sims.append(sim)
 
             sim_group = SimulationGroup(g_name, data=sims, attr=group["attr"])
@@ -673,12 +674,22 @@ class RunContext:
             "args": args,
         }
 
-    def create_run_config_args(self):
-        return {
-            "cwd": self.cwd,
-            "script_name": self.data.get("script", "run_script.py"),
-            "args": ("config", "-f", "runContext.json"),
-        }
+    def create_run_config_args(self, do_postprocessing=True):
+        if do_postprocessing:
+            return {
+                "cwd": self.cwd,
+                "script_name": self.data.get("script", "run_script.py"),
+                "args": ("config", "-f", "runContext.json"),
+            }
+        else:
+            # no post processing. remove --qoi
+            args: ArgList = copy.copy(self.args)
+            args.remove_key("--qoi")
+            return {
+                "cwd": self.cwd,
+                "script_name": self.data.get("script", "run_script.py"),
+                "args": args.to_list(),
+            }
 
     @staticmethod
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
@@ -1357,7 +1368,10 @@ class SuqcStudy:
 
         args = []
         for r in runs:
-            _arg = r.create_run_config_args()
+            _arg = r.create_run_config_args(
+                do_postprocessing=kwargs.get("do_postprocessing", True)
+            )
+            print(_arg)
             _arg["log"] = join(r.cwd, "runscript.out")
             _arg["clean_dir"] = r.resultdir
             args.append(dict(args=_arg))
