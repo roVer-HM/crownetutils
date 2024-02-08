@@ -18,6 +18,7 @@ import crownetutils.omnetpp.scave as Scave
 from crownetutils.analysis.common import Simulation
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
 from crownetutils.analysis.hdf.provider import BaseHdfProvider, HdfSelector
+from crownetutils.analysis.hdf_providers.map_error_data import MapCountError
 from crownetutils.analysis.hdf_providers.node_position import NodePositionWithRsdHdf
 from crownetutils.analysis.hdf_providers.node_rx_data import NodeRxData
 from crownetutils.analysis.hdf_providers.node_tx_data import NodeTxData
@@ -611,10 +612,11 @@ class PlotAppMisc_(PlotUtil_):
         self.auto_major_minor_locator(ax)
         return fig, ax
 
-    def plot_nt_map_comparision_by_rsd(
+    def plot_nt_map_comparison_by_rsd(
         self,
         sim: Simulation,
         pos: NodePositionWithRsdHdf,
+        map_count_error: MapCountError,
         *,
         saver: FigureSaver | None = None,
     ):
@@ -622,8 +624,9 @@ class PlotAppMisc_(PlotUtil_):
         only use data of nodes which are located in the RSD during measurement time.
 
         Args:
-            sim (Simulation): _description_
-            pos (NodePositionWithRsdHdf): _description_
+            sim (Simulation): Simulation object with data location
+            pos (NodePositionWithRsdHdf): Position data in HDF store
+            map_count_error (MapCountError): Map data in HDF store
             saver (FigureSaver | None, optional): _description_. Defaults to None.
         """
 
@@ -631,7 +634,6 @@ class PlotAppMisc_(PlotUtil_):
             saver, FigureSaverSimple(sim.data_root)
         )
         sql = sim.sql
-        dmap = sim.builder.build_dcdMap()
 
         nt_count = sql.vector_ids_to_host(
             module_name=sql.m_table(),
@@ -647,30 +649,17 @@ class PlotAppMisc_(PlotUtil_):
             .sort_index()
         )
 
-        # node_count = (
-        #     dmap.glb_map.groupby("simtime")
-        #     .sum()
-        #     .reset_index()
-        #     .set_axis(["time", "value"], axis=1)
-        # )
-        map_count = dmap.map_count_measure_by_rsd(local_data_only=True).loc[
-            :, ["map_mean_count", "map_glb_count"]
-        ]
         for rsd in pos.enb.frame()["rsd_id"].sort_values().to_list():
             _nt_count = nt_count.loc[rsd].copy()
-            _map_count = (
-                map_count.loc[pd.IndexSlice[:, rsd], ["map_mean_count"]]
-                .droplevel(1)
-                .reset_index()
-                .set_axis(["time", "value"], axis=1)
-                .copy()
+            _data = map_count_error.hdf_map_measure_rsd_local.select(
+                where=f"rsd_id={rsd}", columns=["map_mean_count", "map_glb_count"]
+            ).reset_index()
+
+            _map_count = _data[["simtime", "map_mean_count"]].set_axis(
+                ["time", "value"], axis=1
             )
-            _node_count = (
-                map_count.loc[pd.IndexSlice[:, rsd], ["map_glb_count"]]
-                .droplevel(1)
-                .reset_index()
-                .set_axis(["time", "value"], axis=1)
-                .copy()
+            _node_count = _data[["simtime", "map_glb_count"]].set_axis(
+                ["time", "value"], axis=1
             )
 
             fig, ax = self._plot_nt_map_comparison_scatter(
@@ -692,12 +681,17 @@ class PlotAppMisc_(PlotUtil_):
             ax.set_title(f"{ax.get_title()} rsd {rsd}")
 
     def plot_nt_map_comparison(
-        self, sim: Simulation, *, saver: FigureSaver | None = None
+        self,
+        sim: Simulation,
+        map_count_error: MapCountError,
+        *,
+        saver: FigureSaver | None = None,
     ):
         """Plots timeseries of neighorhood table count with map based count.
 
         Args:
             sim (Simulation): _description_
+            map_count_error (MapCountError): Map data in HDF store
             saver (FigureSaver | None, optional): _description_. Defaults to None.
         """
         saver = FigureSaver.FIG(saver, FigureSaverSimple(sim.data_root))
@@ -712,8 +706,7 @@ class PlotAppMisc_(PlotUtil_):
             .set_axis(["time", "value"], axis=1)
         )
         map_count = (
-            dmap.map_count_measure()
-            .loc[:, ["map_mean_count"]]
+            map_count_error.hdf_map_measure.select(columns=["map_mean_count"])
             .reset_index()
             .set_axis(["time", "value"], axis=1)
         )
