@@ -972,37 +972,7 @@ class DpmMap(BaseDpmMap):
     @savefigure
     @with_axis
     def plot_map_count_diff(self, *, ax=None, **kwargs) -> Tuple[Figure, Axes]:
-        raise NotImplementedError("movde to _PlotDpmMap")
-        # if "data_source" in kwargs:
-        #     nodes = kwargs["data_source"]()
-        # else:
-        #     nodes = self.map_count_measure()
-
-        # font_dict = self.style.font_dict
-        # ax.set_title("Node Count over Time", **font_dict["title"])
-        # ax.set_xlabel("Time [s]", **font_dict["xlabel"])
-        # ax.set_ylabel("Pedestrian Count", **font_dict["ylabel"])
-        # n = (
-        #     nodes.loc[:, ["map_median_count", "map_count_p25", "map_count_p75"]]
-        #     .dropna()
-        #     .reset_index()
-        # )
-        # ax.plot("simtime", "map_median_count", data=n, label="Median count")
-
-        # ax.fill_between(
-        #     n["simtime"],
-        #     n["map_count_p25"],
-        #     n["map_count_p75"],
-        #     alpha=0.35,
-        #     interpolate=True,
-        #     label="[Q1;Q3]",
-        # )
-        # glb = nodes.loc[:, ["map_glb_count"]].dropna().reset_index()
-        # ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
-        # if self.style.create_legend:
-        #     ax.legend()
-        # PlotUtil.auto_major_minor_locator(ax)
-        # return ax.get_figure(), ax
+        raise NotImplementedError("moved to _PlotDpmMap class")
 
     def err_box_over_time(self, bin_width=10.0):
         i = pd.IndexSlice

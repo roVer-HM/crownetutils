@@ -28,7 +28,10 @@ from crownetutils.analysis.common import RunMap, Simulation
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
-from crownetutils.analysis.hdf_providers.map_error_data import MapCountError
+from crownetutils.analysis.hdf_providers.map_error_data import (
+    CellCountError,
+    MapCountError,
+)
 from crownetutils.analysis.hdf_providers.node_position import (
     CoordinateType,
     NodePositionWithRsdHdf,
@@ -201,6 +204,38 @@ class _PlotDpmMap(PlotUtil_):
         ax.plot("simtime", "map_glb_count", data=glb, label="Actual count")
         return ax.get_figure(), ax
 
+    def plot_msce_ts_rsd_figure_per_rsd(
+        self,
+        data: CellCountError,
+        rsd_list: List[int],
+        saver: FigureSaverSimple,
+        local_only: bool,
+    ):
+        """Generate stand alone figures for MSCE time series
+
+        Args:
+            data (CellCountError): Data provider for MSCE data
+            rsd_list (List[int]): list of RSD's to plot single figures
+            saver (FigureSaverSimple): Callable object to save the figure
+            inner_view (bool): If true only use data for nodes that are part of the selected rsd.
+                                Otherwise use all data.
+        """
+        saver_name = saver.next_name
+        for rsd in rsd_list:
+            if local_only:
+                df = data.hdf_cell_measure_rsd_local.select(
+                    where=f"rsd_id={rsd}", columns=["cell_mse"]
+                )
+                suffix = f"_rsd_local_{rsd}"
+            else:
+                df = data.hdf_cell_measure_rsd.select(
+                    where=f"rsd_id={rsd}", columns=["cell_mse"]
+                )
+                suffix = f"_rsd_{rsd}"
+            fig, _ = self.plot_msce_ts(data=df)
+            saver.with_name(saver_name).with_suffix(suffix)(fig)
+            plt.close(fig)
+
     @with_axis
     @savefigure
     def plot_msce_ts(
@@ -249,13 +284,46 @@ class _PlotDpmMap(PlotUtil_):
         self.auto_major_minor_locator(ax)
         return ax.get_figure(), ax
 
+    def plot_msce_ecdf_rsd_figure_per_rsd(
+        self,
+        data: CellCountError,
+        rsd_list: List[int],
+        saver: FigureSaverSimple,
+        inner_view: bool,
+    ):
+        """Generate stand alone figures for MSCE CDF
+
+        Args:
+            data (CellCountError): Data provider for MSCE data
+            rsd_list (List[int]): list of RSD's to plot single figures
+            saver (FigureSaverSimple): Callable object to save the figure
+            inner_view (bool): If true only use data for nodes that are part of the selected rsd.
+                                Otherwise use all data.
+        """
+        saver_name = saver.next_name
+        for rsd in rsd_list:
+            if inner_view:
+                df = data.hdf_cell_measure_rsd_local.select(
+                    where=f"rsd_id={rsd}", columns=["cell_mse"]
+                )
+                suffix = f"_rsd_local_{rsd}"
+            else:
+                df = data.hdf_cell_measure_rsd.select(
+                    where=f"rsd_id={rsd}", columns=["cell_mse"]
+                )
+                suffix = f"_rsd_{rsd}"
+            fig, _ = self.plot_msce_ecdf(df["cell_mse"])
+            saver.with_name(saver_name).with_suffix(suffix)(fig)
+            plt.close(fig)
+
     @with_axis
     @savefigure
     def plot_msce_ecdf(self, data, *, ax: plt.Axes | None = None):
-        ax = self.plot_ecdf(data, label="MSCE")
+        ax = self.plot_ecdf(data, label="MSCE", ax=ax)
         ax.set_title("ECDF: Mean squared cell error (MSCE)")
         ax.set_xlabel("MSCE")
         ax.legend()
+        self.auto_major_minor_locator(ax)
         return ax.get_figure(), ax
 
     @timing

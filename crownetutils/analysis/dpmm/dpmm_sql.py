@@ -245,12 +245,222 @@ class DpmmSql:
             _con.execute(_sql)
             _con.commit()
 
+    _tbl_dpm_map_row_id_mapping_by_time = """CREATE TABLE IF NOT EXISTS 'dcd_map_row_id_mapping_by_time'
+            ( 
+            uid             INTEGER PRIMARY KEY, 
+            simtime         REAL NOT NULL, 
+            row_id_start    INTEGER NOT NULL, 
+            row_id_end      INTEGER NOT NULL
+            );
+    """
+    _tbl_dpm_map_row_id_mapping_by_time_insert = """INSERT INTO 'dcd_map_row_id_mapping_by_time'
+                          (simtime, row_id_start, row_id_end) 
+                          VALUES (?, ?, ?);
+    """
+
+    _tbl_dpm_map_row_id_mapping_by_time_hostId = """CREATE TABLE IF NOT EXISTS 'dcd_map_row_id_mapping_by_time_hostId'
+            ( 
+            uid             INTEGER PRIMARY KEY, 
+            simtime         REAL NOT NULL, 
+            host_id         INTEGER NOT NULL, 
+            row_id_start    INTEGER NOT NULL, 
+            row_id_end      INTEGER NOT NULL, 
+            number_of_cells INTEGER NOT NULL 
+            );
+    """
+    _tbl_dpm_map_row_id_mapping_by_time_hostId_insert = """INSERT INTO 'dcd_map_row_id_mapping_by_time_hostId'
+                          (simtime, host_id, row_id_start, row_id_end, number_of_cells) 
+                          VALUES (?, ?, ?, ?, ?);
+    """
+
+    def get_last_processed_uid_of_row_mapping_cache(self):
+        _s1 = "select max(t.row_id_end) from dcd_map_row_id_mapping_by_time as t;"
+        _s2 = (
+            "select max(t.row_id_end) from dcd_map_row_id_mapping_by_time_hostId as t;"
+        )
+
+        try:
+            max_s1 = self.query(_s1, type="df").values[0][0]
+            if max_s1 is None:
+                max_s1 = 0
+        except Exception:
+            return 0
+
+        try:
+            max_s2 = self.query(_s2, type="df").values[0][0]
+            if max_s2 is None:
+                max_s2 = 0
+        except Exception:
+            return 0
+
+        if max_s1 != max_s2:
+            raise ValueError(
+                f"Inconsistency found in row_id_mapping tables. found max uid of {max_s1} in"
+                f"dcd_map_row_id_mapping_by_time_hostId and {max_s2} dcd_map_row_id_mapping_by_time_hostId. Should be equal!"
+            )
+
+        return max_s1
+
+    @timing
+    def create_dcd_map_row_mapping_cache(
+        self, chunk_size: int = 1_000_000, offset: int = 0
+    ):
+        """Generates two new tables, if missing, which contain a time and a time/host_id based row_id cache
+        of the dcd_map table. The columns `row_id_start` and `row_id_end` are inclusive bounds and provide a
+        window in the dcd_map table for that time or time/host_id key.
+
+        This is possible because during the simulation the data is written time step by time step and as
+        one block for each host_id. The used INTEGER primary key of the dcd_map is an alias to the row_id,
+        which is stored as a B-Tree, allowing fast access to each entry and to interval based queries.
+        See `https://www.sqlite.org/lang_createtable.html#rowid` for details.
+
+        This method can continue after stopping mid processing by providing an initial offset. The offset must
+        be the last row_id found in `dcd_map_row_id_mapping_by_time` or `dcd_map_row_id_mapping_by_time_hostId`,
+        must be the same!. Use the method  `get_last_processed_uid_of_row_mapping_cache` to get the last processed
+        row_id to continue processing. The method will return 0 if the tables do not exist.
+
+        Args:
+            chunk_size (int, optional): Number of rows to load with one query each select row contains (3 Integers, 2 Floats). Defaults to 1_000_000.
+            offset (int, optional): Initial offset to use. Defaults to 0.
+
+        Raises:
+            ValueError: _description_
+        """
+
+        _sql = "select d.uid, d.simtime, d.hostId, d.x , d.y from dcd_map as d limit {limit} offset {offset};"
+
+        chunks = []
+        time_first = -1
+        time_last = -1
+        load_next = True
+        with self.con() as _con:
+            # ensure tables exist.
+            _con.execute(self._tbl_dpm_map_row_id_mapping_by_time_hostId)
+            _con.execute(self._tbl_dpm_map_row_id_mapping_by_time)
+            _con.commit()
+            num_chunks = 0
+            while load_next:
+                # todo pragma
+                ts = it.default_timer()
+                num_chunks += 1
+                sql = _sql.format(_sql, limit=chunk_size, offset=offset)
+                data = pd.read_sql_query(sql, _con)
+                logger.debug(
+                    f"{num_chunks}/? query chunk with {chunk_size:,d} with offset {offset:,d} took {it.default_timer() - ts:2,.2f}s"
+                )
+                offset += chunk_size
+                if data.empty:
+                    # reached end of table stop processing
+                    logger.debug(f"reached end of table stop after {num_chunks}")
+                    load_next = False
+                    if len(chunks) == 0:
+                        # in case  no chunks are left do not process further
+                        break
+                else:
+                    if len(chunks) == 0:
+                        # only set time_first if no older chunk is present.
+                        time_first = data["simtime"].iloc[0]
+                    time_last = data["simtime"].iloc[-1]
+                    chunks.append(data)
+
+                if time_first != time_last or load_next is False:
+                    logger.debug(f"{num_chunks}/? Process loaded chunk(s).")
+                    # found more than one time process time
+                    # keep last time out of processing as it might not be
+                    if len(chunks) == 1:
+                        data = chunks[0]
+                    else:
+                        data = pd.concat(chunks, axis=0)
+
+                    # process chunk and return last time if present
+                    rest_chunk = self.process_chunk(
+                        data, time_first, time_last, connection=_con
+                    )
+                    chunks.clear()
+                    time_first = -1
+                    time_last = -1
+
+                    if rest_chunk is not None:
+                        time_first = rest_chunk["simtime"].iloc[0]
+                        time_last = rest_chunk["simtime"].iloc[-1]
+                        if time_first != time_last:
+                            raise ValueError(
+                                f"Rest chunk must be one time only!. Got {time_first} and {time_last}"
+                            )
+                        logger.debug(
+                            f"Add rest chunk back to chunk with {rest_chunk.shape[0]:,d} rows back to list of chunks. New start time time is {time_first}"
+                        )
+                        chunks.append(rest_chunk)
+                else:
+                    # Chunk does not contain all data for one time.
+                    # Keep pulling data.
+                    logger.debug(
+                        f"{num_chunks}/? loaded chunk(s) contains only one time value. Pull next chunk to check if there are more lines for that time value."
+                    )
+                    pass
+        logger.info(
+            f"finished processing {self.get_last_processed_uid_of_row_mapping_cache():,d} rows of dcd_map table."
+        )
+
+    @timing
+    def process_chunk(
+        self, data: pd.DataFrame, time_first, time_last, connection: sq.Connection
+    ):
+        all_rows = data.shape[0]
+        rest_chunk_rows = 0
+        processed_chunk_rows = all_rows
+        if time_first != time_last:
+            # more than one time!
+            last_time_mask = data["simtime"].iloc[-1] == data["simtime"]
+            rest_chunk = data[last_time_mask].copy()
+            data = data[~last_time_mask].copy()
+            rest_chunk_rows = rest_chunk.shape[0]
+            processed_chunk_rows = data.shape[0]
+        else:
+            rest_chunk = None
+
+        logger.debug(
+            f"process {processed_chunk_rows:,d}/{all_rows:,d} rows. Keep {rest_chunk_rows:,d} rows of time {time_last}"
+        )
+        mapping_by_time = (
+            data.groupby("simtime")["uid"]
+            .agg(["min", "max"])
+            .reset_index()
+            .set_axis(["simtime", "row_id_start", "row_id_end"], axis=1)
+        )
+        mapping_by_time_host_id = (
+            data.groupby(["simtime", "hostId"])["uid"]
+            .agg(["min", "max", "count"])
+            .reset_index()
+            .set_axis(
+                ["simtime", "host_id", "row_id_start", "row_id_end", "number_of_cells"],
+                axis=1,
+            )
+        )
+        logger.debug(
+            f"save {mapping_by_time.shape[0]:,d} rows in mapping_by_time table"
+        )
+        connection.executemany(
+            self._tbl_dpm_map_row_id_mapping_by_time_insert, mapping_by_time.values
+        )
+        logger.debug(
+            f"save {mapping_by_time_host_id.shape[0]:,d} rows in mapping_by_time_host_id table"
+        )
+        connection.executemany(
+            self._tbl_dpm_map_row_id_mapping_by_time_hostId_insert,
+            mapping_by_time_host_id.values,
+        )
+        connection.commit()
+        return rest_chunk
+
     def get_cell_count_by_host_id_over_time(self, sql_str=None) -> pd.DataFrame:
         """Return frame with [simtime, hostId, numberOfCells]"""
 
-        self.create_cell_count_by_host_id_over_time_if_missing()
+        # table 'cell_count_by_host_id_over_time' is deprecated. Use  'dcd_map_row_id_mapping_by_time_hostId' instead
+        # _sql = "select * from cell_count_by_host_id_over_time as t"
+        _sql = "select t.simtime, t.host_id as 'hostId', t.number_of_cells as 'numberOfCells' from dcd_map_row_id_mapping_by_time_hostId as t"
         if sql_str is None:
-            _sql = """select * from cell_count_by_host_id_over_time as t """
+            _sql = _sql
         else:
             _sql = sql_str
         return self.query(_sql, type="df")
