@@ -483,9 +483,9 @@ class DpmmSql:
                         f"{num_chunks}/? loaded chunk(s) contains only one time value. Pull next chunk to check if there are more lines for that time value."
                     )
                     pass
-        logger.info(
-            f"finished processing {self.get_last_processed_uid_of_row_mapping_cache():,d} rows of dcd_map table."
-        )
+
+        rows, _ = self.get_last_processed_uid_of_row_mapping_cache()
+        logger.info(f"finished processing {rows:,d} rows of dcd_map table.")
 
     @timing
     def process_chunk(
