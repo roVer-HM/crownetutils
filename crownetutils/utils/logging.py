@@ -2,7 +2,7 @@ import logging
 import os
 import timeit as it
 from functools import update_wrapper, wraps
-from typing import Any
+from typing import Any, List
 
 
 class NoConnectionPoolFilter(logging.Filter):
@@ -72,6 +72,11 @@ class LogWriter:
         self.log = log
         self.level = level
         self.stacklevel_offset = stacklevel_offset
+
+    def writelines(self, data: List[str]):
+        for l in data:
+            self.write(l)
+            self.write(os.linesep)
 
     def write(self, data: str):
         for l in data.strip().splitlines():
