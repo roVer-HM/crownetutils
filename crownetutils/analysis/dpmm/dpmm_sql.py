@@ -47,6 +47,57 @@ class DpmmSql:
         self.cfg: DpmmCfgDb = cfg
         self.path = os.path.abspath(os.path.join(cfg.base_dir, cfg.map_db_name))
 
+    _tbl_name_dpm_map_row_id_mapping_by_time = "dcd_map_row_id_mapping_by_time"
+    _tbl_create_dpm_map_row_id_mapping_by_time = """CREATE TABLE IF NOT EXISTS '{tbl}'
+            ( 
+            uid             INTEGER PRIMARY KEY, 
+            simtime         REAL NOT NULL, 
+            row_id_start    INTEGER NOT NULL, 
+            row_id_end      INTEGER NOT NULL
+            );
+    """.format(
+        tbl=_tbl_name_dpm_map_row_id_mapping_by_time
+    )
+
+    _tbl_insert_dpm_map_row_id_mapping_by_time = """INSERT INTO 'dcd_map_row_id_mapping_by_time'
+                          (simtime, row_id_start, row_id_end) 
+                          VALUES (?, ?, ?);
+    """.format(
+        tbl=_tbl_name_dpm_map_row_id_mapping_by_time
+    )
+
+    _tbl_name_dpm_map_row_id_mapping_by_time_hostId = (
+        "dcd_map_row_id_mapping_by_time_hostId"
+    )
+    _tbl_create_dpm_map_row_id_mapping_by_time_hostId = """CREATE TABLE IF NOT EXISTS '{tbl}'
+            ( 
+            uid             INTEGER PRIMARY KEY, 
+            simtime         REAL NOT NULL, 
+            host_id         INTEGER NOT NULL, 
+            row_id_start    INTEGER NOT NULL, 
+            row_id_end      INTEGER NOT NULL, 
+            number_of_cells INTEGER NOT NULL 
+            );
+    """.format(
+        tbl=_tbl_name_dpm_map_row_id_mapping_by_time_hostId
+    )
+
+    _tbl_insert_dpm_map_row_id_mapping_by_time_hostId = """INSERT INTO '{tbl}'
+                          (simtime, host_id, row_id_start, row_id_end, number_of_cells) 
+                          VALUES (?, ?, ?, ?, ?);
+    """.format(
+        tbl=_tbl_name_dpm_map_row_id_mapping_by_time_hostId
+    )
+
+    _tbl_create_idx_dpm_map_row_id_mapping_by_time_hostId = """
+        CREATE UNIQUE INDEX IF NOT EXISTS "idx_simtime_host_id_on_dcd_map_row_id_mapping_by_time_hostId" ON "{tbl}" (
+            "simtime"	ASC,
+            "host_id"	ASC
+        );
+    """.format(
+        tbl=_tbl_name_dpm_map_row_id_mapping_by_time_hostId
+    )
+
     @property
     def tbl_metadata(self) -> str:
         return self.cfg.tbl_metadata
@@ -124,7 +175,7 @@ class DpmmSql:
         ]
         with self.con() as c:
             for s in index_sql:
-                logger.debug(f"execute: {s}")
+                logger.info(f"execute: {s}")
                 ret = c.execute(s).fetchall()
 
     def chunk_query(
@@ -151,13 +202,13 @@ class DpmmSql:
 
             for chunk in chunk_provider:
                 ts = it.default_timer()
-                logger.debug(f"run query with chunk values: {chunk}")
+                logger.info(f"run query with chunk values: {chunk}")
                 sql_str = sql_template.format(*chunk.args)
                 # sql_str = sql_template.format(0, 5)
                 # print(sql_str)
                 df = pd.read_sql_query(sql_str, _con)
                 s1 = sys.getsizeof(df) / 1e6
-                logger.debug(
+                logger.info(
                     f"query took {it.default_timer() - ts:2,.2f} seconds to load {df.shape[0]} rows with {s1:,.2f}MB"
                 )
                 yield df, chunk
@@ -210,6 +261,49 @@ class DpmmSql:
             df = _apply_real_coords(df, meta)
         return df.reset_index()
 
+    def get_max_simtime(self) -> int:
+        """Get maximum simtime based on dcd_map_glb table"""
+
+        _sql = """select max(d.simtime) from dcd_map_glb as d;"""
+        max_time = self.query(_sql, type="df").values[0][0]
+        return max_time
+
+    def has_complete_dcd_map_cache(self) -> bool:
+        """Check if both tables 'dpm_map_row_id_mapping_by_time' and 'dpm_map_row_id_mapping_by_time_hostId' exist and have values until max_simtime. Method will raise error if tables are inconsistent."""
+        _sql_has_tbl = """
+            SELECT name 
+            FROM sqlite_master 
+            WHERE type='table' AND name='{tbl}';
+        """
+
+        cache_time_missing = self.query(
+            _sql_has_tbl.format(tbl=self._tbl_name_dpm_map_row_id_mapping_by_time)
+        ).empty
+        cache_time_host_id_missing = self.query(
+            _sql_has_tbl.format(
+                tbl=self._tbl_name_dpm_map_row_id_mapping_by_time_hostId
+            )
+        ).empty
+
+        if cache_time_missing or cache_time_host_id_missing:
+            # cache not complete
+            return False
+
+        max_time_glb = self.get_max_simtime()
+        _, max_time = self.get_last_processed_uid_of_row_mapping_cache()
+
+        return max_time_glb == max_time
+
+    def create_row_cache_tables_if_missing(self):
+        """Create row id mapping cache tables with all needed indices. Is a NOOP if tables or index exists."""
+
+        with self.con() as _con:
+            # ensure tables exist.
+            _con.execute(self._tbl_create_dpm_map_row_id_mapping_by_time_hostId)
+            _con.execute(self._tbl_create_dpm_map_row_id_mapping_by_time)
+            _con.execute(self._tbl_create_idx_dpm_map_row_id_mapping_by_time_hostId)
+            _con.commit()
+
     @contextlib.contextmanager
     def con(self):
         if not os.path.exists(self.path):
@@ -229,81 +323,68 @@ class DpmmSql:
             else:
                 raise RuntimeError("Expected df or cursor as type")
 
-    def create_cell_count_by_host_id_over_time_if_missing(self):
-        _sql = """CREATE TABLE IF NOT EXISTS
-                        cell_count_by_host_id_over_time as
-                    SELECT 
-                        m.simtime, m.hostId, count(m.count) as 'numberOfCells'
-                    FROM 
-                        dcd_map as m 
-                    GROUP BY 
-                        m.simtime, m.hostId
-                    ORDER BY 
-                        m.simtime asc;
-                """
-        with self.con() as _con:
-            _con.execute(_sql)
-            _con.commit()
+    def get_last_processed_uid_of_row_mapping_cache(self) -> Tuple[int, int]:
+        """Returns largest row_id and the associated simtime found in both row_mapping_cache tables.
 
-    _tbl_dpm_map_row_id_mapping_by_time = """CREATE TABLE IF NOT EXISTS 'dcd_map_row_id_mapping_by_time'
-            ( 
-            uid             INTEGER PRIMARY KEY, 
-            simtime         REAL NOT NULL, 
-            row_id_start    INTEGER NOT NULL, 
-            row_id_end      INTEGER NOT NULL
-            );
-    """
-    _tbl_dpm_map_row_id_mapping_by_time_insert = """INSERT INTO 'dcd_map_row_id_mapping_by_time'
-                          (simtime, row_id_start, row_id_end) 
-                          VALUES (?, ?, ?);
-    """
+        The row_id and time are equal in both tables. If not the tables are in an inconsistent state!
+        """
 
-    _tbl_dpm_map_row_id_mapping_by_time_hostId = """CREATE TABLE IF NOT EXISTS 'dcd_map_row_id_mapping_by_time_hostId'
-            ( 
-            uid             INTEGER PRIMARY KEY, 
-            simtime         REAL NOT NULL, 
-            host_id         INTEGER NOT NULL, 
-            row_id_start    INTEGER NOT NULL, 
-            row_id_end      INTEGER NOT NULL, 
-            number_of_cells INTEGER NOT NULL 
-            );
-    """
-    _tbl_dpm_map_row_id_mapping_by_time_hostId_insert = """INSERT INTO 'dcd_map_row_id_mapping_by_time_hostId'
-                          (simtime, host_id, row_id_start, row_id_end, number_of_cells) 
-                          VALUES (?, ?, ?, ?, ?);
-    """
-
-    def get_last_processed_uid_of_row_mapping_cache(self):
-        _s1 = "select max(t.row_id_end) from dcd_map_row_id_mapping_by_time as t;"
-        _s2 = (
-            "select max(t.row_id_end) from dcd_map_row_id_mapping_by_time_hostId as t;"
-        )
+        _sql_max_time = """select max(t.simtime) from {tbl} as t"""
+        _sql_max_row_id = """select max(t.row_id_end) from {tbl} as t"""
 
         try:
-            max_s1 = self.query(_s1, type="df").values[0][0]
-            if max_s1 is None:
-                max_s1 = 0
+            max_row_s1 = self.query(
+                sql_str=_sql_max_row_id.format(
+                    tbl=self._tbl_name_dpm_map_row_id_mapping_by_time
+                ),
+                type="df",
+            ).values[0][0]
+            max_time_s1 = self.query(
+                sql_str=_sql_max_time.format(
+                    tbl=self._tbl_name_dpm_map_row_id_mapping_by_time
+                ),
+                type="df",
+            ).values[0][0]
+
+            if max_row_s1 is None:
+                max_row_s1 = 0
         except Exception:
-            return 0
+            return 0, 0.0
 
         try:
-            max_s2 = self.query(_s2, type="df").values[0][0]
-            if max_s2 is None:
-                max_s2 = 0
+            max_row_s2 = self.query(
+                sql_str=_sql_max_row_id.format(
+                    tbl=self._tbl_name_dpm_map_row_id_mapping_by_time_hostId
+                ),
+                type="df",
+            ).values[0][0]
+            max_time_s2 = self.query(
+                sql_str=_sql_max_time.format(
+                    tbl=self._tbl_name_dpm_map_row_id_mapping_by_time_hostId
+                ),
+                type="df",
+            ).values[0][0]
+            if max_row_s2 is None:
+                max_row_s2 = 0
         except Exception:
-            return 0
+            return 0, 0.0
 
-        if max_s1 != max_s2:
+        if max_row_s1 != max_row_s2:
             raise ValueError(
-                f"Inconsistency found in row_id_mapping tables. found max uid of {max_s1} in"
-                f"dcd_map_row_id_mapping_by_time_hostId and {max_s2} dcd_map_row_id_mapping_by_time_hostId. Should be equal!"
+                f"Inconsistency found in row_id_mapping tables. found max uid of {max_row_s1} in"
+                f"dcd_map_row_id_mapping_by_time_hostId and {max_row_s2} dcd_map_row_id_mapping_by_time_hostId. Should be equal!"
+            )
+        if max_time_s1 != max_time_s2:
+            raise ValueError(
+                f"Inconsistency found in row_id_mapping tables. found max time of {max_time_s1} in"
+                f"{self._tbl_name_dpm_map_row_id_mapping_by_time} and time {max_time_s2} {self._tbl_name_dpm_map_row_id_mapping_by_time_hostId}. Should be equal!"
             )
 
-        return max_s1
+        return max_row_s1, max_time_s1
 
     @timing
     def create_dcd_map_row_mapping_cache(
-        self, chunk_size: int = 1_000_000, offset: int = 0
+        self, chunk_size: int = 1_000_000, initial_offset: int = 0
     ):
         """Generates two new tables, if missing, which contain a time and a time/host_id based row_id cache
         of the dcd_map table. The columns `row_id_start` and `row_id_end` are inclusive bounds and provide a
@@ -327,31 +408,35 @@ class DpmmSql:
             ValueError: _description_
         """
 
-        _sql = "select d.uid, d.simtime, d.hostId, d.x , d.y from dcd_map as d limit {limit} offset {offset};"
+        _sql = "select d.uid, d.simtime, d.hostId, d.x , d.y from dcd_map as d where d.uid > {lower_bound} and d.uid <= {upper_bound}"
 
         chunks = []
         time_first = -1
         time_last = -1
         load_next = True
+        lower_bound = initial_offset
+        upper_bound = lower_bound + chunk_size
+
+        self.create_row_cache_tables_if_missing()
         with self.con() as _con:
-            # ensure tables exist.
-            _con.execute(self._tbl_dpm_map_row_id_mapping_by_time_hostId)
-            _con.execute(self._tbl_dpm_map_row_id_mapping_by_time)
-            _con.commit()
             num_chunks = 0
             while load_next:
                 # todo pragma
                 ts = it.default_timer()
                 num_chunks += 1
-                sql = _sql.format(_sql, limit=chunk_size, offset=offset)
-                data = pd.read_sql_query(sql, _con)
-                logger.debug(
-                    f"{num_chunks}/? query chunk with {chunk_size:,d} with offset {offset:,d} took {it.default_timer() - ts:2,.2f}s"
+                sql = _sql.format(
+                    _sql, lower_bound=lower_bound, upper_bound=upper_bound
                 )
-                offset += chunk_size
+                data = pd.read_sql_query(sql, _con)
+                logger.info(
+                    f"{num_chunks}/? query uid(ROW_ID interval) {lower_bound:,d} < ROWID <= {upper_bound:,d}  chunk_size={upper_bound - lower_bound:,d} took {it.default_timer() - ts:2,.2f}s"
+                )
+                lower_bound = upper_bound
+                upper_bound = lower_bound + chunk_size
+
                 if data.empty:
                     # reached end of table stop processing
-                    logger.debug(f"reached end of table stop after {num_chunks}")
+                    logger.info(f"reached end of table stop after {num_chunks}")
                     load_next = False
                     if len(chunks) == 0:
                         # in case  no chunks are left do not process further
@@ -364,7 +449,7 @@ class DpmmSql:
                     chunks.append(data)
 
                 if time_first != time_last or load_next is False:
-                    logger.debug(f"{num_chunks}/? Process loaded chunk(s).")
+                    logger.info(f"{num_chunks}/? Process loaded chunk(s).")
                     # found more than one time process time
                     # keep last time out of processing as it might not be
                     if len(chunks) == 1:
@@ -387,14 +472,14 @@ class DpmmSql:
                             raise ValueError(
                                 f"Rest chunk must be one time only!. Got {time_first} and {time_last}"
                             )
-                        logger.debug(
+                        logger.info(
                             f"Add rest chunk back to chunk with {rest_chunk.shape[0]:,d} rows back to list of chunks. New start time time is {time_first}"
                         )
                         chunks.append(rest_chunk)
                 else:
                     # Chunk does not contain all data for one time.
                     # Keep pulling data.
-                    logger.debug(
+                    logger.info(
                         f"{num_chunks}/? loaded chunk(s) contains only one time value. Pull next chunk to check if there are more lines for that time value."
                     )
                     pass
@@ -419,7 +504,7 @@ class DpmmSql:
         else:
             rest_chunk = None
 
-        logger.debug(
+        logger.info(
             f"process {processed_chunk_rows:,d}/{all_rows:,d} rows. Keep {rest_chunk_rows:,d} rows of time {time_last}"
         )
         mapping_by_time = (
@@ -437,27 +522,26 @@ class DpmmSql:
                 axis=1,
             )
         )
-        logger.debug(
-            f"save {mapping_by_time.shape[0]:,d} rows in mapping_by_time table"
-        )
+        logger.info(f"save {mapping_by_time.shape[0]:,d} rows in mapping_by_time table")
         connection.executemany(
-            self._tbl_dpm_map_row_id_mapping_by_time_insert, mapping_by_time.values
+            self._tbl_insert_dpm_map_row_id_mapping_by_time, mapping_by_time.values
         )
-        logger.debug(
+        logger.info(
             f"save {mapping_by_time_host_id.shape[0]:,d} rows in mapping_by_time_host_id table"
         )
         connection.executemany(
-            self._tbl_dpm_map_row_id_mapping_by_time_hostId_insert,
+            self._tbl_insert_dpm_map_row_id_mapping_by_time_hostId,
             mapping_by_time_host_id.values,
         )
         connection.commit()
         return rest_chunk
 
     def get_cell_count_by_host_id_over_time(self, sql_str=None) -> pd.DataFrame:
-        """Return frame with [simtime, hostId, numberOfCells]"""
+        """Return frame with [simtime, hostId, numberOfCells]
 
-        # table 'cell_count_by_host_id_over_time' is deprecated. Use  'dcd_map_row_id_mapping_by_time_hostId' instead
-        # _sql = "select * from cell_count_by_host_id_over_time as t"
+        numberOfCells is the total size of map each 'hostId' sees at each 'simtime'
+        """
+
         _sql = "select t.simtime, t.host_id as 'hostId', t.number_of_cells as 'numberOfCells' from dcd_map_row_id_mapping_by_time_hostId as t"
         if sql_str is None:
             _sql = _sql
