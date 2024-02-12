@@ -269,13 +269,26 @@ class BaseHdfProvider:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
 
-    def list_attributes(
-        self,
-    ):
-        groups = self.get_groups()
-        for g in groups:
-            with self.tables_file(self._hdf_path, "r") as hdf_file:
-                print("hi`")
+    def list_attributes(self, group, ignore_private: bool = True):
+        g = group
+        ret = {}
+        with self.tables_file(self._hdf_path, "r") as hdf_file:
+            path_items = g.split("/")
+            _dir = hdf_file.root
+            for _p in path_items:
+                if _p in _dir:
+                    _dir = _dir[_p]
+                else:
+                    raise ValueError(f"Group {g} not found")
+            attr = _dir.table.attrs
+            attr_keys = attr._f_list()
+            for k in attr_keys:
+                if ignore_private and k.startswith("_"):
+                    continue
+                else:
+                    ret[k] = attr[k]
+
+        return ret
 
     def get_attribute(
         self,
