@@ -15,6 +15,7 @@ from crownetutils.analysis.hdf.provider import (
     HdfGroupDataFactory,
     HdfGroupFactory,
 )
+from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
 from crownetutils.omnetpp.scave import CrownetSql
 from crownetutils.utils.colors import get_color_map
 from crownetutils.utils.dataframe import (
@@ -22,7 +23,7 @@ from crownetutils.utils.dataframe import (
     index_or_col,
     merge_on_interval,
 )
-from crownetutils.utils.logging import logger
+from crownetutils.utils.logging import LogWriter, logger
 from crownetutils.utils.misc import Project
 
 
@@ -149,34 +150,28 @@ class NodePositionWithRsdHdf:
         sim,
         hdf_path,
         base_epsg: str = "EPSG:3857",
-        static_nods: str = "misc",
+        static_nodes: str = "misc",
         override_existing: bool = True,
     ) -> NodePositionWithRsdHdf:
-        obj: NodePositionWithRsdHdf = cls(sim, hdf_path, base_epsg, static_nods)
-        same = True
+        obj: NodePositionWithRsdHdf = cls(sim, hdf_path, base_epsg, static_nodes)
+
         if os.path.exists(hdf_path):
-            # check if file is consitent with paramters
-            for g in obj.groups:
-                if not obj.ue.contains_group(g):
-                    same = False
-                    break
-                for now, in_file in [
-                    (obj.static_nodes, "static_node"),
-                    (obj.base_epsg, "base_epsg"),
-                ]:
-                    # use ue here but all groups are in same hdf file.
-                    if now != obj.ue.get_attribute(
-                        attr_key=in_file, group=g, default=""
-                    ):
-                        same = False
-                        break
-            if same:
+            # check if file is consistent with parameters
+            expected_content = ExpectedHdfContent().add_groups(
+                groups=obj.groups, base_epsg=base_epsg, static_node=static_nodes
+            )
+            is_content_as_expected, diff = expected_content.test_hdf(
+                BaseHdfProvider(hdf_path)
+            )
+
+            if is_content_as_expected:
                 # hdf file exists and contains all data with same parameters
                 logger.info(
-                    f"found existing {cls.__name__} file with match parameter setup. No build required."
+                    f"found existing {cls.__name__} file with matching parameter setup. No build required."
                 )
-                ret = obj
             else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"{cls.__name__}:")
                 if override_existing is False:
                     raise ValueError(
                         f"File {hdf_path} already exists but parameter settings mismatch and override is false"
@@ -187,33 +182,10 @@ class NodePositionWithRsdHdf:
                     )
                     os.remove(hdf_path)
                     obj._build_hdf()
-                    ret = obj
         else:
             logger.info("no existing hdf file found. Build hdf...")
             obj._build_hdf()
-            ret = obj
 
-        return ret
-
-    @classmethod
-    def create_new(
-        cls,
-        sim,
-        hdf_path,
-        base_epsg: str = "EPSG:3857",
-        static_nods: str = "misc",
-        override_existing: bool = True,
-    ):
-        if os.path.exists(hdf_path):
-            if override_existing is False:
-                raise ValueError(
-                    f"File {hdf_path} already exists but override is false"
-                )
-            else:
-                os.remove(hdf_path)
-
-        obj = cls(sim, hdf_path, base_epsg, static_nods)
-        obj._build_hdf()
         return obj
 
     @property

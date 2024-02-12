@@ -8,10 +8,11 @@ import numpy as np
 import pandas as pd
 
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
 from crownetutils.analysis.hdf_providers.node_position import NodePositionWithRsdHdf
 from crownetutils.analysis.hdf_providers.sql_app_proxy import SqlAppProxy
 from crownetutils.analysis.omnetpp import OppAnalysis
-from crownetutils.utils.logging import logger
+from crownetutils.utils.logging import LogWriter, logger
 from crownetutils.utils.misc import Timer
 
 
@@ -25,12 +26,15 @@ class NodeTxData:
         self,
         hdf_path: str,
         apps: List[SqlAppProxy],
-        with_max_app_bandwdith: bool = True,
     ) -> None:
         self.apps: List[SqlAppProxy] = apps
         self.hdf_path = hdf_path
         self._hdf: BaseHdfProvider = None
-        self.with_max_app_bandwidth = with_max_app_bandwdith
+
+        self.groups = []
+        for app in self.apps:
+            for base_g in self.base_groups:
+                self.groups.append(self.g(app, path=base_g))
 
     def g(self, app: str | SqlAppProxy, path: str) -> str:
         if isinstance(app, SqlAppProxy):
@@ -289,17 +293,26 @@ class NodeTxData:
         hdf_path: str,
         apps: List[SqlAppProxy],
         node_pos: NodePositionWithRsdHdf = None,
-        append_max_app_bandwidth: bool = True,
         override_existing: bool = True,
     ) -> NodeTxData:
         obj: NodeTxData = cls(hdf_path, apps)
-        if obj.hdf.hdf_file_exists and obj._check_if_hdf_consistent():
-            logger.info(
-                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+
+        if os.path.exists(hdf_path):
+            expected_content = ExpectedHdfContent().add_groups(
+                groups=obj.groups, **{obj.ATTR_rsd: None, obj.ATTR_max_bw: None}
             )
-            return obj
-        else:
-            if obj.hdf.hdf_file_exists:
+            is_content_as_expected, diff = expected_content.test_hdf(
+                BaseHdfProvider(hdf_path)
+            )
+
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing {cls.__name__} file with matching parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"{cls.__name__}:")
                 if not override_existing:
                     raise ValueError(
                         f"found existing {cls.__name__} file with inconsistent parameters but override_existing is false."
@@ -309,35 +322,17 @@ class NodeTxData:
                         f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
-            else:
-                logger.info(f"no {cls.__name__} file found. Build hdf...")
-            with Timer():
-                obj._build(node_pos=node_pos)
-            return obj
+                    obj._build(node_pos=node_pos)
+        else:
+            logger.info("no existing hdf file found. Build hdf...")
+            obj._build(node_pos=node_pos)
 
-    def _check_if_hdf_consistent(self):
-        if not self.hdf.hdf_file_exists:
-            return False
-        for app in self.apps:
-            for g in self.base_groups:
-                path = app.group_by_app(g)
-                if not self.hdf.contains_group(path):
-                    return False
-                if not self.hdf.get_attribute(
-                    attr_key=self.ATTR_rsd, group=path, default=False
-                ):
-                    return False
-
-                if self.with_max_app_bandwidth and not self.hdf.get_attribute(
-                    attr_key=self.ATTR_max_bw, group=path, default=False
-                ):
-                    return False
-        return True
+        return obj
 
     def _build(self, node_pos: NodePositionWithRsdHdf):
         for app in self.apps:
             max_bw = app.get_max_application_bandwidth_in_bps()
-            if max_bw is None and self.with_max_app_bandwidth:
+            if max_bw is None:
                 raise ValueError(
                     f"NodeTxData is configured to include maxApplicationBandwidth data \
                                  into hdf attributes but application {app} does not provide a \

@@ -16,6 +16,7 @@ from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
 )
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
 from crownetutils.utils.dataframe import FrameConsumer, partial_index_match
 from crownetutils.utils.logging import LogWriter, logger, timing
 
@@ -161,31 +162,34 @@ class CellEntropyValueError:
         builder: CellEntropyValueErrorBuilder | None = None,
         with_rsd: bool = True,
     ) -> CellEntropyValueError:
-        obj: CellEntropyValueError = cls(hdf_path)
-        build_new = False
-        if os.path.exists(hdf_path):
-            for g in obj.groups:
-                h = BaseHdfProvider(hdf_path, group=g)
-                if not h.contains_group(g):
-                    build_new = True
-                    break
-        else:
-            build_new = True
+        if builder is None:
+            builder = CellCountErrorBuilder()
 
-        if build_new:
-            if os.path.exists(hdf_path):
+        obj: CellEntropyValueError = cls(hdf_path)
+        if os.path.exists(hdf_path):
+            time_interval = count_p.get_attribute("time_interval")
+            content = ExpectedHdfContent().add_groups(
+                groups=obj.groups, time_interval=time_interval
+            )
+            is_content_as_expected, diff = content.test_hdf(BaseHdfProvider(hdf_path))
+
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing {cls.__name__} file with match parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"{cls.__name__}:")
                 logger.info(
                     f"Found {cls.__name__} file with mismatching groups. Delete file and recreate."
                 )
                 os.remove(hdf_path)
-            if builder is None:
-                builder = CellCountErrorBuilder()
-            logger.info(f"Create hdf {hdf_path}")
-            obj._create_hdf(count_p, builder, with_rsd)
+                logger.info(f"Create hdf {hdf_path}")
+                obj._create_hdf(count_p, builder, with_rsd)
         else:
-            logger.info(
-                f"found existing {cls.__name__} file with matching parameter setup. No build required."
-            )
+            logger.info("no existing hdf file found. Build hdf...")
+            obj._create_hdf(count_p, builder, with_rsd)
 
         return obj
 
@@ -420,6 +424,16 @@ class CellEntropyValueError:
                     builder=builder,
                 )
 
+        # write time_interval attribute at end of processing. If this is missing the processing was not completed.
+        for _hdf in [
+            self.hdf_cell_entropy_measure,
+            self.hdf_cell_entropy_measure_rsd,
+            self.hdf_cell_entropy_measure_rsd_local,
+        ]:
+            _hdf.set_attribute(
+                attr_key="time_interval", value=time_interval, group=_hdf.group
+            )
+
         self.hdf_cell_entropy_measure.repack_hdf(keep_old_file=False)
 
 
@@ -486,6 +500,8 @@ class CellCountError:
     g_error_cell_rsd_local = "local_cell_measure_by_rsd"
     g_error_cell_rsd_all = "cell_measure_by_rsd"
 
+    groups = [g_error_cell_all, g_error_cell_rsd_all, g_error_cell_rsd_local]
+
     def __init__(self, hdf_path) -> None:
         self.hdf_path = hdf_path
 
@@ -510,32 +526,31 @@ class CellCountError:
         with_rsd: bool = True,
     ) -> CellCountError:
         obj: CellCountError = cls(hdf_path)
-        build_new = False
+
         if os.path.exists(hdf_path):
-            for g in [
-                obj.g_error_cell_all,
-                obj.g_error_cell_rsd_all,
-                obj.g_error_cell_rsd_local,
-            ]:
-                h = BaseHdfProvider(hdf_path, group=g)
-                if not h.contains_group(g):
-                    build_new = True
-                    break
-        else:
-            build_new = True
-
-        if build_new:
-            if os.path.exists(hdf_path):
-                os.remove(hdf_path)
-            if builder is None:
-                builder = CellCountErrorBuilder()
-            obj._create_hdf(count_p, builder, with_rsd)
-        else:
-            logger.info(
-                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+            time_interval = count_p.get_attribute("time_interval")
+            content = ExpectedHdfContent().add_groups(
+                groups=obj.groups, time_interval=time_interval
             )
+            is_content_as_expected, diff = content.test_hdf(BaseHdfProvider(hdf_path))
 
-        return obj
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing {cls.__name__} file with match parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"{cls.__name__}:")
+                logger.info(
+                    f"Found {cls.__name__} file with mismatching groups. Delete file and recreate."
+                )
+                os.remove(hdf_path)
+                logger.info(f"Create hdf {hdf_path}")
+                obj._create_hdf(count_p, builder, with_rsd)
+        else:
+            logger.info("no existing hdf file found. Build hdf...")
+            obj._create_hdf(count_p, builder, with_rsd)
 
     @property
     def hdf_cell_measure(self) -> BaseHdfProvider:
@@ -813,6 +828,16 @@ class CellCountError:
                     builder=builder,
                 )
 
+        # write time_interval attribute at end of processing. If this is missing the processing was not completed.
+        for _hdf in [
+            self.hdf_cell_measure,
+            self.hdf_cell_measure_rsd,
+            self.hdf_cell_measure_rsd_local,
+        ]:
+            _hdf.set_attribute(
+                attr_key="time_interval", value=time_interval, group=_hdf.group
+            )
+
         self.hdf_cell_measure.repack_hdf(
             keep_old_file=False
         )  # same file only repack once
@@ -831,6 +856,8 @@ class MapCountError:
     g_error_count_all = "map_measure"
     g_error_count_rsd_local = "local_map_measure_by_rsd"
     g_error_count_rsd_all = "map_measure_by_rsd"
+
+    groups = [g_error_count_all, g_error_count_rsd_all, g_error_count_rsd_local]
 
     def __init__(self, hdf_path) -> None:
         self.hdf_path = hdf_path
@@ -857,28 +884,31 @@ class MapCountError:
         with_rsd: bool = True,
     ):
         obj: MapCountError = cls(hdf_path)
-        build_new = False
-        if os.path.exists(hdf_path):
-            for g in [
-                obj.g_error_count_all,
-                obj.g_error_count_rsd_all,
-                obj.g_error_count_rsd_local,
-            ]:
-                h = BaseHdfProvider(hdf_path, group=g)
-                if not h.contains_group(g):
-                    build_new = True
-                    break
-        else:
-            build_new = True
 
-        if build_new:
-            if os.path.exists(hdf_path):
-                os.remove(hdf_path)
-            obj._create_count_error_hdf(map_p, glb_pos, with_rsd, rsd_p)
-        else:
-            logger.info(
-                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+        if os.path.exists(hdf_path):
+            time_interval = map_p.get_attribute("time_interval")
+            content = ExpectedHdfContent().add_groups(
+                groups=obj.groups, time_interval=time_interval
             )
+            is_content_as_expected, diff = content.test_hdf(BaseHdfProvider(hdf_path))
+
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing {cls.__name__} file with match parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"{cls.__name__}:")
+                logger.info(
+                    f"Found {cls.__name__} file with mismatching groups. Delete file and recreate."
+                )
+                os.remove(hdf_path)
+                logger.info(f"Create hdf {hdf_path}")
+                obj._create_count_error_hdf(map_p, glb_pos, with_rsd, rsd_p)
+        else:
+            logger.info("no existing hdf file found. Build hdf...")
+            obj._create_count_error_hdf(map_p, glb_pos, with_rsd, rsd_p)
 
         return obj
 
@@ -1063,6 +1093,16 @@ class MapCountError:
                 _glb_all = glb_all.loc[t_min:t_max]
                 _glb_rsd = glb_rsd.loc[pd.IndexSlice[:, t_min:t_max], :]
             self._aggregate_time_chunk(_glb_all, _glb_rsd, data, rsd_list=rsd_list)
+
+        # write time_interval attribute at end of processing. If this is missing the processing was not completed.
+        for _hdf in [
+            self.hdf_map_measure,
+            self.hdf_map_measure_rsd,
+            self.hdf_map_measure_rsd_local,
+        ]:
+            _hdf.set_attribute(
+                attr_key="time_interval", value=time_interval, group=_hdf.group
+            )
 
         self.hdf_map_measure.repack_hdf(keep_old_file=False)  # same file only once.
 

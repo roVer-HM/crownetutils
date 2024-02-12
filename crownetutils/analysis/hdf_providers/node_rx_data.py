@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
 from crownetutils.analysis.hdf_providers.node_position import NodePositionWithRsdHdf
 from crownetutils.analysis.hdf_providers.sql_app_proxy import SqlAppProxy
-from crownetutils.utils.logging import logger, timing
+from crownetutils.utils.logging import LogWriter, logger, timing
 from crownetutils.utils.misc import Timer
 
 
@@ -28,6 +29,10 @@ class NodeRxData:
         self.apps: List[SqlAppProxy] = apps
         self.node_pos = node_pos
         self._hdf: BaseHdfProvider | None = None
+        self.groups = []
+        for app in self.apps:
+            for base_g in self.base_groups:
+                self.groups.append(self.g(app, path=base_g))
 
     @classmethod
     def get_or_create(
@@ -38,13 +43,21 @@ class NodeRxData:
         override_existing: bool = True,
     ) -> NodeRxData:
         obj: NodeRxData = cls(hdf_path, apps, node_pos)
-        if obj.hdf.hdf_file_exists and obj._check_hdf_consistency():
-            logger.info(
-                f"found existing {cls.__name__} file with matching parameter setup. No build required."
+
+        if os.path.exists(hdf_path):
+            expected_content = ExpectedHdfContent().add_groups(groups=obj.groups)
+            is_content_as_expected, diff = expected_content.test_hdf(
+                BaseHdfProvider(hdf_path)
             )
-            return obj
-        else:
-            if obj.hdf.hdf_file_exists:
+
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing {cls.__name__} file with matching parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"{cls.__name__}:")
                 if not override_existing:
                     raise ValueError(
                         f"found existing {cls.__name__} file with inconsistent parameters but override_existing is false."
@@ -54,11 +67,13 @@ class NodeRxData:
                         f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
-            else:
-                logger.info(f"no {cls.__name__} file found. Build hdf...")
-            with Timer():
-                obj._build()
-            return obj
+                    obj._build()
+
+        else:
+            logger.info("no existing hdf file found. Build hdf...")
+            obj._build()
+
+        return obj
 
     @property
     def hdf(self) -> BaseHdfProvider:
@@ -99,17 +114,7 @@ class NodeRxData:
         ret = pd.concat(ret, axis=0, verify_integrity=False)
         return ret
 
-    def _check_hdf_consistency(self) -> bool:
-        if not self.hdf.hdf_file_exists:
-            return False
-        for app in self.apps:
-            for g in self.base_groups:
-                if not self.hdf.contains_group(app.group_by_app(g)):
-                    return False
-                # if not self.hdf.has_attribute("app_ids", group=app.group_by_app(g)):
-                #     return False
-        return True
-
+    @timing
     def _build(self):
         app_names = [app.name for app in self.apps]
         app_names.sort()

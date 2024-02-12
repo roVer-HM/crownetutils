@@ -32,9 +32,10 @@ from crownetutils.analysis.dpmm.imputation import (
 )
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.hdf.provider import BaseHdfProvider, ProviderVersion
+from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
 from crownetutils.omnetpp.scave import CrownetSql
 from crownetutils.utils.dataframe import FrameConsumer
-from crownetutils.utils.logging import logger, logging, timing
+from crownetutils.utils.logging import LogWriter, logger, logging, timing
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 
@@ -212,12 +213,53 @@ class DpmmHdfBuilder(FrameConsumer):
         override_hdf=False,
         repack_on_build: bool = True,
     ) -> DpmmProviders:
-        if not self.hdf_exist or override_hdf:
-            try:
-                os.remove(self.hdf_path)
-                pass
-            except FileNotFoundError:
-                pass
+        build_map = False
+        if self.hdf_exist:
+            # check import markers to ensure, that the file was completely build last time
+            # Note that setting attributes is the last step in the process. So if they are present all should be good.
+            expected_content = ExpectedHdfContent().add_groups(
+                groups=[
+                    self.position_p.group,
+                    self.global_p.group,
+                    self.map_p.group,
+                    self.count_p.group,
+                ],
+                cell_size=None,
+                cell_count=None,
+                cell_bound=None,
+                sim_bbox=None,
+                offset=None,
+                epsg=None,
+                version=None,
+                time_interval=None,
+            )
+            is_content_as_expected, diff = expected_content.test_hdf(
+                BaseHdfProvider(self.hdf_path)
+            )
+
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing Map HDF file with match parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"Map HDF File:")
+                if not override_hdf:
+                    raise ValueError(
+                        f"found existing Map HDF file with inconsistent parameters but override_existing is false."
+                    )
+                else:
+                    logger.info(
+                        f"found existing Map HDF file with inconsistent parameter  and override_hdf=True. Delete old file and build new one."
+                    )
+                    os.remove(self.hdf_path)
+                    build_map = True
+        else:
+            logger.info("no existing hdf file found. Build hdf...")
+            build_map = True
+
+        if build_map:
             print(f"create HDF {self.hdf_path}")
             # append filters before processing
             self.map_p.csv_filters.extend(self.single_df_filters)
