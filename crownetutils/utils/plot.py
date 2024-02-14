@@ -79,15 +79,37 @@ def percentile(n: int) -> Callable[[Any], Any]:
     return percentile_
 
 
+def mult_percentile(*arg) -> Callable[[Any], Any]:
+    """Function to generate a numpy based percentile function
+
+    Args:
+        n (int): Percentile to compute, which must be between 0 and 100 inclusive.
+    Returns:
+        Callable[[Any], Any]: Function that compute the n-th percentile of the provided data.
+    """
+
+    def percentile_(x):
+        if not x.empty:
+            r = np.percentile(x, arg)
+            ret = {f"p{i}": val for i, val in zip(arg, r)}
+            return ret
+        else:
+            return np.nan
+
+    percentile_.__name__ = f"p_mult"
+    return percentile_
+
+
 def calc_box_stats() -> Callable[[Any], Any]:
     def _calc_box_stats(x, **kwargs):
         if x.empty:
             return np.nan
 
         _x: pd.Series = x.sort_values().values
-        q1 = np.percentile(_x, 25)
-        q2 = np.percentile(_x, 50)
-        q3 = np.percentile(_x, 75)
+        q = np.percentile(_x, [25, 50, 75])  # faster only needs to sort once
+        q1 = q[0]
+        q2 = q[1]
+        q3 = q[2]
 
         outliers = []
         iqr = q3 - q1
