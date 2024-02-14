@@ -90,11 +90,20 @@ class HdfGroupFactory:
         )
 
 
+class HdfInconsistentState(ValueError):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
 class BaseHdfProvider:
     def __init__(
-        self, hdf_path: str, group: str = "root", allow_lazy_loading: bool = False
+        self,
+        hdf_path: str,
+        group: str = "root",
+        allow_lazy_loading: bool = False,
+        shared_loc: threading.Lock = None,
     ):
-        self._lock = threading.Lock()
+        self._lock = threading.Lock() if shared_loc is None else shared_loc
         self.group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "blosc"}
@@ -118,6 +127,25 @@ class BaseHdfProvider:
                 logger.info("repack hdf file to free space.")
                 self.repack_hdf(keep_old_file=False)
         return self
+
+    def created_shared_provider(self, group: str) -> BaseHdfProvider:
+        """Create a new BaseHdfProvider instance pointing to the same file and base configs but with other selected group.
+
+        The created provider shares the same thread lock to access the file
+
+        Args:
+            group (str): new group name
+
+        Returns:
+            BaseHdfProvider:
+
+        """
+        return BaseHdfProvider(
+            hdf_path=self._hdf_path,
+            group=group,
+            allow_lazy_loading=self._lazy_loading,
+            shared_loc=self._lock,
+        )
 
     @property
     def lazy_loading(self) -> bool:

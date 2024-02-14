@@ -5,8 +5,11 @@ import os
 import sqlite3 as sq
 import sys
 import timeit as it
+from dataclasses import dataclass
+from io import StringIO
 from typing import List, Tuple
 
+import numpy as np
 import pandas as pd
 
 from crownetutils.analysis.dpmm.csv_loader import _apply_real_coords
@@ -23,7 +26,7 @@ class TimeChunks:
         self.chunks = []
         _s = start
         while _s < end:
-            self.chunks.append(Chunk(name, _s, _s + size))
+            self.chunks.append(TimeChunk(name, _s, _s + size))
             _s += size
 
     def __len__(self):
@@ -33,13 +36,34 @@ class TimeChunks:
         return iter(self.chunks)
 
 
-class Chunk:
+class TimeChunk:
     def __init__(self, name, *args) -> None:
         self.name = name
         self.args = args
 
     def __str__(self) -> str:
         return f"{self.name} chunk with args: {self.args}"
+
+
+@dataclass
+class RowIdChunk:
+    time_interval: pd.Interval
+    row_start: int
+    row_end: int
+
+    def num_rows(self) -> int:
+        return self.row_end - self.row_start + 1
+
+    def info_str(self) -> str:
+        return f"Interval {self.time_interval.left} <= t < {self.time_interval.right} with {self.num_rows():,d} rows {self.row_start:,d} <= row_id <= {self.row_end:,d}."
+
+    @property
+    def args_time(self):
+        return [self.time_interval.left, self.time_interval.right]
+
+    @property
+    def args_row(self):
+        return [self.row_start, self.row_end]
 
 
 class DpmmSql:
@@ -535,6 +559,58 @@ class DpmmSql:
         )
         connection.commit()
         return rest_chunk
+
+    def get_dcd_map_row_id_cache(self):
+        _sql = """select 
+                        t.simtime, t.row_id_start, t.row_id_end, t.row_id_end - row_id_start + 1 as row_count  
+                    from 
+                        dcd_map_row_id_mapping_by_time as t
+                    order by t.simtime asc
+                    """
+        return self.query(_sql)
+
+    def get_dcd_map_chunked_row_ids(
+        self, time_bin: float, start_time: float = 0.0
+    ) -> List[RowIdChunk]:
+        """Create interval of row_ids based on provided time interval.
+
+        The intervals are left closed and right open  such  that a <= t < b holds with
+        a and b being the  interval bounds. If start_time is negative the data minimum is used.
+
+        """
+        _sql = """select 
+                        t.simtime, t.row_id_start, t.row_id_end
+                    from 
+                        dcd_map_row_id_mapping_by_time as t
+                    order by t.simtime asc
+                    """
+        cache = self.query(_sql)
+        if start_time < 0:
+            start_time = cache["simtime"].min()
+        bins = pd.interval_range(
+            start=start_time,
+            end=cache["simtime"].max() + time_bin,
+            freq=time_bin,
+            closed="left",
+        )
+        cache["time_chunk"] = pd.cut(cache["simtime"], bins=bins)
+        cache = cache.sort_values("simtime")
+
+        bin_max = cache.groupby("time_chunk")["simtime"].idxmax().values
+        bin_min = cache.groupby("time_chunk")["simtime"].idxmin().values
+        row_cache = pd.concat(
+            [
+                cache.iloc[bin_min][["time_chunk", "row_id_start"]].set_index(
+                    "time_chunk"
+                ),
+                cache.iloc[bin_max][["time_chunk", "row_id_end"]].set_index(
+                    "time_chunk"
+                ),
+            ],
+            axis=1,
+        )
+        row_cache = [RowIdChunk(*row) for row in row_cache.reset_index().values]
+        return row_cache
 
     def get_cell_count_by_host_id_over_time(self, sql_str=None) -> pd.DataFrame:
         """Return frame with [simtime, hostId, numberOfCells]
