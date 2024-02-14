@@ -526,6 +526,8 @@ class CellCountError:
         with_rsd: bool = True,
     ) -> CellCountError:
         obj: CellCountError = cls(hdf_path)
+        if builder is None:
+            builder = CellCountErrorBuilder()  # default values
 
         if os.path.exists(hdf_path):
             time_interval = count_p.get_attribute("time_interval")
