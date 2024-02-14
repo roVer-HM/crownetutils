@@ -97,7 +97,7 @@ class ExpectedHdfContent:
         for g in diff.groups:
             if not hdf.contains_group(g.group_name):
                 is_same = False
-                diff.set_group_missing()
+                g.set_group_missing()
             else:
                 for attr, val in g.attributes.items():
                     if not hdf.has_attribute(attr_key=attr, group=g.group_name):
