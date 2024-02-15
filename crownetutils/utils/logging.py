@@ -45,6 +45,7 @@ logger.setLevel(logging.INFO)
 def set_level(lvl):
     for h in logger.handlers:
         h.setLevel(lvl)
+    logger.setLevel(lvl)
 
 
 def set_format(f):
