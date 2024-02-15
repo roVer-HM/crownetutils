@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from functools import partial
 from glob import escape
-from typing import Any, Callable, List, Literal, Protocol
+from typing import Any, Callable, Iterable, List, Literal, Protocol
 
 import numpy as np
 import pandas as pd
@@ -439,3 +439,48 @@ def assert_frame_structure(
             raise DataFrameStructureError(
                 f"expected columns '{column_names}' got '{list(df.columns.values)}' msg: {msg}"
             )
+
+
+def flatten_record_column(
+    data: pd.DataFrame | pd.Series,
+    cols: str | None | Iterable = None,
+    replace_columns: bool = True,
+) -> pd.DataFrame:
+    """Split column/series of dictionary records in separate columns. If data is a frame and replace_column is true,
+    than the original column is remove from th frame.
+
+    Args:
+        data (pd.DataFrame | pd.Series): Data containing a series/column/list of records.
+        col (str | None): Column to use if data is a frame
+        replace_column (bool, optional): If true the `col` is removed from the frame. Defaults to True.
+
+    Raises:
+        ValueError: data is not a Frame/Series or list of records.
+
+    Returns:
+        pd.DataFrame: Flattened frame
+    """
+    if isinstance(data, pd.Series):
+        ret = pd.DataFrame.from_records(data.values, index=data.index)
+    elif isinstance(data, pd.DataFrame):
+        if cols is None:
+            raise ValueError("Data is a frame. `col` is needed in this case")
+        elif isinstance(cols, str):
+            cols = [cols]
+
+        ret = [data]
+        try:
+            for c in cols:
+                ret.append(pd.DataFrame.from_records(data[c].values, index=data.index))
+        except TypeError as e:
+            raise ValueError("col must be a string or iterable if data is a frame.", e)
+
+        ret = pd.concat(ret, axis=1)
+
+        if replace_columns:
+            ret = ret.drop(columns=cols)
+
+    else:
+        ret = pd.DataFrame.from_records(data)
+
+    return ret

@@ -6,12 +6,12 @@ from typing import Any, List
 import numpy as np
 import pandas as pd
 
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
-from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql, RowIdChunk, TimeChunks
+from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql, RowIdChunk
 from crownetutils.analysis.hdf.provider import BaseHdfProvider, HdfInconsistentState
 from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
-from crownetutils.utils.logging import LogWriter, logger, set_level, timing
-from crownetutils.utils.plot import calc_box_stats, mult_percentile, percentile
+from crownetutils.utils.dataframe import flatten_record_column
+from crownetutils.utils.logging import LogWriter, logger, timing
+from crownetutils.utils.plot import calc_box_stats, percentiles_dict
 
 
 class MapDistanceData:
@@ -145,15 +145,10 @@ class CalcStats:
         stat.index.names = index_names
         stat = self.cleanup_f(stat)
 
-        if "p_mult" in stat.columns:
-            stat = pd.concat(
-                [
-                    stat,
-                    pd.DataFrame.from_records(stat["p_mult"].values, index=stat.index),
-                ],
-                axis=1,
+        if "percentile_records" in stat.columns:
+            stat = flatten_record_column(
+                stat, cols="percentile_records", replace_columns=True
             )
-            stat = stat.drop(columns="p_mult")
 
         if "box_stats" in stat.columns:
             stat, outliers = self.process_box_stats(stat, chunk, stat_index)
@@ -352,10 +347,9 @@ class MapMeasurementsAgeOverDistance:
                 "min",
                 "max",
                 "var",
-                mult_percentile(
+                percentiles_dict(
                     1, 10, 20, 30, 40, 60, 70, 80, 90, 99
-                ),  # 50 will be median provide by calc_stats
-                *[percentile(x) for x in range(10, 101, 10)],
+                ),  # 50 will be median provide by calc_stats. Is much faster than single values.
                 calc_box_stats(),
             ],
             metric_map=self.metric_map,
@@ -543,7 +537,7 @@ class MapSizeAndAgeOverDistance:
                 "min",
                 "max",
                 "var",
-                mult_percentile(1, 25, 50, 75, 99),
+                percentiles_dict(1, 25, 50, 75, 99),
             ],
             metric_map=self.metric_map,
         )

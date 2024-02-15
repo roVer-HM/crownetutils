@@ -79,7 +79,7 @@ def percentile(n: int) -> Callable[[Any], Any]:
     return percentile_
 
 
-def mult_percentile(*arg) -> Callable[[Any], Any]:
+def percentiles_dict(*arg) -> Callable[[Any], Any]:
     """Function to generate a numpy based percentile function
 
     Args:
@@ -96,7 +96,7 @@ def mult_percentile(*arg) -> Callable[[Any], Any]:
         else:
             return np.nan
 
-    percentile_.__name__ = f"p_mult"
+    percentile_.__name__ = f"percentile_records"
     return percentile_
 
 

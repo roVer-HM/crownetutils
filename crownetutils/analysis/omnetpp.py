@@ -23,7 +23,6 @@ from crownetutils.analysis.common import (
     Simulation,
     SimulationGroup,
 )
-from crownetutils.analysis.dpmm.dpmm import percentile
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
 from crownetutils.analysis.hdf.provider import (
     BaseHdfProvider,
@@ -991,20 +990,6 @@ class _OppAnalysis(AnalysisBase):
         return tx_rate
 
     @timing
-    def append_count_diff_to_hdf(
-        self,
-        sim: Simulation,
-    ):
-        group_name = "count_diff"
-        _hdf = sim.get_base_provider(group_name, path=sim.builder.count_p._hdf_path)
-        if not _hdf.contains_group(group_name):
-            print(f"group '{group_name}' not found. Append to {_hdf._hdf_path}")
-            df = sim.get_dcdMap().count_diff()
-            _hdf.write_frame(group=group_name, frame=df)
-        else:
-            print(f"group '{group_name}' found. Nothing to do for {_hdf._hdf_path}")
-
-    @timing
     def append_err_measures_to_hdf(
         self,
         sim: Simulation,
@@ -1025,7 +1010,9 @@ class _OppAnalysis(AnalysisBase):
         dmap = sim.builder.build_dcdMap(selection=list(sel)[0])
 
         print("diff")
-        count_diff = DataSource.provide_result("count_diff", sim, dmap.count_diff())
+        count_diff = DataSource.provide_result(
+            "count_diff", sim, dmap.map_count_measure()
+        )
 
         print("box")
         err_box = DataSource.provide_result(
@@ -1155,7 +1142,7 @@ class _OppAnalysis(AnalysisBase):
         df = self.sg_collect_maps(sim_group, data, drop_nan)
 
         df = df.groupby(level=["sim", "simtime", "data"]).agg(
-            ["mean", "std", percentile(0.5)]
+            ["mean", "std", _Plot.percentile(50)]
         )  # over multiple runs/seeds
 
         if isinstance(df.columns, pd.MultiIndex):

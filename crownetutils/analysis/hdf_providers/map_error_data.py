@@ -17,19 +17,13 @@ from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmProvider
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
-from crownetutils.utils.dataframe import FrameConsumer, partial_index_match
+from crownetutils.utils.dataframe import (
+    FrameConsumer,
+    flatten_record_column,
+    partial_index_match,
+)
 from crownetutils.utils.logging import LogWriter, logger, timing
-
-
-def percentile(n):
-    def _percentil(x):
-        try:
-            return np.percentile(x, float(n) * 100.0)
-        except:
-            return np.nan
-
-    _percentil.__name__ = f"p_{n*100:2.0f}"
-    return _percentil
+from crownetutils.utils.plot import percentiles_dict
 
 
 def check_measure_data_for_nans_and_assert(cell_base):
@@ -1152,20 +1146,21 @@ class MapCountError:
             .agg(
                 [
                     "mean",
-                    percentile(0.5),
-                    percentile(0.25),
-                    percentile(0.75),
+                    percentiles_dict(50, 25, 75),  # faster. Only sort data once
                     "min",
                     "max",
                 ]
             )
         )
+        nodes = flatten_record_column(
+            data=nodes, cols="percentile_records", replace_columns=True
+        )
         nodes = nodes.rename(
             columns={
-                "p_50": "map_median_count",
+                "p50": "map_median_count",
                 "mean": "map_mean_count",
-                "p_25": "map_count_p25",
-                "p_75": "map_count_p75",
+                "p25": "map_count_p25",
+                "p75": "map_count_p75",
                 "min": "map_count_min",
                 "max": "map_count_max",
             }

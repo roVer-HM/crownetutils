@@ -16,7 +16,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pandas import IndexSlice as Idx
 
 from crownetutils.analysis.dpmm.csv_loader import DpmmMetaData
-from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount, DpmmCountKey
+from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
 from crownetutils.analysis.hdf_providers.map_error_data import (
     CellCountError,
@@ -25,7 +25,7 @@ from crownetutils.analysis.hdf_providers.map_error_data import (
     CellEntropyValueErrorBuilder,
     MapCountError,
 )
-from crownetutils.utils.dataframe import FrameConsumer, partial_index_match
+from crownetutils.utils.dataframe import FrameConsumer
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import intersect
 from crownetutils.utils.plot import FigureSaver, PlotUtil, Style, savefigure, with_axis
@@ -63,17 +63,6 @@ class BaseDpmMap:
 
     def set_scenario_plotter(self, plotter):
         self.scenario_plotter = plotter
-
-
-def percentile(n):
-    def _percentil(x):
-        try:
-            return np.percentile(x, float(n) * 100.0)
-        except:
-            return np.nan
-
-    _percentil.__name__ = f"p_{n*100:2.0f}"
-    return _percentil
 
 
 class DpmMap(BaseDpmMap):
@@ -732,11 +721,11 @@ class DpmMap(BaseDpmMap):
         """
 
         logger.warning(
-            "deprecated methdo. Use MapCountErr object directly. Trying to guess path and values..."
+            "deprecated method. Use MapCountErr object directly. Trying to guess path and values..."
         )
         if load_cached_version == False:
             raise NotImplementedError(
-                "load_caded_version=Fals not supported anymore use MapCountError class direcly"
+                "load_cached_version=False not supported anymore use MapCountError class direly"
             )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
@@ -750,7 +739,19 @@ class DpmMap(BaseDpmMap):
         else:
             return hdf.hdf_map_measure_rsd.frame()
 
-    # deprecatead moved to MapCountError class
+    # deprecated moved to MapCountError class
+    def get_map_count_error_hdf(self):
+        logger.warning(
+            "deprecated method. Use MapCountError object directly. Trying to guess path and values..."
+        )
+        hdf_path = os.path.join(
+            os.path.dirname(self._map_p.hdf_path),
+            MapCountError.default_hdf_name(self.metadata.map_type),
+        )
+        return MapCountError.get_or_create(
+            hdf_path=hdf_path, map_p=self._map_p, glb_pos=self.position_df, rsd_p=None
+        )
+
     def map_count_measure(self, load_cached_version: bool = True) -> pd.DataFrame:
         """create map based error measure over time to indicate **total area count correctness**
 
@@ -766,19 +767,13 @@ class DpmMap(BaseDpmMap):
                 )
         """
         logger.warning(
-            "deprecated methdo. Use MapCountErr object directly. Trying to guess path and values..."
+            "deprecated method. Use MapCountErr object directly. Trying to guess path and values..."
         )
         if load_cached_version == False:
             raise NotImplementedError(
-                "load_caded_version=Fals not supported anymore use MapCountError class direcly"
+                "load_cached_version=False not supported anymore use MapCountError class direly"
             )
-        hdf_path = os.path.join(
-            os.path.dirname(self._map_p.hdf_path),
-            MapCountError.default_hdf_name(self.metadata.map_type),
-        )
-        return MapCountError.get_or_create(
-            hdf_path=hdf_path, map_p=self._map_p, glb_pos=self.position_df, rsd_p=None
-        ).hdf_map_measure.frame()
+        self.get_map_count_error_hdf().hdf_map_measure.frame()
 
     # deprecated
     def cell_value_measure(
@@ -826,7 +821,7 @@ class DpmMap(BaseDpmMap):
         )
         if load_cached_version == False:
             raise NotImplementedError(
-                "load_caded_version=False not supported anymore use MapCountError class direcly"
+                "load_cached_version=False not supported anymore use MapCountError class direly"
             )
         hdf_path = os.path.join(
             os.path.dirname(self._map_p.hdf_path),
@@ -880,68 +875,6 @@ class DpmMap(BaseDpmMap):
         return CellCountError.get_or_create(
             hdf_path=hdf_path, map_p=self._count_p, builder=builder
         ).hdf_map_measure.frame()
-
-    def count_diff(
-        self, val: set = {}, agg: set = {}, id_slice: slice | int = slice(1, None, None)
-    ) -> pd.DataFrame:
-        if len(agg) == 0:
-            agg = {
-                "count",
-                "mean",
-                "std",
-                "min",
-                percentile(0.25),
-                percentile(0.50),
-                percentile(0.75),
-                "max",
-            }
-        if len(val) == 0:
-            val = {"count", "err", "sqerr"}
-
-        if self._map_p.contains_group("count_diff"):
-            nodes = self._map_p.get_dataframe(group="count_diff")
-        else:
-            _i = pd.IndexSlice
-            df = []
-            if "abs_err" in val:
-                val.remove(abs_err)
-                abs_err = np.abs(self.count_p[_i[:, :, :, id_slice], _i["err"]])
-                abs_err.columns = ["abs_err"]
-                abs_err = (
-                    abs_err.groupby(
-                        level=[self.tsc_id_idx_name, self.tsc_time_idx_name]
-                    )
-                    .sum()
-                    .groupby(level="simtime")
-                    .agg(list(agg))
-                )
-                abs_err.columns = [f"{c}_{stat}" for c, stat in abs_err.columns]
-
-            # stat_list = list(val)
-            stat_list = ["count"]  # todo err values wrong after sum()
-            # todo err values wrong
-            nodes = (
-                self.count_p[_i[:, :, :, id_slice], stat_list]  # all put ground truth
-                .groupby(level=[self.tsc_id_idx_name, self.tsc_time_idx_name])
-                .sum()
-                .groupby(level="simtime")
-                .agg(list(agg))
-            )
-            nodes.columns = [f"{c}_{stat}" for c, stat in nodes.columns]
-            df.insert(0, nodes)
-
-            glb = (
-                self.count_p[_i[:, :, :, 0], _i["count"]]  # only ground truth
-                .groupby(level=[self.tsc_time_idx_name])
-                .sum()
-            )
-            glb.columns = ["glb_count"]
-            df.insert(0, glb)  # at front!
-
-            # glb = self.glb_map.groupby(level=self.tsc_time_idx_name).sum()["count"]
-            nodes = pd.concat(df, axis=1)
-
-        return nodes
 
     def plot_map_count_diff_by_rsd(
         self, saver: FigureSaver, limit_to_home_nodes: bool = False
