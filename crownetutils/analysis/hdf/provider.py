@@ -343,9 +343,12 @@ class BaseHdfProvider:
                     else:
                         return False
             # with tables.open_file(self._hdf_path, "r") as hdf_file:
-            if attr_key in _dir.table.attrs:
-                return hdf_file.root[_key].table.attrs[attr_key]
-            else:
+            try:
+                if attr_key in _dir.table.attrs:
+                    return hdf_file.root[_key].table.attrs[attr_key]
+                else:
+                    return default
+            except tables.exceptions.NoSuchNodeError as e:
                 return default
 
     def get_groups(self) -> List[str]:
