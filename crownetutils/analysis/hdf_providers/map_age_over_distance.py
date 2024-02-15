@@ -254,7 +254,7 @@ class MapMeasurementsAgeOverDistance:
             group=self.g_age_over_dist_box_outl
         )
         self._hdf_rsd_outliers: BaseHdfProvider = self._hdf.created_shared_provider(
-            group=self.g_age_over_dist
+            group=self.g_age_over_dist_rsd_box_outl
         )
 
     @classmethod
