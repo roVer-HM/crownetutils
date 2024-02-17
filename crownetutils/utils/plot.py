@@ -149,6 +149,20 @@ def calc_box_stats() -> Callable[[Any], Any]:
     return _calc_box_stats
 
 
+def box_stats_to_plt_box(stat: dict, mean: float, label: str):
+    ret = {}
+    ret["label"] = label
+    ret["mean"] = mean
+    ret["q1"] = stat["q1"]
+    ret["q3"] = stat["q3"]
+    ret["med"] = stat["median"]
+    ret["whislo"] = stat["lower_w"]
+    ret["whishi"] = stat["upper_w"]
+    ret["fliers"] = stat["outliers"][0]
+    ret["fliers"].extend(stat["outliers"][1])
+    return ret
+
+
 def with_axis(func):
     """Decorator that injects an keyword argument 'ax' of the
     type `plt.Axes` if missing.
@@ -253,6 +267,9 @@ class GridPlotIter:
         self.curr += 1
         return self.fig, ax, color
 
+    def flat_iter(self) -> Iterable[plt.Axes]:
+        return iter(self.axes.flatten())
+
     def __iter__(self):
         return self
 
@@ -261,6 +278,25 @@ class GridPlotIter:
 
     def close(self):
         plt.close(self.fig)
+
+    def set_ylabel(self, lbl: str):
+        """Set y label on left column of grid plot
+
+        Args:
+            lbl (str): Label
+        """
+        for ax in self.left_axes():
+            ax.set_ylabel(lbl)
+
+    def set_xlabel(self, lbl: str):
+        """Set x label on lower row of grid plot
+
+        Args:
+            lbl (str): Label
+        """
+
+        for ax in self.lower_axes():
+            ax.set_xlabel(lbl)
 
 
 def savefigure(func):
