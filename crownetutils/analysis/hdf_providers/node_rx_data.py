@@ -22,17 +22,9 @@ class NodeRxData:
     def __init__(
         self,
         hdf_path: str,
-        apps: List[SqlAppProxy],
-        node_pos: NodePositionWithRsdHdf = None,
     ) -> None:
         self.hdf_path = hdf_path
-        self.apps: List[SqlAppProxy] = apps
-        self.node_pos = node_pos
         self._hdf: BaseHdfProvider | None = None
-        self.groups = []
-        for app in self.apps:
-            for base_g in self.base_groups:
-                self.groups.append(self.g(app, path=base_g))
 
     @classmethod
     def get_or_create(
@@ -42,7 +34,12 @@ class NodeRxData:
         node_pos: NodePositionWithRsdHdf = None,
         override_existing: bool = True,
     ) -> NodeRxData:
-        obj: NodeRxData = cls(hdf_path, apps, node_pos)
+        obj: NodeRxData = cls(hdf_path)
+
+        groups = []
+        for app in apps:
+            for base_g in obj.base_groups:
+                groups.append(cls.g(app, path=base_g))
 
         if os.path.exists(hdf_path):
             expected_content = ExpectedHdfContent().add_groups(groups=obj.groups)
@@ -67,11 +64,10 @@ class NodeRxData:
                         f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
-                    obj._build()
-
+                    obj._build(apps=apps, node_pos=node_pos)
         else:
             logger.info("no existing hdf file found. Build hdf...")
-            obj._build()
+            obj._build(apps=apps, node_pos=node_pos)
 
         return obj
 
@@ -87,7 +83,8 @@ class NodeRxData:
     def rcvd_by_app(self, app: str | SqlAppProxy) -> BaseHdfProvider:
         return BaseHdfProvider(self.hdf_path, group=self.g(app, self.G_BY_APP_STATS))
 
-    def g(self, app: str | SqlAppProxy, path: str) -> str:
+    @staticmethod
+    def g(app: str | SqlAppProxy, path: str) -> str:
         if isinstance(app, SqlAppProxy):
             return app.group_by_app(path)
         else:
@@ -100,7 +97,8 @@ class NodeRxData:
         with_app_names: bool = True,
     ) -> pd.DataFrame:
         ret = []
-        for app in self.apps:
+        apps = self.hdf.get_groups()
+        for app in apps:
             g = app.group_by_app(self.G_BY_SRC_STATS)
             df = self.hdf.select(key=g, where=where, columns=columns)
             app_ids = self.hdf.get_attribute("app_ids", group=g, default=None)
@@ -115,12 +113,16 @@ class NodeRxData:
         return ret
 
     @timing
-    def _build(self):
-        app_names = [app.name for app in self.apps]
+    def _build(
+        self,
+        apps: List[SqlAppProxy],
+        node_pos: NodePositionWithRsdHdf = None,
+    ):
+        app_names = [app.name for app in apps]
         app_names.sort()
         app_ids = {n: i for i, n in enumerate(app_names)}
 
-        for app in self.apps:
+        for app in apps:
             # serach for used vecor name version
             seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
             seqNo_vec = app.sim.sql.find_vector_name(app.module_f(), seqNo_vec)
@@ -167,8 +169,8 @@ class NodeRxData:
             )
             vec_data["app"] = app_ids[app.name]
 
-            if self.node_pos is not None:
-                vec_data = self.node_pos.merge_rsd_id_on_host_time_interval(vec_data)
+            if node_pos is not None:
+                vec_data = node_pos.merge_rsd_id_on_host_time_interval(vec_data)
 
             self.hdf.write_frame(
                 group=app.group_by_app(self.G_BY_SRC_STATS),
@@ -193,8 +195,8 @@ class NodeRxData:
                 .reset_index("eventNumber")
                 .sort_index()
             )
-            if self.node_pos is not None:
-                vec_data = self.node_pos.merge_rsd_id_on_host_time_interval(vec_data)
+            if node_pos is not None:
+                vec_data = node_pos.merge_rsd_id_on_host_time_interval(vec_data)
 
             self.hdf.write_frame(
                 group=app.group_by_app(self.G_BY_APP_STATS),

@@ -25,16 +25,9 @@ class NodeTxData:
     def __init__(
         self,
         hdf_path: str,
-        apps: List[SqlAppProxy],
     ) -> None:
-        self.apps: List[SqlAppProxy] = apps
         self.hdf_path = hdf_path
         self._hdf: BaseHdfProvider = None
-
-        self.groups = []
-        for app in self.apps:
-            for base_g in self.base_groups:
-                self.groups.append(self.g(app, path=base_g))
 
     def g(self, app: str | SqlAppProxy, path: str) -> str:
         if isinstance(app, SqlAppProxy):
@@ -80,6 +73,14 @@ class NodeTxData:
 
         ret = pd.concat(ret, axis=0)
         return ret
+
+    def assert_app(self, app: str | SqlAppProxy):
+        g = self.hdf.get_groups()
+        app_name = app if isinstance(app, str) else app.name
+        if app_name not in g:
+            raise ValueError(
+                f"{self.__class__} does not contain app '{app_name}' only got {g}"
+            )
 
     def tx_bytes(self, app: str | SqlAppProxy) -> BaseHdfProvider:
         """HdfProvider of the form [hostId, time, tx_bytes, servingEnb] (no index)
@@ -202,6 +203,7 @@ class NodeTxData:
         Returns:
             pd.DataFrame:
         """
+        self.assert_app(app)
 
         if time_range_end < time_range_start:
             time_range_end = map_size_data["simtime"].max() + bin_size
@@ -295,11 +297,16 @@ class NodeTxData:
         node_pos: NodePositionWithRsdHdf = None,
         override_existing: bool = True,
     ) -> NodeTxData:
-        obj: NodeTxData = cls(hdf_path, apps)
+        obj: NodeTxData = cls(hdf_path)
+
+        groups = []
+        for app in apps:
+            for base_g in obj.base_groups:
+                groups.append(obj.g(app, path=base_g))
 
         if os.path.exists(hdf_path):
             expected_content = ExpectedHdfContent().add_groups(
-                groups=obj.groups, **{obj.ATTR_rsd: None, obj.ATTR_max_bw: None}
+                groups=groups, **{obj.ATTR_rsd: None, obj.ATTR_max_bw: None}
             )
             is_content_as_expected, diff = expected_content.test_hdf(
                 BaseHdfProvider(hdf_path)
@@ -322,15 +329,15 @@ class NodeTxData:
                         f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
-                    obj._build(node_pos=node_pos)
+                    obj._build(node_pos=node_pos, apps=apps)
         else:
             logger.info("no existing hdf file found. Build hdf...")
-            obj._build(node_pos=node_pos)
+            obj._build(node_pos=node_pos, apps=apps)
 
         return obj
 
-    def _build(self, node_pos: NodePositionWithRsdHdf):
-        for app in self.apps:
+    def _build(self, node_pos: NodePositionWithRsdHdf, apps: List[SqlAppProxy]):
+        for app in apps:
             max_bw = app.get_max_application_bandwidth_in_bps()
             if max_bw is None:
                 raise ValueError(
