@@ -423,10 +423,10 @@ class MapSizeAndAgeOverDistance:
 
     def __init__(self, hdf_path: str) -> None:
         self._hdf_path = hdf_path
-        self._hdf = BaseHdfProvider(
+        self.hdf = BaseHdfProvider(
             hdf_path=hdf_path, group=self.g_map_size_over_distance
         )
-        self._hdf_rsd = self._hdf.created_shared_provider(
+        self.hdf_rsd = self.hdf.created_shared_provider(
             group=self.g_map_size_over_distance_rsd
         )
 
@@ -500,8 +500,8 @@ class MapSizeAndAgeOverDistance:
         return obj
 
     def last_time(self):
-        last_time = self._hdf.select(start=-1).index.get_level_values("time_left")[0]
-        last_time_rsd = self._hdf_rsd.select(start=-1).index.get_level_values(
+        last_time = self.hdf.select(start=-1).index.get_level_values("time_left")[0]
+        last_time_rsd = self.hdf_rsd.select(start=-1).index.get_level_values(
             "time_left"
         )[0]
         if last_time != last_time_rsd:
@@ -570,17 +570,17 @@ class MapSizeAndAgeOverDistance:
 
             # save stats
             ts = it.default_timer()
-            self._hdf.write_frame(group=self._hdf.group, frame=stat)
-            self._hdf_rsd.write_frame(group=self._hdf_rsd.group, frame=stat_rsd)
+            self.hdf.write_frame(group=self.hdf.group, frame=stat)
+            self.hdf_rsd.write_frame(group=self.hdf_rsd.group, frame=stat_rsd)
             logger.info(
                 f"{chunk_num}/{chunk_len} save stats for chunk  took {it.default_timer() - ts:2,.2f} seconds."
             )
 
         for g in self.groups:
-            self._hdf.set_attribute(
+            self.hdf.set_attribute(
                 "processing_done", value=True, group=g
             )  # marker to indicate that hdf file is complete
-            self._hdf.set_attribute("metric_map", value=self.metric_map, group=g)
+            self.hdf.set_attribute("metric_map", value=self.metric_map, group=g)
 
     def stat_cleanup(self, data: pd.DataFrame) -> pd.DataFrame:
         _m = data["count"] != 0

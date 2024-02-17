@@ -366,14 +366,19 @@ class RunMap(dict):
         for g_name, group in map["groups"].items():
             sims = []
             for data in group["data"]:
-                sim = Simulation.from_context(
-                    ctx=data[0], label=data[1], id_offset=data[2]
-                )
                 if len(data) > 3:
                     _obj = data[3]
-                    sim.dpmm_cfg = DpmmCfgBuilder().load_from_json(
+                    dpmm_cfg = DpmmCfgBuilder().load_from_json(
                         obj=_obj, base_dir=_obj.get("base_dir", "None")
                     )
+                    sim = Simulation.from_context(
+                        ctx=data[0], label=data[1], id_offset=data[2], cfg=dpmm_cfg
+                    )
+                else:
+                    sim = Simulation.from_context(
+                        ctx=data[0], label=data[1], id_offset=data[2]
+                    )
+
                 sims.append(sim)
 
             sim_group = SimulationGroup(g_name, data=sims, attr=group["attr"])
@@ -790,10 +795,18 @@ class Simulation:
         raise what(msg)
 
     @classmethod
-    def from_context(cls, ctx: str | RunContext, label="", id_offset: int = 0):
+    def from_context(
+        cls, ctx: str | RunContext, label="", id_offset: int = 0, cfg: DpmmCfg = None
+    ):
         if isinstance(ctx, str):
             ctx = RunContext.from_path(ctx)
-        return cls(ctx.resultdir, label=label, run_context=ctx, id_offset=id_offset)
+        return cls(
+            ctx.resultdir,
+            label=label,
+            run_context=ctx,
+            id_offset=id_offset,
+            dpmm_cfg=cfg,
+        )
 
     @classmethod
     def from_suqc_result(

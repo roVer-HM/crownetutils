@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import dataclasses
 import glob
 import json
 import os
@@ -69,6 +70,8 @@ class DpmmCfgEncoder(json.JSONEncoder):
             return __o
         elif isinstance(o, MapType):
             return o.value
+        elif isinstance(o, MapTypedFile):
+            return o.as_dict()
         else:
             return super().default(o)
 
@@ -104,17 +107,57 @@ class DpmmCfgDecoder(json.JSONDecoder):
         self._clazz = _clazz
 
     def object_hook(self, obj):
-        if obj["base_dir"] is None and self.base_dir is None:
-            raise ValueError(
-                "Provided json object does not base_dir nor does the JSONDecoder. obj: {obj} "
-            )
-        if self.base_dir is not None:
-            obj["base_dir"] = self.base_dir
-        try:
-            obj["map_type"] = MapType(obj["map_type"])
-        except:
-            ValueError(f"Did not found TypeMap {obj['map_type']}")
+        if len(obj) == 2 and "file_name" in obj and "is_typed" in obj:
+            return MapTypedFile(**obj)
+        if "base_dir" in obj:
+            if obj["base_dir"] is None and self.base_dir is None:
+                raise ValueError(
+                    "Provided json object does not base_dir nor does the JSONDecoder. obj: {obj} "
+                )
+            if self.base_dir is not None:
+                obj["base_dir"] = self.base_dir
+
+        if "map_type" in obj:
+            try:
+                obj["map_type"] = MapType(obj["map_type"])
+            except:
+                ValueError(f"Did not found TypeMap {obj['map_type']}")
+
         return self._clazz(**obj)
+
+
+@dataclass
+class MapTypedFile:
+    file_name: str
+    is_typed: bool
+
+    def __call__(self, t: MapType):
+        if self.is_typed:
+            return f"{t.value}_{self.file_name}"
+        else:
+            return self.file_name
+
+    def __post_init__(self):
+        self._cfg: DpmmCfg | None = None
+
+    @property
+    def name(self) -> str:
+        if self._cfg is None:
+            raise ValueError(
+                "MapTypeFile not fully initialized. Should be done by DpmmCfg post_init"
+            )
+        return self(self._cfg.map_type)
+
+    @property
+    def path(self) -> str:
+        if self._cfg is None:
+            raise ValueError(
+                "MapTypeFile not fully initialized. Should be done by DpmmCfg post_init"
+            )
+        return self._cfg.path(self.name)
+
+    def as_dict(self) -> dict:
+        return dict(file_name=self.file_name, is_typed=self.is_typed)
 
 
 @dataclass
@@ -124,6 +167,33 @@ class DpmmCfg(abc.ABC):
     vec_name: str = "vars_rep_0.vec"
     sca_name: str = "vars_rep_0.sca"
     network_name: str = "World"
+
+    #
+    position: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("position.h5", False)
+    )
+    node_tx: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("node_tx_data.h5", False)
+    )
+    node_rx: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("node_rx_data.h5", False)
+    )
+    map_count_error: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("map_count_error.h5", True)
+    )
+    cell_count_error: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("cell_count_error.h5", True)
+    )
+    map_size_and_age_over_distance: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("map_size_and_age_over_distance.h5", True)
+    )
+    map_measurements_age_over_distance: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile(
+            "map_measurements_age_over_distance.h5", True
+        )
+    )
+
+    # default_output_names
 
     map_type: MapType = MapType.DENSITY
     global_map_ini_path: str = "World.globalDensityMap"
@@ -159,6 +229,10 @@ class DpmmCfg(abc.ABC):
 
     def __post_init__(self):
         self.module_vectors = list(self.module_vectors)
+        for f in dataclasses.fields(self):
+            _obj = getattr(self, f.name)
+            if isinstance(_obj, MapTypedFile):
+                _obj._cfg = self
 
     def _create_sql_op(
         self, app: str | Dict[str, str], modules: List[str], node_index: int, path: str
@@ -325,6 +399,9 @@ class DpmmCfgDb(DpmmCfg):
     tbl_map_glb: str = "dcd_map_glb"
     tbl_alg_mapping: str = "alg_mapping"
     tbl_glb_node_id_mapping: str = "glb_node_id_mapping"
+
+    def __post_init__(self):
+        return super().__post_init__()
 
     def to_json(
         self, fd: TextIO | None = None, dump_base_dir: bool = True

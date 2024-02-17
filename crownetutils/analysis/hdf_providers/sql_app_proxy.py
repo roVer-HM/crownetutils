@@ -64,3 +64,14 @@ class SqlAppProxy:
                 return None
         else:
             return self.f_dict[cb_name]()
+
+
+def get_default_3app_setup(density_sim: Simulation, entropy_sim: Simulation):
+    """SqlAppProxy setup for density map and entropy map based simulation
+    d_map, d_beacon, e_map
+    """
+    return [
+        SqlAppProxy("d_map", density_sim.dpmm_cfg.m_map, density_sim),
+        SqlAppProxy("d_beacon", density_sim.dpmm_cfg.m_beacon, density_sim),
+        SqlAppProxy("e_map", entropy_sim.dpmm_cfg.m_map, entropy_sim),
+    ]
