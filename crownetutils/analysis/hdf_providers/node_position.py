@@ -147,8 +147,8 @@ class NodePositionWithRsdHdf:
     @classmethod
     def get_or_create(
         cls,
-        sim,
-        hdf_path,
+        sim: Simulation,
+        hdf_path: str,
         base_epsg: str = "EPSG:3857",
         static_nodes: str = "misc",
         override_existing: bool = True,
