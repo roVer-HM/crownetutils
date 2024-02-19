@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import os
+from functools import partial
+from typing import List
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -38,26 +42,44 @@ class RsdGridPlotter(PlotUtil_):
         rows: int = 3,
         cols: int = 5,
         single_fig_width: float = 4.0,
+        rsd_filter: List[int] | None = None,
     ):
         pos = NodePositionWithRsdHdf(sim, hdf_path=sim.dpmm_cfg.position.path)
+
+        if rsd_filter is None:
+            colors = pos.enb_colors(with_zero=False)
+        else:
+            colors = {
+                k: v
+                for k, v in pos.enb_colors(with_zero=False).items()
+                if k in rsd_filter
+            }
+
         return cls(
-            color_map=pos.enb_colors(with_zero=False),
+            color_map=colors,
             rows=rows,
             cols=cols,
             single_fig_width=single_fig_width,
+            rsd_filter=rsd_filter,
         )
 
     def __init__(
-        self, color_map, rows: int = 3, cols: int = 5, single_fig_width: float = 4.0
+        self,
+        color_map,
+        rows: int = 3,
+        cols: int = 5,
+        single_fig_width: float = 4.0,
+        rsd_filter: List[int] | None = None,
     ) -> None:
         super().__init__()
         self.color_map = color_map
+        self.rsd_filter = rsd_filter
+        color_list = [color_map[c] for c in self.get_rsd_list()]
         self.create_figure = self.create_figure_builder(
-            color_map, rows, cols, single_fig_width
+            color_list, rows, cols, single_fig_width
         )
-        self.rsd_filter = None
 
-    def get_node_pos(sim: Simulation) -> NodePositionWithRsdHdf:
+    def get_node_pos(self, sim: Simulation) -> NodePositionWithRsdHdf:
         obj = NodePositionWithRsdHdf(sim, hdf_path=sim.dpmm_cfg.position.path)
         return obj
 
@@ -75,22 +97,70 @@ class RsdGridPlotter(PlotUtil_):
         if self.rsd_filter:
             return self.rsd_filter
         else:
-            return list(np.arrange(len(self.color_map)) + 1)
+            return list(np.arange(len(self.color_map)) + 1)
+
+    def rsd_ax_iter(self, iter: GridPlotIter):
+        rsd_list = self.get_rsd_list()
+        if len(rsd_list) != len(iter):
+            raise ValueError(
+                f"RSD list and axes iter do not match {len(rsd_list)} != {iter}"
+            )
+
+        return zip(rsd_list, iter)
 
     @classmethod
     def create_figure_builder(
-        self, colors, rows: int = 3, cols: int = 5, single_fig_width: float = 4.0
+        self, color_list, rows: int = 3, cols: int = 5, single_fig_width: float = 4.0
     ):
-        if len(colors) != rows * cols:
-            raise ValueError(f"need {rows*cols} colors got {len(colors)}")
+        if len(color_list) != rows * cols:
+            raise ValueError(f"need {rows*cols} colors got {len(color_list)}")
 
         def figure_builder():
-            fig_size = (single_fig_width * 5, 9 / 16 * single_fig_width * 3)
-            grid_figure = GridPlot.grid_3x5(colors=colors, figsize=fig_size)
+            fig_size = (single_fig_width * cols, 9 / 16 * single_fig_width * rows)
+            # get list of colors based on list of rsd's
+            grid_figure = GridPlot(
+                rows=rows, columns=cols, colors=color_list, figsize=fig_size
+            )
             grid_figure_iter: GridPlotIter = grid_figure.iter_lowerLeftOrig()
             return grid_figure_iter
 
         return figure_builder
+
+    def get_box_props(self, rsd_color):
+        flierprops = dict(
+            marker="2",
+            markerfacecolor=rsd_color,
+            markeredgecolor=rsd_color,
+            markersize=1,
+            linestyle="none",
+        )
+        medianprops = dict(linestyle="-", linewidth=2.5, color="firebrick")
+        meanprops = dict(linestyle="dotted", linewidth=2.5, color="green")
+        return dict(flierprops=flierprops, medianprops=medianprops, meanprops=meanprops)
+
+    def box_legend(self, rsd_color):
+        props = self.get_box_props(rsd_color)
+        median_line = Line2D(
+            [0], [0], label="median", color=props["medianprops"]["color"]
+        )
+        mean_line = Line2D(
+            [0],
+            [0],
+            linestyle="dotted",
+            label="mean",
+            color=props["meanprops"]["color"],
+        )
+        fliers = Line2D(
+            [0],
+            [0],
+            label="fliers",
+            marker="2",
+            markersize=1,
+            markeredgecolor=rsd_color,
+            markerfacecolor=rsd_color,
+            linestyle="",
+        )
+        return [median_line, mean_line, fliers]
 
     def plot_rsd_size_grid(
         self, run_map: RunMap, parameter="insertionOrder_ttl15", seed=0
@@ -100,8 +170,7 @@ class RsdGridPlotter(PlotUtil_):
         map_err = MapCountError(hdf_path=sim.dpmm_cfg.map_count_error.path)
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             data = map_err.hdf_map_measure_rsd_local.select(
                 where=f"rsd_id = {rsd}"
             ).reset_index()
@@ -146,11 +215,10 @@ class RsdGridPlotter(PlotUtil_):
         sql = sim.sql
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             ax: plt.Axes
-            rsd = idx + 1
             data = OppAnalysis.get_avgServedBlocksUl(
-                sql, enb_index=idx
+                sql, enb_index=rsd - 1
             )  # uses index! not ID
             t = f"Rsd {rsd}:  {self.title_stats(data['value'])}RBs"
 
@@ -198,8 +266,7 @@ class RsdGridPlotter(PlotUtil_):
         tp_target_rate = ntx.get_target_rates(1 / 8)  # B/s
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             ax: plt.Axes
 
             tp = ntx.get_tx_throughput_diff_by_app(
@@ -243,8 +310,7 @@ class RsdGridPlotter(PlotUtil_):
         rx: NodeRxData = NodeRxData(hdf_path=sim.dpmm_cfg.node_rx.path)
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             delay = (
                 rx.rcvd_data(app)
                 .select(where=f"servingEnb=={rsd}", columns=["delay"])
@@ -303,8 +369,7 @@ class RsdGridPlotter(PlotUtil_):
         burst = ntx.get_information_transfer_per_burst(app=app, map_size_data=map_size)
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             ax: plt.Axes
             _rsd_data = burst[burst["servingEnb"] == rsd].reset_index()
 
@@ -366,8 +431,7 @@ class RsdGridPlotter(PlotUtil_):
         metric_map = m.metric_map
         metric_id = metric_map["age_of_information"]
 
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             data = m.hdf_age_over_dist_rsd.select(
                 where=f"rsd={rsd} and metric={metric_id}"
             ).reset_index()
@@ -408,8 +472,7 @@ class RsdGridPlotter(PlotUtil_):
         metric_id = metric_map["age_of_information"]
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             data = m.hdf_age_over_dist_rsd.select(
                 where=f"rsd={rsd} and metric={metric_id}"
             ).reset_index()
@@ -434,10 +497,94 @@ class RsdGridPlotter(PlotUtil_):
         suptitle = f"Number of measures over distance (time bin= 10.0s / dist bin = 50.0m) - {parameter}"
         self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
 
+    def plot_map_size_over_time(
+        self,
+        run_map: RunMap,
+        bin_size: float = 10.0,
+        parameter="insertionOrder_ttl15",
+        seed=0,
+    ):
+        sim: Simulation = run_map[parameter][seed]
+        e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
+        sql = DpmmSql(e_cfg)
+        pos = self.get_node_pos(sim)
+        average_map_size = sql.query(
+            "select d.simtime, d.host_id, d.number_of_cells from 	dcd_map_row_id_mapping_by_time_hostId as d"
+        )
+        average_map_size = pos.merge_rsd_id_on_host_time_interval(
+            data=average_map_size, host_id_col="host_id", time_col="simtime"
+        )
+        average_map_size = average_map_size.set_index(
+            ["servingEnb", "simtime"]
+        ).sort_index()
+
+        grid_figure_iter: GridPlotIter = self.create_figure()
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
+            data = average_map_size.loc[rsd].groupby("simtime").mean().reset_index()
+            data["simtime"] = np.floor(data["simtime"] / bin_size) * bin_size
+            data = (
+                data.groupby("simtime")["number_of_cells"]
+                .agg(calc_box_stats(use_mpl_name=True, include_mean=True))
+                .to_frame()
+            )
+
+            boxes = []
+            for t, box in data.iterrows():
+                b = box["number_of_cells"]
+                b["label"] = t
+                boxes.append(b)
+
+            ax.bxp(
+                boxes,
+                showmeans=True,
+                meanline=True,
+                **self.get_box_props(rsd_color=color),
+            )
+            self.thin_out_FixedLocator(
+                ax.xaxis, lambda x: x % 200 != 0, filter_value=""
+            )
+
+            t = f"Rsd {rsd}"
+            ax.set_title(t)
+            ax.legend(handles=self.box_legend(color), loc="upper right")
+
+        grid_figure_iter.set_ylabel("Map Size")
+        grid_figure_iter.set_xlabel("Simulation time in seconds")
+
+        path = run_map.path(
+            parameter.split("_")[0], f"num_cells_over_distance_{parameter}_{seed}.png"
+        )
+        suptitle = f"Average map size over time  (time bin= {bin_size}s) - {parameter}"
+        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+
+    def plot_map_size_over_time_total(
+        self,
+        run_map: RunMap,
+        parameter="insertionOrder_ttl15",
+        seed=0,
+    ):
+        sim: Simulation = run_map[parameter][seed]
+        e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
+        sql = DpmmSql(e_cfg)
+        data = sql.query(
+            "select d.simtime, count(*) as 'num_cells' from dcd_map_glb as d GROUP by d.simtime;"
+        )
+        fig, ax = plt.subplots(1, 1, figsize=(16, 9))
+
+        ax.scatter(data["simtime"], data["num_cells"], marker=".", color="k")
+        ax.set_ylabel("number of cells")
+        ax.set_xlabel("simulation time in seconds")
+        ax.set_title("Total number of cells with entropy values over all RSD's")
+        self.auto_major_minor_locator(ax)
+
+        fig.tight_layout()
+        path = run_map.path(f"total_number_of_cells_{seed}.png")
+        fig.savefig(path)
+        plt.close(fig)
+
     def plot_map_size_over_distance_grid(
         self,
         run_map: RunMap,
-        app: str = "e_map",
         bin_size: float = 10.0,
         parameter="insertionOrder_ttl15",
         seed=0,
@@ -449,18 +596,8 @@ class RsdGridPlotter(PlotUtil_):
         )
 
         grid_figure_iter: GridPlotIter = self.create_figure()
-        flierprops = dict(
-            marker="2",
-            markerfacecolor="gray",
-            markeredgecolor="gray",
-            markersize=1,
-            linestyle="none",
-        )
-        medianprops = dict(linestyle="-", linewidth=2.5, color="firebrick")
-        meanprops = dict(linestyle="dotted", linewidth=2.5, color="green")
 
-        for idx, (_, ax, color) in enumerate(grid_figure_iter):
-            rsd = idx + 1
+        for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
             data = m.hdf_rsd.select(where=f"rsd={rsd} and metric=0", columns=["count"])
             stats = (
                 data.groupby(["dist_left"])
@@ -479,36 +616,23 @@ class RsdGridPlotter(PlotUtil_):
                 boxes,
                 showmeans=True,
                 meanline=True,
-                flierprops=flierprops,
-                medianprops=medianprops,
-                meanprops=meanprops,
+                **self.get_box_props(rsd_color=color),
             )
-            lbs = ax.xaxis.get_major_formatter().seq
-            for i in range(len(lbs)):
-                if lbs[i] % 500 != 0:
-                    lbs[i] = ""
-            ax.xaxis.set_major_formatter(FixedFormatter(lbs))
-            median_line = Line2D([0], [0], label="median", color="firebrick")
-            mean_line = Line2D(
-                [0], [0], linestyle="dotted", label="mean", color="green"
+            # 80*50.0m = 4000m
+            self.thin_out_FixedLocator(
+                ax.xaxis, lambda x: x % 1000 != 0, filter_value="", append_at_end=-80
             )
-            fliers = Line2D(
-                [0],
-                [0],
-                label="fliers",
-                marker="2",
-                markersize=1,
-                markeredgecolor="gray",
-                markerfacecolor="gray",
-                linestyle="",
-            )
-            ax.legend(handles=[median_line, mean_line, fliers], loc="upper right")
+            ax.set_xlim(0, 80)
+
+            t = f"Rsd {rsd}"
+            ax.set_title(t)
+            ax.legend(handles=self.box_legend(color), loc="upper right")
 
         grid_figure_iter.set_ylabel("Number of cells in map")
-        grid_figure_iter.set_xlabel("Distance of cell and measurement owner in meter)")
+        grid_figure_iter.set_xlabel("Distance of cell and measurement owner in meter")
 
         path = run_map.path(
-            parameter.split("_")[0], f"num_cels_over_distance_{parameter}_{seed}.png"
+            parameter.split("_")[0], f"map_size_over_distance_{parameter}_{seed}.png"
         )
         suptitle = f"Number of cells in distance interval (time bin= 1.0s / dist bin = 50.0m) - {parameter}"
         self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)

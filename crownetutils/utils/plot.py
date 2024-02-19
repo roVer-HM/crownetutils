@@ -44,6 +44,7 @@ from matplotlib.ticker import (
     AutoLocator,
     AutoMinorLocator,
     EngFormatter,
+    FixedFormatter,
     MaxNLocator,
     MultipleLocator,
 )
@@ -100,7 +101,9 @@ def percentiles_dict(*arg) -> Callable[[Any], Any]:
     return percentile_
 
 
-def calc_box_stats() -> Callable[[Any], Any]:
+def calc_box_stats(
+    use_mpl_name: bool = False, include_mean: bool = False
+) -> Callable[[Any], Any]:
     def _calc_box_stats(x, **kwargs):
         if x.empty:
             return np.nan
@@ -135,15 +138,34 @@ def calc_box_stats() -> Callable[[Any], Any]:
             upper_w = _x[-1]
             outliers.append([])
 
-        return {
-            "q1": q1,
-            "q3": q3,
-            "iqr": iqr,
-            "median": q2,
-            "lower_w": lower_w,
-            "upper_w": upper_w,
-            "outliers": outliers,
-        }
+        if use_mpl_name:
+            ret = {
+                "q1": q1,
+                "q3": q3,
+                "iqr": iqr,
+                "med": q2,
+                "whislo": lower_w,
+                "whishi": upper_w,
+                "fliers": outliers[0],
+            }
+            ret["fliers"].extend(outliers[1])
+            if isinstance(x, pd.Series):
+                ret["label"] = x.name
+        else:
+            ret = {
+                "q1": q1,
+                "q3": q3,
+                "iqr": iqr,
+                "median": q2,
+                "lower_w": lower_w,
+                "upper_w": upper_w,
+                "outliers": outliers,
+            }
+
+        if include_mean:
+            ret["mean"] = np.mean(x)
+
+        return ret
 
     _calc_box_stats.__name__ = "box_stats"
     return _calc_box_stats
@@ -203,9 +225,13 @@ class GridPlot:
         return cls(rows=3, columns=5, colors=colors, **fig_kwargs)
 
     def __init__(self, rows, columns, colors, **fig_kwargs) -> None:
+        if rows * columns != len(colors):
+            raise ValueError(
+                f"row x cols does not match number of colors {rows}x{columns} != {len(colors)}"
+            )
         self.rows = rows
         self.columns = columns
-        self.colors = colors
+        self.colors: List[Any] = colors
         self.fig_args = fig_kwargs
 
     def __len__(self):
@@ -248,21 +274,21 @@ class GridPlotIter:
         self.curr = 0
 
     def lower_axes(self) -> List[plt.Axes]:
-        return self.axes[-1]
+        if self.o.rows == 1:
+            return self.axes
+        else:
+            return self.axes[-1]
 
     def left_axes(self) -> List[plt.Axes]:
-        return self.axes[:, 0]
-
-    def get_rsd(self, rsd):
-        color = self.o.colors[rsd]
-        _curr = rsd - 1
-        ax = self._order[_curr]
-        return self.fig, ax, color
+        if self.o.rows == 1:
+            return [self.axes[0]]
+        else:
+            return self.axes[:, 0]
 
     def __next__(self):
         if self.curr >= len(self):
             raise StopIteration()
-        color = self.o.colors[self.curr + 1]
+        color = self.o.colors[self.curr]
         ax = self._order[self.curr]
         self.curr += 1
         return self.fig, ax, color
@@ -737,6 +763,26 @@ class PlotUtil_:
             return ax, _x, _y
         else:
             return ax
+
+    def thin_out_FixedLocator(
+        self, axis, filter_f, filter_value: str = "", append_at_end: int = 0
+    ):
+        labels = list(axis.get_major_formatter().seq)
+        for i in range(len(labels)):
+            if filter_f(labels[i]):
+                labels[i] = filter_value
+
+        if append_at_end > 0:
+            labels.extend([""] * append_at_end)
+        elif append_at_end < 0:
+            # extend to that number of lables.
+            add_labels = -1 * append_at_end - len(labels)
+            if add_labels > 0:
+                labels.extend([""] * add_labels)
+            else:
+                # cut off after append_at_end items.
+                labels = labels[0 : (-1 * append_at_end)]
+        axis.set_major_formatter(FixedFormatter(labels))
 
     def color_marker_lines(self, line_type="--") -> List[str]:
         """Create color/marker/line_type string for provided line type.
