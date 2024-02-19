@@ -81,6 +81,9 @@ class BaseSimulationRunner:
         self.ns = namespace
         self.qoi_filter: QoiFilter = self.ns["qoi_filter"]
 
+    def is_configure_logger(self) -> bool:
+        return True
+
     def print_registered_qoi(self, apply_filter: bool = True) -> None:
         """Print list of registered post processing functions in order of execution."""
         _post_f = list(self.f_map["post"])

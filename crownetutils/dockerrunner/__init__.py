@@ -44,6 +44,10 @@ class SimulationDispatcher(Protocol):
         """provide Dispatcher with configuration dictionary"""
         ...
 
+    def is_configure_logger(self) -> bool:
+        """Returns true if logger should be setup"""
+        ...
+
 
 class _DockerCfg:
     VAR_OPP_TAG = "CROWNET_OPP_CONT_TAG"

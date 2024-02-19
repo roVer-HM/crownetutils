@@ -484,6 +484,10 @@ class RunContext:
             """provide Dispatcher with configuration dictionary"""
             self.ns = namespace
 
+        def is_configure_logger(self) -> bool:
+            """Returns true if logger should be setup"""
+            return False
+
     @classmethod
     def from_path(cls, path):
         with open(path, "r", encoding="utf-8") as fd:

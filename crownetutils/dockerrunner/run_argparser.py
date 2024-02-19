@@ -193,13 +193,15 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
             cfg_json = json.load(fd)
         return read_sim_run_context(runner, cfg_json)
 
-    level_idx = ns["verbose"]
-    log_level = levels[level_idx]
-    log_format = "%(asctime)s:%(module)s:%(levelname)s> %(message)s"
-    if ns["log_file"] is not None:
-        add_file_handler(ns["log_file"])
-    set_level(log_level)
-    set_format(log_format)
+    if runner.is_configure_logger():
+        # only do this the SimulationDispatcher is not a dummy object used for parallel setup.
+        level_idx = ns["verbose"]
+        log_level = levels[level_idx]
+        log_format = "%(asctime)s:%(module)s:%(levelname)s> %(message)s"
+        if ns["log_file"] is not None:
+            add_file_handler(ns["log_file"])
+        set_level(log_level)
+        set_format(log_format)
 
     ns.setdefault("qoi_filter", QoiFilter(ns["qoi"]))
     runner.set_options(ns)
