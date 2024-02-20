@@ -8,7 +8,12 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
-from matplotlib.ticker import FixedFormatter, FixedLocator, MultipleLocator
+from matplotlib.ticker import (
+    FixedFormatter,
+    FixedLocator,
+    MultipleLocator,
+    ScalarFormatter,
+)
 
 from crownetutils.analysis.common import RunMap, Simulation
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgBuilder, DpmmCfgDb
@@ -134,8 +139,8 @@ class RsdGridPlotter(PlotUtil_):
             markersize=1,
             linestyle="none",
         )
-        medianprops = dict(linestyle="-", linewidth=2.5, color="firebrick")
-        meanprops = dict(linestyle="dotted", linewidth=2.5, color="green")
+        medianprops = dict(linestyle="-", linewidth=2.0, color="firebrick")
+        meanprops = dict(linestyle="dotted", linewidth=2, color="green")
         return dict(flierprops=flierprops, medianprops=medianprops, meanprops=meanprops)
 
     def box_legend(self, rsd_color):
@@ -416,7 +421,7 @@ class RsdGridPlotter(PlotUtil_):
         self,
         run_map: RunMap,
         app: str = "e_map",
-        bin_size: float = 10.0,
+        distance_bin: float = 100.0,
         parameter="insertionOrder_ttl15",
         seed=0,
     ):
@@ -435,23 +440,45 @@ class RsdGridPlotter(PlotUtil_):
             data = m.hdf_age_over_dist_rsd.select(
                 where=f"rsd={rsd} and metric={metric_id}"
             ).reset_index()
-            ax.scatter("dist_left", "mean", data=data, color=color, marker=".")
             t_stat = self.title_stats(data["mean"], ",.2e", ",.2e")
+            data["dist_bin"] = np.floor(data["dist_left"] / distance_bin) * distance_bin
+            data = (
+                data.groupby("dist_bin")["mean"]
+                .agg(calc_box_stats(use_mpl_name=True, include_mean=True))
+                .to_frame()
+            )
+
+            boxes = []
+            for t, box in data.iterrows():
+                b = box["mean"]
+                b["label"] = t
+                boxes.append(b)
+
+            b = ax.bxp(
+                boxes,
+                positions=[float(_b["label"]) for _b in boxes],
+                widths=distance_bin * 0.9,
+                showmeans=True,
+                meanline=True,
+                **self.get_box_props(rsd_color=color),
+            )
+            # replace FixedFormatter provided by bxp(...)
+            ax.xaxis.set_major_formatter(ScalarFormatter())
+            ax.xaxis.set_major_locator(MultipleLocator(1000))
+            ax.xaxis.set_minor_locator(MultipleLocator(200))
+            ax.set_xlim(0, 4000)
+
+            # ax.scatter("dist_left", "mean", data=data, color=color, marker=".")
             t = f"Rsd {rsd}: AoI  {t_stat}s"
             ax.set_title(t)
-            self.auto_major_minor_locator(ax)
 
-        for a in grid_figure_iter.flat_iter():
-            a.set_xlim(0, 4100)
-            a.xaxis.set_major_locator(MultipleLocator(1000))
-            a.xaxis.set_minor_locator(MultipleLocator(200))
         grid_figure_iter.set_ylabel("AoI in seconds")
         grid_figure_iter.set_xlabel("Distance of cell and measurement owner in meter)")
 
         path = run_map.path(
             parameter.split("_")[0], f"age_of_distance_{parameter}_{seed}.png"
         )
-        suptitle = f"Age of Information (AoI)  over distance (time bin= 10.0s / dist bin = 50.0m) - {parameter}"
+        suptitle = f"Age of Information (AoI)  over distance (time bin= 10.0s / dist bin = {distance_bin}m) - {parameter}"
         self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
 
     def plot_map_number_measures_over_distance_grid(
@@ -500,7 +527,7 @@ class RsdGridPlotter(PlotUtil_):
     def plot_map_size_over_time(
         self,
         run_map: RunMap,
-        bin_size: float = 10.0,
+        bin_size: float = 20.0,
         parameter="insertionOrder_ttl15",
         seed=0,
     ):
@@ -534,15 +561,16 @@ class RsdGridPlotter(PlotUtil_):
                 b["label"] = t
                 boxes.append(b)
 
-            ax.bxp(
+            b = ax.bxp(
                 boxes,
+                positions=[float(_b["label"]) for _b in boxes],
+                widths=bin_size * 0.9,
                 showmeans=True,
                 meanline=True,
                 **self.get_box_props(rsd_color=color),
             )
-            self.thin_out_FixedLocator(
-                ax.xaxis, lambda x: x % 200 != 0, filter_value=""
-            )
+            ax.xaxis.set_major_formatter(ScalarFormatter())
+            self.auto_major_minor_locator(ax)
 
             t = f"Rsd {rsd}"
             ax.set_title(t)
@@ -582,10 +610,37 @@ class RsdGridPlotter(PlotUtil_):
         fig.savefig(path)
         plt.close(fig)
 
+    def map_size_over_distance_data(
+        self,
+        provider: MapSizeAndAgeOverDistance,
+        distance_bin: float,
+        rsd: int,
+    ) -> List[dict]:
+        data = provider.hdf_rsd.select(
+            where=f"rsd={rsd} and metric=0", columns=["count"]
+        )
+        # use 100m bins not 50
+        data["dist_bin"] = (
+            np.floor(data.index.get_level_values("dist_left") / distance_bin)
+            * distance_bin
+        )
+
+        stats = (
+            data.groupby(["dist_bin"])["count"]
+            .aggregate(calc_box_stats(include_mean=True, use_mpl_name=True))
+            .to_frame()
+        )
+        boxes = []
+        for idx, df in stats.iterrows():
+            b = df["count"]
+            b["label"] = idx
+            boxes.append(b)
+        return boxes
+
     def plot_map_size_over_distance_grid(
         self,
         run_map: RunMap,
-        bin_size: float = 10.0,
+        distance_bin: float = 100.0,
         parameter="insertionOrder_ttl15",
         seed=0,
     ):
@@ -598,31 +653,21 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter: GridPlotIter = self.create_figure()
 
         for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
-            data = m.hdf_rsd.select(where=f"rsd={rsd} and metric=0", columns=["count"])
-            stats = (
-                data.groupby(["dist_left"])
-                .aggregate(["mean", "min", "max", "count", calc_box_stats()])
-                .droplevel(0, axis=1)
-            )
-            boxes = []
-            for idx, df in stats.iterrows():
-                boxes.append(
-                    box_stats_to_plt_box(
-                        label=idx, stat=df["box_stats"], mean=df["mean"]
-                    )
-                )
+            boxes = self.map_size_over_distance_data(m, distance_bin, rsd)
 
             ax.bxp(
                 boxes,
+                positions=[float(_b["label"]) for _b in boxes],
+                widths=100 * 0.85,
                 showmeans=True,
                 meanline=True,
                 **self.get_box_props(rsd_color=color),
             )
-            # 80*50.0m = 4000m
-            self.thin_out_FixedLocator(
-                ax.xaxis, lambda x: x % 1000 != 0, filter_value="", append_at_end=-80
-            )
-            ax.set_xlim(0, 80)
+            # replace FixedFormatter provided by bxp(...)
+            ax.xaxis.set_major_formatter(ScalarFormatter())
+            ax.xaxis.set_major_locator(MultipleLocator(1000))
+            ax.xaxis.set_minor_locator(MultipleLocator(200))
+            ax.set_xlim(0, 4000)
 
             t = f"Rsd {rsd}"
             ax.set_title(t)
@@ -634,5 +679,5 @@ class RsdGridPlotter(PlotUtil_):
         path = run_map.path(
             parameter.split("_")[0], f"map_size_over_distance_{parameter}_{seed}.png"
         )
-        suptitle = f"Number of cells in distance interval (time bin= 1.0s / dist bin = 50.0m) - {parameter}"
+        suptitle = f"Number of cells in distance interval (time bin= 1.0s / dist bin = 100.0m) - {parameter}"
         self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)

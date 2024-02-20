@@ -257,7 +257,10 @@ class GridPlotIter:
     @classmethod
     def lowerLeftOrig(cls, o: GridPlot):
         fig, axes = plt.subplots(o.rows, o.columns, **o.fig_args)
-        axes_order = axes[::-1].flatten()
+        if o.rows == 1:
+            axes_order = axes
+        else:
+            axes_order = axes[::-1].flatten()
         return cls(o, fig, axes, axes_order)
 
     @classmethod
@@ -763,26 +766,6 @@ class PlotUtil_:
             return ax, _x, _y
         else:
             return ax
-
-    def thin_out_FixedLocator(
-        self, axis, filter_f, filter_value: str = "", append_at_end: int = 0
-    ):
-        labels = list(axis.get_major_formatter().seq)
-        for i in range(len(labels)):
-            if filter_f(labels[i]):
-                labels[i] = filter_value
-
-        if append_at_end > 0:
-            labels.extend([""] * append_at_end)
-        elif append_at_end < 0:
-            # extend to that number of lables.
-            add_labels = -1 * append_at_end - len(labels)
-            if add_labels > 0:
-                labels.extend([""] * add_labels)
-            else:
-                # cut off after append_at_end items.
-                labels = labels[0 : (-1 * append_at_end)]
-        axis.set_major_formatter(FixedFormatter(labels))
 
     def color_marker_lines(self, line_type="--") -> List[str]:
         """Create color/marker/line_type string for provided line type.
