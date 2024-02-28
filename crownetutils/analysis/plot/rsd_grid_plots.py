@@ -524,6 +524,22 @@ class RsdGridPlotter(PlotUtil_):
         suptitle = f"Number of measures over distance (time bin= 10.0s / dist bin = 50.0m) - {parameter}"
         self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
 
+    def data_map_size_over_time(self, all_data, rsd, bin_size):
+        data = all_data.loc[rsd].groupby("simtime").mean().reset_index()
+        data["simtime"] = np.floor(data["simtime"] / bin_size) * bin_size
+        data = (
+            data.groupby("simtime")["number_of_cells"]
+            .agg(calc_box_stats(use_mpl_name=True, include_mean=True))
+            .to_frame()
+        )
+
+        boxes = []
+        for t, box in data.iterrows():
+            b = box["number_of_cells"]
+            b["label"] = t
+            boxes.append(b)
+        return data, boxes
+
     def plot_map_size_over_time(
         self,
         run_map: RunMap,
@@ -545,22 +561,12 @@ class RsdGridPlotter(PlotUtil_):
             ["servingEnb", "simtime"]
         ).sort_index()
 
+        map_err = MapCountError(hdf_path=sim.dpmm_cfg.map_count_error.path)
+
         grid_figure_iter: GridPlotIter = self.create_figure()
         for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
-            data = average_map_size.loc[rsd].groupby("simtime").mean().reset_index()
-            data["simtime"] = np.floor(data["simtime"] / bin_size) * bin_size
-            data = (
-                data.groupby("simtime")["number_of_cells"]
-                .agg(calc_box_stats(use_mpl_name=True, include_mean=True))
-                .to_frame()
-            )
-
-            boxes = []
-            for t, box in data.iterrows():
-                b = box["number_of_cells"]
-                b["label"] = t
-                boxes.append(b)
-
+            _, boxes = self.data_map_size_over_time(average_map_size, rsd, bin_size)
+            ax: plt.Axes
             b = ax.bxp(
                 boxes,
                 positions=[float(_b["label"]) for _b in boxes],
@@ -570,6 +576,29 @@ class RsdGridPlotter(PlotUtil_):
                 **self.get_box_props(rsd_color=color),
             )
             ax.xaxis.set_major_formatter(ScalarFormatter())
+
+            ax2 = ax.twinx()
+            data_size = map_err.hdf_map_measure_rsd_local.select(
+                where=f"rsd_id = {rsd}"
+            ).reset_index()
+            ax2.plot(
+                "simtime",
+                "map_glb_count",
+                data=data_size,
+                color="black",
+                label="total_nodes",
+            )
+            self.fill_between(
+                data=data_size,
+                x="simtime",
+                val="map_mean_count",
+                fill_val=["map_count_p25", "map_count_p75"],
+                plot_lbl="mean node count",
+                line_args=dict(color=color),
+                fill_args=dict(label="Q1/Q3"),
+                ax=ax2,
+            )
+
             self.auto_major_minor_locator(ax)
 
             t = f"Rsd {rsd}"
@@ -610,7 +639,7 @@ class RsdGridPlotter(PlotUtil_):
         fig.savefig(path)
         plt.close(fig)
 
-    def map_size_over_distance_data(
+    def data_map_size_over_distance(
         self,
         provider: MapSizeAndAgeOverDistance,
         distance_bin: float,
@@ -653,7 +682,7 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter: GridPlotIter = self.create_figure()
 
         for rsd, (_, ax, color) in self.rsd_ax_iter(grid_figure_iter):
-            boxes = self.map_size_over_distance_data(m, distance_bin, rsd)
+            boxes = self.data_map_size_over_distance(m, distance_bin, rsd)
 
             ax.bxp(
                 boxes,
