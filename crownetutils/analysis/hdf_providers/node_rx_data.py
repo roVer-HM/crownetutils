@@ -42,7 +42,7 @@ class NodeRxData:
                 groups.append(cls.g(app, path=base_g))
 
         if os.path.exists(hdf_path):
-            expected_content = ExpectedHdfContent().add_groups(groups=obj.groups)
+            expected_content = ExpectedHdfContent().add_groups(groups=groups)
             is_content_as_expected, diff = expected_content.test_hdf(
                 BaseHdfProvider(hdf_path)
             )

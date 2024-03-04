@@ -46,7 +46,7 @@ def check_measure_data_for_nans_and_assert(cell_base):
             )
 
 
-def create_time_chunk_intervall(
+def create_time_chunk_interval(
     nrows, average_chunk_size_bytes, time_interval, bytes_per_row
 ) -> float | None:
     """create complete 'simtime' chunks based on average_chunk_size in bytes. This method assumes roughly equal
@@ -363,7 +363,7 @@ class CellEntropyValueError:
     ):
         count_p.print_info(fd=LogWriter.info2())
         time_interval = count_p.get_attribute("time_interval")
-        time_chunk_size = create_time_chunk_intervall(
+        time_chunk_size = create_time_chunk_interval(
             nrows=count_p.get_attribute("NROWS"),
             average_chunk_size_bytes=2e9,  # 2GB chunks
             time_interval=time_interval,
@@ -624,11 +624,10 @@ class CellCountError:
         builder: CellCountErrorBuilder,
     ):
         if time_chunk_size is None:
-            time_slice = (
-                slice()
-            )  # empty slice, no chunking load all data (can cause OOM!)
-            glb = self.load_glb(count_p, start, end, builder)
-            data = self.load_data(start, end, builder)
+            # empty slice, no chunking load all data (can cause OOM!)
+            time_slice = slice(None)
+            glb = self.load_glb(count_p, time_slice, builder)
+            data = self.load_data(count_p, time_slice, builder)
             yield glb, data
         else:
             start = time_interval[0]
@@ -769,7 +768,7 @@ class CellCountError:
     ):
         count_p.print_info(fd=LogWriter.info2())
         time_interval = count_p.get_attribute("time_interval")
-        time_chunk_size = create_time_chunk_intervall(
+        time_chunk_size = create_time_chunk_interval(
             nrows=count_p.get_attribute("NROWS"),
             average_chunk_size_bytes=2e9,  # 2GB chunks
             time_interval=time_interval,
@@ -833,10 +832,6 @@ class CellCountError:
             _hdf.set_attribute(
                 attr_key="time_interval", value=time_interval, group=_hdf.group
             )
-
-        self.hdf_cell_measure.repack_hdf(
-            keep_old_file=False
-        )  # same file only repack once
 
 
 class MapCountError:
@@ -1060,7 +1055,7 @@ class MapCountError:
 
         map_p.print_info(fd=LogWriter.info2())
         time_interval = map_p.get_attribute("time_interval")
-        time_chunk_size = create_time_chunk_intervall(
+        time_chunk_size = create_time_chunk_interval(
             nrows=map_p.get_attribute("NROWS"),
             average_chunk_size_bytes=2e9,  # 2GB chunks
             time_interval=time_interval,
