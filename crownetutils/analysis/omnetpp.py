@@ -31,6 +31,7 @@ from crownetutils.analysis.hdf.provider import (
     IHdfProvider,
     ProviderVersion,
 )
+from crownetutils.analysis.hdf_providers.map_error_data import CellCountError
 from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
 from crownetutils.omnetpp.scave import (
     CrownetSql,
@@ -1266,12 +1267,10 @@ class _OppAnalysis(AnalysisBase):
         self,
         sim_group: SimulationGroup,
         cell_count: int,
-        cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
-        cell_slice_fc: FrameConsumer = FrameConsumer.EMPTY,
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.Series:
         """Mean squared (cell) error for all seed repetition in given SimulationGroup.
-        See DcDMap class for simulation based function.
+        See DcDMap/CellCountError class for simulation based function.
 
         Args:
             run_dict (Parameter_Variation): _description_
@@ -1284,35 +1283,32 @@ class _OppAnalysis(AnalysisBase):
         """
         df = []
         print(f"execut group: {sim_group.group_name}")
-        if isinstance(cell_slice, pd.MultiIndex):
-            if cell_count > 0 and cell_count != cell_slice.shape[0]:
-                raise ValueError(
-                    "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
-                )
-            else:
-                cell_count = cell_slice.shape[0]
 
         for rep, sim in sim_group.simulation_iter():
             if sim.sql.is_count_map():
                 # handle based on density map counts
                 # missing values are set to a count of zero, assuming we do not count any
                 # nodes in these cells.
-                _df = sim.get_dcdMap().cell_count_measure(
-                    columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
-                )
+                cell_count_error = CellCountError(sim.dpmm_cfg.cell_count_error.path)
+                _df = cell_count_error.hdf_cell_measure.select(columns=["cell_mse"])
+
+                # _df = sim.get_dcdMap().cell_count_measure(
+                #     columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
+                # )
                 _df = _df.groupby(by=["simtime"]).sum() / cell_count
             else:
-                # any other kind of value (produced by the entropy map)
-                # missing values are removed and  not set to a reasonable estimate.
-                _df = sim.get_dcdMap().cell_value_measure(
-                    columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
-                )
-                _df = _df.groupby(
-                    by=["simtime"]
-                ).mean()  # mean of cell mean squared errror over all cels (i.e. MSME)
+                # # any other kind of value (produced by the entropy map)
+                # # missing values are removed and  not set to a reasonable estimate.
+                # _df = sim.get_dcdMap().cell_value_measure(
+                #     columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
+                # )
+                # _df = _df.groupby(
+                #     by=["simtime"]
+                # ).mean()  # mean of cell mean squared errror over all cels (i.e. MSME)
+                raise ValueError("Use CellEntropyValueError class....")
             _df.columns = [rep]
             _df.columns.name = "run_id"
-            print(f"add: {sim_group.group_name}_{sim.run_context.opp_seed}")
+            print(f"add: {sim_group.group_name} Seed {sim.run_context.opp_seed}")
             df.append(_df)
         df = pd.concat(df, axis=1, verify_integrity=True)
         df = consumer(df)

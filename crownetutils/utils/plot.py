@@ -689,6 +689,61 @@ class PlotUtil_:
         f"{c}{l}" for c, l in itertools.product(_plot_colors, _line_types)
     ]
 
+    def fig_size_mm(
+        self,
+        width: float | None = None,
+        height: float | None = None,
+        ratio: float | None = 16 / 9,
+    ) -> (float, float):
+        """Create fig_size tuple. If both width and height are provided ratio is ignored.
+        Ratio is given as width/height and will be applied appropriately if either width or height is missing.
+
+        Returns:
+            (float, float): fig_size tuple
+        """
+        mm_to_inch = 0.0393701
+        return self.fig_size(width, height, ratio=ratio, unit_conversion=mm_to_inch)
+
+    def fig_size_cm(
+        self,
+        width: float | None = None,
+        height: float | None = None,
+        ratio: float | None = 16 / 9,
+    ):
+        """Create fig_size tuple. If both width and height are provided ratio is ignored.
+        Ratio is given as width/height and will be applied appropriately if either width or height is missing.
+
+        Returns:
+            (float, float): _description_
+        """
+        cm_to_inch = 0.393701
+        return self.fig_size(width, height, ratio=ratio, unit_conversion=cm_to_inch)
+
+    def fig_size(
+        self,
+        width: float | None = None,
+        height: float | None = None,
+        ratio: float | None = 16 / 9,
+        unit_conversion: float = 1.0,
+    ):
+        """Create fig_size tuple. If both width and height are provided ratio is ignored.
+        Ratio is given as width/height and will be applied appropriately if either width or height is missing.
+        `unit_conversion` is applied mulipltiplicative to width and heigth.
+
+        Returns:
+            (float, float): fig_size tuple
+        """
+        if width is None and height is None:
+            raise ValueError("provide at least height or width")
+
+        if height is None:
+            return width * unit_conversion, width / ratio * unit_conversion
+
+        if width is None:
+            return height * ratio * unit_conversion, height * unit_conversion
+
+        return width * unit_conversion, height * unit_conversion
+
     def __init__(self) -> None:
         random.Random(13).shuffle(self._plot_color_markers)
         random.Random(13).shuffle(self._plot_color_lines)
@@ -707,6 +762,21 @@ class PlotUtil_:
         prefix = prefix if len(prefix) < 1 else f"{prefix.strip()} "
         _title = _title if len(suffix) < 1 else f"{_title.strip()} "
         ax.set_title(f"{prefix}{_title}{suffix}")
+
+    def move_last_x_ticklabel_left(self, ax, lbl_str):
+        ax.figure.canvas.draw()  # populate ticks
+        for l in ax.xaxis.get_majorticklabels():
+            if lbl_str in l.get_text():
+                l.set_horizontalalignment("right")
+
+    def update_dict(self, dict, **kwargs):
+        pass
+
+    def move_last_y_ticklabel_down(self, ax, lbl_str):
+        ax.figure.canvas.draw()  # populate ticks
+        for l in ax.yaxis.get_majorticklabels():
+            if lbl_str in l.get_text():
+                l.set_verticalalignment("top")
 
     def get_default_color_cycle(self):
         """Default color cycle defined in currently set rcParams"""
@@ -840,6 +910,8 @@ class PlotUtil_:
         ax: plt.Axes | None = None,
         title: str | None = None,
         col_width=None,
+        cell_height: float = 0.2,
+        col_header_height: float = -1.0,
     ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
         """Save columns of dataframe as matplotlib table.
 
@@ -864,9 +936,25 @@ class PlotUtil_:
         t.set_fontsize(plt.rcParams["font.size"])
         if col_width is None:
             t.auto_set_column_width(col=(list(range(df.shape[1]))))
-        else:
+        elif isinstance(col_width, float):
             t.auto_set_column_width(col=col_width)
-        [c.set_height(0.2) for c in t.get_celld().values()]
+        elif isinstance(col_width, list):
+            if len(col_width) != len(df.columns):
+                raise ValueError(
+                    "Expected None, float or List[float] of length column. Got wrong list length"
+                )
+            keys = list(t.get_celld().keys())
+            rows = max([k[0] for k in keys]) + 1
+            cols = max([k[1] for k in keys]) + 1
+            for row in range(rows):
+                for col in range(cols):
+                    t.get_celld()[(row, col)].set_width(col_width[col])
+        [c.set_height(cell_height) for c in t.get_celld().values()]
+
+        col_header_height = cell_height if col_header_height < 0 else col_header_height
+        for c in range(len(df.columns)):
+            t.get_celld()[(0, c)].set_height(col_header_height)
+
         ax.get_yaxis().set_visible(False)
         ax.get_xaxis().set_visible(False)
         if title is not None:

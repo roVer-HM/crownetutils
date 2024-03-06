@@ -583,6 +583,7 @@ class CellCountError:
             glb = count_p[
                 _i[time_slice, builder.xy_slice[0], builder.xy_slice[1], 0], _i["count"]
             ]  # only ground truth
+        glb = builder.fc(glb, time_slice=time_slice)
         return glb
 
     def load_data(
@@ -613,7 +614,7 @@ class CellCountError:
             ]  # all but ground truth
             if builder.remove_missing_values:
                 nodes = remove_missing_values(nodes)
-
+        nodes = builder.fc(nodes, time_slice=time_slice)
         return nodes
 
     def time_chunked_stream(
@@ -653,22 +654,22 @@ class CellCountError:
         glb.columns = ["glb_count"]
 
         # 12.01.2023 S. Schuhbaeck
-        # num_Agents represents the numeber of nodes that are able to measure the value of a
-        # cell. Due to the missing implicit zero-error-values the number of observerations are not equal to
-        # to that number. In a previous version that number was calcalted by the toatl number
-        # of agents in the simualtion, based on the oracle (ground truth) values. This however,
-        # is not completrly correct as nodes may spawn an t_0 but only start the application at t_0 + d_t.
-        # The ground truth oracel sees the nodes at t_0 but real measureements only start at t_0 + d_t.
-        # If the some nodes never communicate due to  some  other config the values would be considerabel
+        # num_Agents represents the number of nodes that are able to measure the value of a
+        # cell. Due to the missing implicit zero-error-values the number of observations are not equal to
+        # to that number. In a previous version that number was calculated by the total number
+        # of agents in the simulation, based on the oracle (ground truth) values. This however,
+        # is not completely correct as nodes may spawn an t_0 but only start the application at t_0 + d_t.
+        # The ground truth oracle sees the nodes at t_0 but real measurements only start at t_0 + d_t.
+        # If the some nodes never communicate due to  some  other config the values would be considerable
         # to high.
         #
         # I keep the num_Agents for now.
         glb_map_sum = glb.groupby("simtime").sum()  # [simtime](count) aka. M
         glb_map_sum.columns = ["num_Agents"]
         #
-        # Instead of using the ground truth data I retriev the active number of agents from the nodes
-        # data. I define a node as actice for time t if the nodes has at least one measurement for that
-        # time t. If this measrue exists, the measure must be part of the nodes frame. Furthermore,
+        # Instead of using the ground truth data I retrieve the active number of agents from the nodes
+        # data. I define a node as active for time t if the nodes has at least one measurement for that
+        # time t. If this measure exists, the measure must be part of the nodes frame. Furthermore,
         num_active_agents = (
             nodes.index.copy()
             .droplevel(["x", "y"])
@@ -679,10 +680,10 @@ class CellCountError:
             .count()
             .set_axis(["num_active_agents"], axis=1)
         )
-        # Furthermore, I add the number of observerations per (time, x, y) triblet. This would
+        # Furthermore, I add the number of observations per (time, x, y) triplet. This would
         # be equal to the number of active agents, when implicit zero-error-values would not be
-        # missing. I use the num_observerations <= num_active_agents as an assertion to ensure
-        # correctnets.
+        # missing. I use the num_observations <= num_active_agents as an assertion to ensure
+        # correctness.
         num_observations: pd.Series = nodes.groupby(
             [self.tsc_time_idx_name, self.tsc_x_idx_name, self.tsc_y_idx_name]
         )["count"].count()

@@ -142,13 +142,17 @@ class NodeTxData:
         return BaseHdfProvider(self.hdf_path, group=self.g(app, "tx_interval"))
 
     def tx_bytes_per_app(
-        self, apps: str | SqlAppProxy | None = None, where_clause: str | None = None
+        self,
+        apps: str | SqlAppProxy | None = None,
+        where_clause: str | None = None,
+        app_names: List[str] | None = None,
     ) -> pd.DataFrame:
         """Creates frame of the form (app, time)[value] to work with throuput methods in OppAnalysis
 
         Args:
             apps (str | SqlAppProxy | None, optional): If None use group names in hdf as app identifier. Defaults to None.
             where_clause (str | None, optional): Use to filter by time, hostId or servingEnb (aka RSD). Defaults to None.
+            app_names (List[str] | None, optional ): Use these names instead of app names in hdf file.
 
         Returns:
             pd.DataFrame: Frame of the form (app, time)[value] (sorted index)
@@ -156,12 +160,22 @@ class NodeTxData:
         if apps is None:
             # use all base based on top level groups
             apps = self.hdf.get_groups()
+        if not isinstance(apps, list):
+            apps = [apps]
+        if app_names is not None and len(apps) != len(app_names):
+            raise ValueError(
+                "If app_names is provided it must have the same length as `apps`"
+            )
+
         ret = []
-        for app in apps:
+        for idx, app in enumerate(apps):
             _df = self.tx_bytes(app=app).select(
                 where=where_clause, columns=["time", "tx_bytes"]
             )
-            _df["app"] = app
+            if app_names is not None:
+                _df["app"] = app_names[idx]
+            else:
+                _df["app"] = app
             ret.append(_df)
 
         ret = pd.concat(ret, axis=0)
@@ -296,6 +310,7 @@ class NodeTxData:
         apps: List[SqlAppProxy],
         node_pos: NodePositionWithRsdHdf = None,
         override_existing: bool = True,
+        allow_empty_max_bandwidth: bool = False,
     ) -> NodeTxData:
         obj: NodeTxData = cls(hdf_path)
 
@@ -329,22 +344,37 @@ class NodeTxData:
                         f"found existing {cls.__name__} file with inconsistent parameter  and override_existing=True. Delete old file and build new one."
                     )
                     os.remove(hdf_path)
-                    obj._build(node_pos=node_pos, apps=apps)
+                    obj._build(
+                        node_pos=node_pos,
+                        apps=apps,
+                        allow_empty_max_bandwidth=allow_empty_max_bandwidth,
+                    )
         else:
             logger.info("no existing hdf file found. Build hdf...")
-            obj._build(node_pos=node_pos, apps=apps)
+            obj._build(
+                node_pos=node_pos,
+                apps=apps,
+                allow_empty_max_bandwidth=allow_empty_max_bandwidth,
+            )
 
         return obj
 
-    def _build(self, node_pos: NodePositionWithRsdHdf, apps: List[SqlAppProxy]):
+    def _build(
+        self,
+        node_pos: NodePositionWithRsdHdf,
+        apps: List[SqlAppProxy],
+        allow_empty_max_bandwidth: bool = False,
+    ):
         for app in apps:
             max_bw = app.get_max_application_bandwidth_in_bps()
-            if max_bw is None:
+            if max_bw is None and not allow_empty_max_bandwidth:
                 raise ValueError(
                     f"NodeTxData is configured to include maxApplicationBandwidth data \
                                  into hdf attributes but application {app} does not provide a \
                                  maxApplicationBandwidth"
                 )
+            else:
+                max_bw = -1.0  # no limit
             # packets sent
             df_bytes = app.sim.sql.vector_ids_to_host(
                 module_name=app.module_f(),
