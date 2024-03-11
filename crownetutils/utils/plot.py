@@ -40,6 +40,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.collections import PatchCollection
 from matplotlib.colorbar import Colorbar
 from matplotlib.image import AxesImage
+from matplotlib.table import Cell, Table
 from matplotlib.ticker import (
     AutoLocator,
     AutoMinorLocator,
@@ -59,6 +60,64 @@ from crownetutils.utils.dataframe import index_or_col
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 logger = _log.logger
+
+
+class mpl_table_cell_iter:
+    @staticmethod
+    def _tbl_dim(tbl: plt.Table):
+        keys = list(tbl.get_celld().keys())
+        rows = max([k[0] for k in keys]) + 1
+        cols = max([k[1] for k in keys]) + 1
+        return rows, cols
+
+    @staticmethod
+    def col(key):
+        return key[1]
+
+    @staticmethod
+    def row(key):
+        return key[0]
+
+    @classmethod
+    def col_header(cls, tbl: plt.Table):
+        _, cols = cls._tbl_dim(tbl)
+        _header_keys = [(0, c) for c in range(cols)]
+        return cls(tbl.get_celld(), _header_keys)
+
+    @classmethod
+    def by_row(cls, tbl: plt.Table):
+        rows, cols = cls._tbl_dim(tbl)
+        _keys = []
+        for c in range(cols):
+            for r in range(rows):
+                _keys.append((r, c))
+        return cls(tbl.get_celld(), _keys)
+
+    @classmethod
+    def by_col(cls, tbl: plt.Table):
+        rows, cols = cls._tbl_dim(tbl)
+        _keys = []
+        for r in range(rows):
+            for c in range(cols):
+                _keys.append((r, c))
+        return cls(tbl.get_celld(), _keys)
+
+    def __init__(self, cells, keys) -> None:
+        self.cells = cells
+        self.keys: List[Any] = keys
+        self.cur = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Tuple[Any, Cell]:
+        if self.cur < len(self.keys):
+            key = self.keys[self.cur]
+            cell = self.cells[key]
+            self.cur += 1
+            return key, cell
+        else:
+            raise StopIteration
 
 
 def percentile(n: int) -> Callable[[Any], Any]:
@@ -910,8 +969,10 @@ class PlotUtil_:
         ax: plt.Axes | None = None,
         title: str | None = None,
         col_width=None,
+        use_col_labels: bool = True,
         cell_height: float = 0.2,
         col_header_height: float = -1.0,
+        cell_align: str | List[str] = "right",
     ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
         """Save columns of dataframe as matplotlib table.
 
@@ -926,12 +987,19 @@ class PlotUtil_:
         fig, ax = self.check_ax(ax)
         fig.patch.set_visible(False)
         ax.axis("off")
-        t = ax.table(
-            cellText=df.values,
-            colLabels=df.columns,
-            loc="center",
-            bbox=[0.0, 0.0, 1.0, 1.0],
-        )
+        if use_col_labels:
+            t = ax.table(
+                cellText=df.values,
+                colLabels=df.columns,
+                loc="center",
+                bbox=[0.0, 0.0, 1.0, 1.0],
+            )
+        else:
+            t = ax.table(
+                cellText=df.values,
+                loc="center",
+                bbox=[0.0, 0.0, 1.0, 1.0],
+            )
         t.auto_set_font_size(False)
         t.set_fontsize(plt.rcParams["font.size"])
         if col_width is None:
@@ -943,13 +1011,19 @@ class PlotUtil_:
                 raise ValueError(
                     "Expected None, float or List[float] of length column. Got wrong list length"
                 )
-            keys = list(t.get_celld().keys())
-            rows = max([k[0] for k in keys]) + 1
-            cols = max([k[1] for k in keys]) + 1
-            for row in range(rows):
-                for col in range(cols):
-                    t.get_celld()[(row, col)].set_width(col_width[col])
+
+            for _key, cell in mpl_table_cell_iter.by_col(t):
+                col = mpl_table_cell_iter.col(_key)
+                cell.set_width(col_width[col])
+
         [c.set_height(cell_height) for c in t.get_celld().values()]
+
+        # text alignment
+        if isinstance(cell_align, str):
+            cell_align = [cell_align for _ in range(df.shape[1])]
+        for _key, cell in mpl_table_cell_iter.by_col(t):
+            col = mpl_table_cell_iter.col(_key)
+            cell.set_text_props(ha=cell_align[col])
 
         col_header_height = cell_height if col_header_height < 0 else col_header_height
         for c in range(len(df.columns)):
