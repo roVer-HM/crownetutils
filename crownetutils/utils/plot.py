@@ -359,7 +359,7 @@ class GridPlotIter:
         return iter(self.axes.flatten())
 
     def __iter__(self):
-        return self
+        return GridPlotIter(self.o, self.fig, self.axes, self._order)
 
     def __len__(self):
         return len(self.o)
