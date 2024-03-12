@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import os
-from functools import partial
+import shutil
+from abc import ABC
 from typing import List
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.lines import Line2D
-from matplotlib.ticker import (
-    FixedFormatter,
-    FixedLocator,
-    MultipleLocator,
-    ScalarFormatter,
-)
+from matplotlib.ticker import MultipleLocator, ScalarFormatter
 
 from crownetutils.analysis.common import RunMap, Simulation
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgBuilder, DpmmCfgDb
@@ -31,12 +27,60 @@ from crownetutils.utils.logging import logger
 from crownetutils.utils.plot import (
     GridPlot,
     GridPlotIter,
+    PlotUtil,
     PlotUtil_,
-    box_stats_to_plt_box,
     calc_box_stats,
     percentile,
-    percentiles_dict,
 )
+
+
+class RsdGridPlotterStyler(ABC):
+    def get_output_path(self, file_name: str) -> str:
+        ...
+
+    def get_suptitle(self, suptitle: str) -> str:
+        ...
+
+    def is_save_and_close(self) -> bool:
+        ...
+
+
+class EmptyStyler(RsdGridPlotterStyler):
+    def get_output_path(self, file_name: str) -> str:
+        raise NotImplementedError()
+
+    def get_suptitle(self, suptitle: str) -> str:
+        raise NotImplementedError()
+
+    def is_save_and_close(self) -> bool:
+        return False
+
+
+class RunMapRsdGridPlotStyler(RsdGridPlotterStyler):
+    @classmethod
+    def plot_kwargs(cls, run_map, parameter, seed):
+        obj = cls(run_map, parameter, seed)
+        return {"sim": run_map[parameter][seed], "plot_styler": obj}
+
+    def __init__(self, run_map: RunMap, parameter: str, seed: int) -> None:
+        super().__init__()
+        self.run_map = run_map
+        self.parameter = parameter
+        self.seed = seed
+
+    def get_output_path(self, file_name: str) -> str:
+        p = file_name.split(".")
+        if len(p) == 1:
+            _name = f"{file_name}_{self.parameter}_{self.seed}"
+        else:
+            _name = f"{p[0]}_{self.parameter}_{self.seed}.{p[1]}"
+        return self.run_map.path(_name)
+
+    def get_suptitle(self, suptitle: str) -> str:
+        return f"{suptitle} - {self.parameter}"
+
+    def is_save_and_close(self) -> bool:
+        return False
 
 
 class RsdGridPlotter(PlotUtil_):
@@ -50,7 +94,6 @@ class RsdGridPlotter(PlotUtil_):
         rsd_filter: List[int] | None = None,
     ):
         pos = NodePositionWithRsdHdf(sim, hdf_path=sim.dpmm_cfg.position.path)
-
         if rsd_filter is None:
             colors = pos.enb_colors(with_zero=False)
         else:
@@ -115,7 +158,7 @@ class RsdGridPlotter(PlotUtil_):
 
     @classmethod
     def create_figure_builder(
-        self, color_list, rows: int = 3, cols: int = 5, single_fig_width: float = 4.0
+        cls, color_list, rows: int = 3, cols: int = 5, single_fig_width: float = 4.0
     ):
         if len(color_list) != rows * cols:
             raise ValueError(f"need {rows*cols} colors got {len(color_list)}")
@@ -167,11 +210,7 @@ class RsdGridPlotter(PlotUtil_):
         )
         return [median_line, mean_line, fliers]
 
-    def plot_rsd_size_grid(
-        self, run_map: RunMap, parameter="insertionOrder_ttl15", seed=0
-    ):
-        sim: Simulation = run_map[parameter][seed]
-
+    def plot_rsd_size_grid(self, sim: Simulation, plot_styler: RsdGridPlotterStyler):
         map_err = MapCountError(hdf_path=sim.dpmm_cfg.map_count_error.path)
 
         grid_figure_iter: GridPlotIter = self.create_figure()
@@ -207,16 +246,18 @@ class RsdGridPlotter(PlotUtil_):
         for ax in grid_figure_iter.lower_axes():
             ax.set_xlabel("Simulation time in seconds")
 
-        path = run_map.path(
-            parameter.split("_")[0], f"rsd_size_grid_{parameter}_{seed}.png"
-        )
-        suptitle = f"Number of nodes in RSD total and seen by average density map (bin_size = {1.0}s) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path(f"rsd_size_grid.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Number of nodes in RSD total and seen by average density map (bin_size = {1.0}s)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def plot_serving_enb_grid(
-        self, run_map: RunMap, bin_size=1.0, parameter="insertionOrder_ttl15", seed=0
+        self, sim: Simulation, plot_styler: RsdGridPlotterStyler, bin_size=1.0
     ):
-        sim: Simulation = run_map[parameter][seed]
         sql = sim.sql
 
         grid_figure_iter: GridPlotIter = self.create_figure()
@@ -252,20 +293,22 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("Num RBs")
         grid_figure_iter.set_xlabel("Simulation time in seconds")
 
-        path = run_map.path(parameter.split("_")[0], f"enb_grid_{parameter}_{seed}.png")
-        suptitle = f"Number Resource blocks used (bin size = {bin_size}s) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path(f"enb_grid.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Number Resource blocks used (bin size = {bin_size}s)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def plot_throughput_grid(
         self,
-        run_map: RunMap,
+        sim: Simulation,
+        plot_styler: RsdGridPlotterStyler,
         app: str = "e_map",
         bin_size: float = 10.0,
-        parameter="insertionOrder_ttl15",
-        seed=0,
     ):
-        sim: Simulation = run_map[parameter][seed]
-
         ntx: NodeTxData = NodeTxData(sim.dpmm_cfg.node_tx.path)
 
         tp_target_rate = ntx.get_target_rates(1 / 8)  # B/s
@@ -296,22 +339,22 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("throughput in kB/s")
         grid_figure_iter.set_xlabel("Simulation time in seconds")
 
-        path = run_map.path(
-            parameter.split("_")[0], f"e_map_throughput_grid_{parameter}_{seed}.png"
-        )
-        suptitle = f"Throughput in KB/s for  entropy maps (bin size = {bin_size}s) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("e_map_throughput_grid.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Throughput in KB/s for  entropy maps (bin size = {bin_size}s)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def plot_packet_delay_grid(
         self,
-        run_map: RunMap,
+        sim: Simulation,
+        plot_styler: RsdGridPlotterStyler,
         app: str = "e_map",
         bin_size: float = 10.0,
-        parameter="insertionOrder_ttl15",
-        seed=0,
     ):
-        sim: Simulation = run_map[parameter][seed]
-
         rx: NodeRxData = NodeRxData(hdf_path=sim.dpmm_cfg.node_rx.path)
 
         grid_figure_iter: GridPlotIter = self.create_figure()
@@ -348,28 +391,30 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("Delay in seconds")
         grid_figure_iter.set_xlabel("Simulation time in seconds")
 
-        path = run_map.path(
-            parameter.split("_")[0], f"e_map_delay_grid_{parameter}_{seed}.png"
-        )
-        suptitle = (
-            f"Delay in seconds for entropy maps (bin size = {bin_size}s) - {parameter}"
-        )
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("e_map_delay_grid.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Delay in seconds for entropy maps (bin size = {bin_size}s)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def plot_burst_information_ratio_grid(
         self,
-        run_map: RunMap,
+        sim: Simulation,
+        plot_styler: RsdGridPlotterStyler,
         app: str = "e_map",
         bin_size: float = 10.0,
-        parameter="insertionOrder_ttl15",
-        seed=0,
     ):
-        sim: Simulation = run_map[parameter][seed]
-
         ntx = NodeTxData(sim.dpmm_cfg.node_tx.path)
 
-        map_sql = DpmmSql(DpmmCfgBuilder.load_entropy_cfg(sim.data_root))
-        map_size = map_sql.get_cell_count_by_host_id_over_time()
+        cfg = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
+        if cfg.map_size.exists():
+            map_size = pd.read_csv(cfg.map_size.path, index_col=None)
+        else:
+            map_sql = DpmmSql(DpmmCfgBuilder.load_entropy_cfg(sim.data_root))
+            map_size = map_sql.get_cell_count_by_host_id_over_time()
 
         burst = ntx.get_information_transfer_per_burst(app=app, map_size_data=map_size)
 
@@ -410,22 +455,21 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("map ratio")
         grid_figure_iter.set_xlabel("Simulation time in seconds")
 
-        path = run_map.path(
-            parameter.split("_")[0],
-            f"e_map_information_transfer_grid_{parameter}_{seed}.png",
-        )
-        suptitle = f"Map ratio communicated in single burst bin size = {bin_size}s)"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("e_map_information_transfer_grid.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Map ratio communicated in single burst bin size = {bin_size}s)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def plot_map_age_over_distance_grid(
         self,
-        run_map: RunMap,
-        app: str = "e_map",
+        sim: Simulation,
+        plot_styler: RsdGridPlotterStyler,
         distance_bin: float = 100.0,
-        parameter="insertionOrder_ttl15",
-        seed=0,
     ):
-        sim: Simulation = run_map[parameter][seed]
         # need entropy config.
         e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
         m = MapMeasurementsAgeOverDistance(
@@ -475,21 +519,18 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("AoI in seconds")
         grid_figure_iter.set_xlabel("Distance of cell and measurement owner in meter)")
 
-        path = run_map.path(
-            parameter.split("_")[0], f"age_of_distance_{parameter}_{seed}.png"
-        )
-        suptitle = f"Age of Information (AoI)  over distance (time bin= 10.0s / dist bin = {distance_bin}m) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("age_of_distance.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Age of Information (AoI)  over distance (time bin= 10.0s / dist bin = {distance_bin}m)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def plot_map_number_measures_over_distance_grid(
-        self,
-        run_map: RunMap,
-        app: str = "e_map",
-        bin_size: float = 10.0,
-        parameter="insertionOrder_ttl15",
-        seed=0,
+        self, sim: Simulation, plot_styler: RsdGridPlotterStyler
     ):
-        sim: Simulation = run_map[parameter][seed]
         e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
         m = MapMeasurementsAgeOverDistance(
             hdf_path=e_cfg.map_measurements_age_over_distance.path
@@ -517,12 +558,14 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("Number of Measures")
         grid_figure_iter.set_xlabel("Distance of cell and measurement owner in meter)")
 
-        path = run_map.path(
-            parameter.split("_")[0],
-            f"num_measures_over_distance_{parameter}_{seed}.png",
-        )
-        suptitle = f"Number of measures over distance (time bin= 10.0s / dist bin = 50.0m) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("num_measures_over_distance.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Number of measures over distance (time bin= 10.0s / dist bin = 50.0m) - {parameter}"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def data_map_size_over_time(self, all_data, rsd, bin_size):
         data = all_data.loc[rsd].groupby("simtime").mean().reset_index()
@@ -542,18 +585,20 @@ class RsdGridPlotter(PlotUtil_):
 
     def plot_map_size_over_time(
         self,
-        run_map: RunMap,
-        bin_size: float = 20.0,
-        parameter="insertionOrder_ttl15",
+        sim: Simulation,
+        plot_styler: RsdGridPlotterStyler,
         seed=0,
+        bin_size: float = 20.0,
     ):
-        sim: Simulation = run_map[parameter][seed]
         e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
-        sql = DpmmSql(e_cfg)
+
+        if e_cfg.map_size.exists():
+            average_map_size = pd.read_csv(e_cfg.map_size.path, index_col=None)
+        else:
+            map_sql = DpmmSql(DpmmCfgBuilder.load_entropy_cfg(sim.data_root))
+            average_map_size = map_sql.get_cell_count_by_host_id_over_time()
+
         pos = self.get_node_pos(sim)
-        average_map_size = sql.query(
-            "select d.simtime, d.host_id, d.number_of_cells from 	dcd_map_row_id_mapping_by_time_hostId as d"
-        )
         average_map_size = pos.merge_rsd_id_on_host_time_interval(
             data=average_map_size, host_id_col="host_id", time_col="simtime"
         )
@@ -608,36 +653,14 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("Map Size")
         grid_figure_iter.set_xlabel("Simulation time in seconds")
 
-        path = run_map.path(
-            parameter.split("_")[0], f"num_cells_over_distance_{parameter}_{seed}.png"
-        )
-        suptitle = f"Average map size over time  (time bin= {bin_size}s) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
-
-    def plot_map_size_over_time_total(
-        self,
-        run_map: RunMap,
-        parameter="insertionOrder_ttl15",
-        seed=0,
-    ):
-        sim: Simulation = run_map[parameter][seed]
-        e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
-        sql = DpmmSql(e_cfg)
-        data = sql.query(
-            "select d.simtime, count(*) as 'num_cells' from dcd_map_glb as d GROUP by d.simtime;"
-        )
-        fig, ax = plt.subplots(1, 1, figsize=(16, 9))
-
-        ax.scatter(data["simtime"], data["num_cells"], marker=".", color="k")
-        ax.set_ylabel("number of cells")
-        ax.set_xlabel("simulation time in seconds")
-        ax.set_title("Total number of cells with entropy values over all RSD's")
-        self.auto_major_minor_locator(ax)
-
-        fig.tight_layout()
-        path = run_map.path(f"total_number_of_cells_{seed}.png")
-        fig.savefig(path)
-        plt.close(fig)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("num_cells_over_distance.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Average map size over time  (time bin= {bin_size}s)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
 
     def data_map_size_over_distance(
         self,
@@ -668,12 +691,10 @@ class RsdGridPlotter(PlotUtil_):
 
     def plot_map_size_over_distance_grid(
         self,
-        run_map: RunMap,
+        sim: Simulation,
+        plot_styler: RsdGridPlotterStyler,
         distance_bin: float = 100.0,
-        parameter="insertionOrder_ttl15",
-        seed=0,
     ):
-        sim: Simulation = run_map[parameter][seed]
         e_cfg: DpmmCfgDb = DpmmCfgBuilder.load_entropy_cfg(sim.data_root)
         m = MapSizeAndAgeOverDistance(
             hdf_path=e_cfg.map_size_and_age_over_distance.path
@@ -705,8 +726,11 @@ class RsdGridPlotter(PlotUtil_):
         grid_figure_iter.set_ylabel("Number of cells in map")
         grid_figure_iter.set_xlabel("Distance of cell and measurement owner in meter")
 
-        path = run_map.path(
-            parameter.split("_")[0], f"map_size_over_distance_{parameter}_{seed}.png"
-        )
-        suptitle = f"Number of cells in distance interval (time bin= 1.0s / dist bin = 100.0m) - {parameter}"
-        self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        if plot_styler.is_save_and_close():
+            path = plot_styler.get_output_path("map_size_over_distance.png")
+            suptitle = plot_styler.get_suptitle(
+                f"Number of cells in distance interval (time bin= 1.0s / dist bin = 100.0m)"
+            )
+            self.save_and_close_grid_figure(grid_figure_iter, suptitle, path)
+        else:
+            return grid_figure_iter.fig, grid_figure_iter
