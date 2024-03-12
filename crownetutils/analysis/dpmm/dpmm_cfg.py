@@ -9,20 +9,13 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import InitVar, asdict, dataclass, field
-from enum import Enum
 from io import StringIO
 from typing import Any, Dict, List, TextIO
 
+from crownetutils.analysis.dpmm import MapType
+from crownetutils.analysis.dpmm.file import MapTypedFile, MapTypedGroupedFile
 from crownetutils.omnetpp.sql import SqlOp
 from crownetutils.utils.misc import Project
-
-
-class MapType(Enum):
-    DENSITY = "density"
-    ENTROPY = "entropy"
-
-    def __str__(self) -> str:
-        return self.value
 
 
 class DpmmCfgEncoder(json.JSONEncoder):
@@ -109,6 +102,8 @@ class DpmmCfgDecoder(json.JSONDecoder):
     def object_hook(self, obj):
         if len(obj) == 2 and "file_name" in obj and "is_typed" in obj:
             return MapTypedFile(**obj)
+        if len(obj) == 3 and "file_name" in obj and "is_typed" and "group" in obj:
+            return MapTypedGroupedFile(**obj)
         if "base_dir" in obj:
             if obj["base_dir"] is None and self.base_dir is None:
                 raise ValueError(
@@ -124,40 +119,6 @@ class DpmmCfgDecoder(json.JSONDecoder):
                 ValueError(f"Did not found TypeMap {obj['map_type']}")
 
         return self._clazz(**obj)
-
-
-@dataclass
-class MapTypedFile:
-    file_name: str
-    is_typed: bool
-
-    def __call__(self, t: MapType):
-        if self.is_typed:
-            return f"{t.value}_{self.file_name}"
-        else:
-            return self.file_name
-
-    def __post_init__(self):
-        self._cfg: DpmmCfg | None = None
-
-    @property
-    def name(self) -> str:
-        if self._cfg is None:
-            raise ValueError(
-                "MapTypeFile not fully initialized. Should be done by DpmmCfg post_init"
-            )
-        return self(self._cfg.map_type)
-
-    @property
-    def path(self) -> str:
-        if self._cfg is None:
-            raise ValueError(
-                "MapTypeFile not fully initialized. Should be done by DpmmCfg post_init"
-            )
-        return self._cfg.path(self.name)
-
-    def as_dict(self) -> dict:
-        return dict(file_name=self.file_name, is_typed=self.is_typed)
 
 
 @dataclass
@@ -187,9 +148,17 @@ class DpmmCfg(abc.ABC):
     map_size_and_age_over_distance: MapTypedFile = field(
         default_factory=lambda: MapTypedFile("map_size_and_age_over_distance.h5", True)
     )
+    map_size: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("map_size.csv", True)
+    )
     map_measurements_age_over_distance: MapTypedFile = field(
         default_factory=lambda: MapTypedFile(
             "map_measurements_age_over_distance.h5", True
+        )
+    )
+    enb_rb: MapTypedGroupedFile = field(
+        default_factory=lambda: MapTypedGroupedFile(
+            "enb_rb.h5", is_typed=False, group="enb_rb"
         )
     )
 

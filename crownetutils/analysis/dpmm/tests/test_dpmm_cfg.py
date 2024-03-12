@@ -1,6 +1,7 @@
 import unittest
 
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, MapType
+from crownetutils.analysis.dpmm import MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgCsv
 from crownetutils.utils.misc import Project
 
 

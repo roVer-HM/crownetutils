@@ -4,8 +4,9 @@ import os
 from os.path import join
 from typing import Tuple
 
+from crownetutils.analysis.dpmm import MapType
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv
 from crownetutils.omnetpp.scave import CrownetSql
 from crownetutils.utils.logging import logger
 from crownetutils.utils.misc import Project

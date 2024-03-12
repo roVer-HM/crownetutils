@@ -9,7 +9,6 @@ import re
 import shutil
 import subprocess
 import timeit as it
-from ast import Param
 from contextlib import contextmanager
 from functools import partial
 from glob import glob
@@ -37,6 +36,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
 
 from crownetutils.analysis.base import AnalysisBase
+from crownetutils.analysis.dpmm import MapType
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
 from crownetutils.analysis.dpmm.dpmm_cfg import (
@@ -44,7 +44,6 @@ from crownetutils.analysis.dpmm.dpmm_cfg import (
     DpmmCfgBuilder,
     DpmmCfgCsv,
     DpmmCfgDb,
-    MapType,
 )
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 from crownetutils.dockerrunner.run_argparser import read_sim_run_context

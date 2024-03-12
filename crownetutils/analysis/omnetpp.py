@@ -647,6 +647,28 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     @timing
+    def cache_avgServedBlocksUl(
+        self,
+        sql: Scave.CrownetSql,
+        hdf: BaseHdfProvider,
+        enb_index_list: List[int],
+    ):
+        data = []
+        for enb in enb_index_list:
+            _data = OppAnalysis.get_avgServedBlocksUl(
+                sql, enb_index=enb, index=None
+            )  # uses index! not ID
+            _data["enb_idx"] = enb
+            data.append(_data)
+        data = pd.concat(data)
+        data["enb_idx"] = data["enb_idx"].astype(int)
+        data = data.set_index(["enb_idx", "time"]).sort_index()
+        hdf.write_frame(
+            group=hdf.group,
+            frame=data,
+        )
+
+    @timing
     def get_map_pkt_count_ts(
         self,
         sql: Scave.CrownetSql,

@@ -18,7 +18,8 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Point, Polygon
 
-from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, MapType
+from crownetutils.analysis.dpmm import MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
 from crownetutils.omnetpp.scave_config import ScaveConfig
 from crownetutils.omnetpp.sim_bound import SimBound
 from crownetutils.omnetpp.sql import SqlOp
