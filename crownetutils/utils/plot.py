@@ -62,6 +62,39 @@ from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 logger = _log.logger
 
 
+# https://stackoverflow.com/a/67870930
+class MulticolorPatch:
+    def __init__(self, colors):
+        self.colors = colors
+
+
+class MulticolorPatchHandler:
+    def __init__(self) -> None:
+        pass
+
+    def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+        patches = []
+        for i, c in enumerate(orig_handle.colors):
+            patches.append(
+                plt.Rectangle(
+                    [
+                        handlebox.width / len(orig_handle.colors) * i
+                        - handlebox.xdescent,
+                        -handlebox.ydescent,
+                    ],
+                    handlebox.width / len(orig_handle.colors),
+                    handlebox.height,
+                    facecolor=c,
+                    edgecolor="none",
+                )
+            )
+
+        patch = PatchCollection(patches, match_original=True)
+
+        handlebox.add_artist(patch)
+        return patch
+
+
 class mpl_table_cell_iter:
     @staticmethod
     def _tbl_dim(tbl: plt.Table):
@@ -363,6 +396,9 @@ class GridPlotIter:
 
     def __len__(self):
         return len(self.o)
+
+    def __getitem__(self, key):
+        return self._order[key]
 
     def close(self):
         plt.close(self.fig)
