@@ -224,6 +224,11 @@ class OppSql:
             _con.execute(sql_str, **kwargs)
             _con.commit()
 
+    def _vacuum(self, file="vec", **kwargs) -> None:
+        sql_file = self._file(file)
+        with sql_file() as _con:
+            _con.execute("VACUUM", **kwargs)
+
     def query_vec(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="vec", type=type, **kwargs)
 
@@ -232,6 +237,15 @@ class OppSql:
 
     def write_sca(self, sql_str, **kwargs):
         return self._write(sql_str, file="sca", **kwargs)
+
+    def write_vec(self, sql_str, **kwargs):
+        return self._write(sql_str, file="vec", **kwargs)
+
+    def vacuum_vec(self, **kwargs):
+        return self._vacuum(file="vec", **kwargs)
+
+    def vacuum_sca(self, **kwargs):
+        return self._vacuum(file="vec", **kwargs)
 
     @staticmethod
     def _to_sql(obj: Union[str, SqlOp], table, column, prefix="", suffix=""):
