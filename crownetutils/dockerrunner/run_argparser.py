@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from datetime import datetime
+from functools import partial
 from typing import Any, Dict, List
 
 from crownetutils.dockerrunner import DockerCfg, SimulationDispatcher
@@ -11,7 +12,11 @@ from crownetutils.dockerrunner.simulators.controllerrunner import add_control_ar
 from crownetutils.dockerrunner.simulators.omnetrunner import add_omnet_arguments
 from crownetutils.dockerrunner.simulators.sumorunner import add_sumo_arguments
 from crownetutils.dockerrunner.simulators.vadererunner import add_vadere_arguments
-from crownetutils.entrypoint.parser import QoiFilter, SubstituteAction
+from crownetutils.entrypoint.parser import (
+    AppendEnvironmentAction,
+    QoiFilter,
+    SubstituteAction,
+)
 from crownetutils.utils.logging import (
     add_file_handler,
     levels,
@@ -85,6 +90,14 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
         description=f"Used docker registry: {DockerCfg.registry}",
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "--sqlite-tempdir",
+        default=None,
+        dest="sqlite_tmpdir",
+        action=partial(AppendEnvironmentAction, env_key="SQLITE_TMPDIR"),
+        help="Override temp directory for Sqlite. This can increase performance if the default directory location "
+        + "(/var/tmp, /usr/tmp, /tmp) are located on a network file system.",
+    )
     # arguments used by all sub-commands
     _add_base_arguments(parser=parent)
 

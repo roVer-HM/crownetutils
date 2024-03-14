@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import copy
+import os
 import re
 import shlex
-from typing import Sequence, Text
+from typing import Callable, Sequence, Text
 
 from crownetutils.dockerrunner.dockerrunner import DockerCleanup, DockerReuse
 
@@ -28,6 +31,46 @@ class SubstituteAction(argparse.Action):
             setattr(namespace, self.dest, self.sub_f(values))
         else:
             setattr(namespace, self.dest, values)
+
+
+class AppendEnvironmentAction(argparse.Action):
+    def __init__(
+        self,
+        env_key,
+        option_strings: Sequence[Text],
+        dest: Text,
+        nargs: int | Text | None = None,
+        const: argparse._T | None = None,
+        default: argparse._T | Text | None = None,
+        type: Callable[[str], argparse._T] | argparse.FileType | None = None,
+        choices: argparse.Iterable[argparse._T] | None = None,
+        required: bool = False,
+        help: Text | None = None,
+        metavar: Text | tuple[str, ...] | None = None,
+    ) -> None:
+        super().__init__(
+            option_strings,
+            dest,
+            nargs,
+            const,
+            default,
+            type,
+            choices,
+            required,
+            help,
+            metavar,
+        )
+        self.env_key = env_key
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Text | Sequence[argparse.Any] | None,
+        option_string: Text | None = None,
+    ) -> None:
+        if values is not None:
+            os.environ[self.env_key] = values
 
 
 class SimulationArgAction(argparse.Action):
