@@ -167,7 +167,7 @@ class NodeTxData:
                 "If app_names is provided it must have the same length as `apps`"
             )
 
-        ret = []
+        ret: List[pd.DataFrame] = []
         for idx, app in enumerate(apps):
             _df = self.tx_bytes(app=app).select(
                 where=where_clause, columns=["time", "tx_bytes"]

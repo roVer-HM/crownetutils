@@ -131,7 +131,7 @@ def args_with_try(
         return (False, f"Error in args: {args} message: {e}")
 
 
-def run_item(item: ExecutionItem):
+def run_item(item: ExecutionItem) -> ResultItem:
     return item()
 
 

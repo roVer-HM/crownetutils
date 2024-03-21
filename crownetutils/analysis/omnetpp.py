@@ -1303,7 +1303,7 @@ class _OppAnalysis(AnalysisBase):
         Returns:
             pd.Series: cell mean squared error over time and run_id index: [simtime, run_id]
         """
-        df = []
+        df: List[pd.DataFrame] = []
         print(f"execut group: {sim_group.group_name}")
 
         for rep, sim in sim_group.simulation_iter():
