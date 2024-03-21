@@ -205,7 +205,8 @@ def calc_box_stats(
         q1 = q[0]
         q2 = q[1]
         q3 = q[2]
-
+        var = np.var(_x)
+        count = _x.shape[0]
         outliers = []
         iqr = q3 - q1
         lower_w = q1 - 1.5 * iqr
@@ -239,6 +240,8 @@ def calc_box_stats(
                 "whislo": lower_w,
                 "whishi": upper_w,
                 "fliers": outliers[0],
+                "var": var,
+                "count": count,
             }
             ret["fliers"].extend(outliers[1])
             if isinstance(x, pd.Series):
@@ -252,6 +255,8 @@ def calc_box_stats(
                 "lower_w": lower_w,
                 "upper_w": upper_w,
                 "outliers": outliers,
+                "var": var,
+                "count": count,
             }
 
         if include_mean:

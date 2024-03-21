@@ -189,11 +189,11 @@ class BaseHdfProvider:
             raise ValueError(f"group: {group} already exists. Cannot override content.")
         if not self.lazy_loading:
             raise ValueError(
-                f"group: {group} not in HDF file but lazy loading deactivated off"
+                f"group: {group} not in HDF file {self._hdf_path} but lazy loading deactivated off"
             )
         if group not in self.group_factory:
             raise KeyError(
-                f"group: {group} not in HDF file and no factory available. (lazy loading on)"
+                f"group: {group} not in HDF file {self._hdf_path} and no factory available. (lazy loading on)"
             )
 
         logger.info(

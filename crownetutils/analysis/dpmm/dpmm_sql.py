@@ -612,6 +612,15 @@ class DpmmSql:
         row_cache = [RowIdChunk(*row) for row in row_cache.reset_index().values]
         return row_cache
 
+    def get_cell_count_global_over_time(self) -> pd.DataFrame:
+        """Return frame with [simtime, numberOfCells]
+        numberOfCells is the total number of cells measured by all nodes at a given time.
+        If a node was able to collect all information without delay during the simulation this
+        would be the number of cells, i.e., the map size.
+        """
+        _sql = "select d.simtime, count(*) as 'numberOfCells' from dcd_map_glb  as d group by  d.simtime;"
+        return self.query(_sql, type="df")
+
     def get_cell_count_by_host_id_over_time(self, sql_str=None) -> pd.DataFrame:
         """Return frame with [simtime, hostId, numberOfCells]
 

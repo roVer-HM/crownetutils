@@ -4,7 +4,21 @@ import sys
 from copy import deepcopy
 from typing import List, Tuple
 
+import pandas as pd
+
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
+
+
+def save_box_plot_to_hdf(bbox: pd.Series, hdf: BaseHdfProvider, base_name: str = ""):
+    box_group = "{}boxes".format(base_name)
+    flier_group = "{}fliers".format(base_name)
+    bbox = pd.DataFrame.from_records(data=bbox.values, index=bbox.index)
+    fliers = (
+        bbox["fliers"].explode().to_frame().set_axis(["fliers"], axis=1).astype(float)
+    )
+    bbox = bbox.drop(columns=["fliers"])
+    hdf.write_frame(frame=bbox, group=box_group)
+    hdf.write_frame(frame=fliers, group=flier_group)
 
 
 class GroupWithAttributes:

@@ -9,7 +9,9 @@ import re
 import shutil
 import subprocess
 import timeit as it
+from abc import ABC
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import partial
 from glob import glob
 from multiprocessing import get_context
@@ -21,6 +23,7 @@ from typing import (
     Callable,
     ContextManager,
     Dict,
+    Generator,
     Iterable,
     Iterator,
     List,
@@ -445,6 +448,18 @@ class RunMap(dict):
             return _items[__key]
         else:
             return super().__getitem__(__key)
+
+    def iter_all_sim(self, with_group: bool = False) -> Generator[IndexedSimulation]:
+        for g, sg in self.items():
+            sg: SimulationGroup
+            for idx, global_id, sim in sg.simulation_iter(enum=True):
+                i = IndexedSimulation(
+                    group_name=g, simulation_index=idx, global_id=global_id, sim=sim
+                )
+                if with_group:
+                    yield sg, i
+                else:
+                    yield i
 
 
 class RunContext:
@@ -1081,6 +1096,14 @@ class Simulation:
             logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
+@dataclass
+class IndexedSimulation:
+    group_name: str
+    simulation_index: int
+    global_id: int
+    sim: Simulation
+
+
 class SimulationGroupFactory(Protocol):
     """Create a SimulationGroup using one simulation to access config to derive
     name or label information. **kwds must provide all necessary attributes to
@@ -1517,3 +1540,32 @@ class SuqcStudy:
             run_map.append_or_add(sim_group)
 
         return run_map
+
+
+class CacheLoader(ABC):
+    """Create a RunMap level data cache file. The CacheLoader looks first if the cache file exists.
+    Child classes can augment this to include additional checks. If the test fails the data is collected,
+    possible in parallel, using the `load` method.
+    """
+
+    def __init__(
+        self, run_map: RunMap, cache_path: str, root_group: str = "root"
+    ) -> None:
+        super().__init__()
+        self.run_map = run_map
+        self.cache_path = cache_path
+        self.hdf = BaseHdfProvider(self.cache_path, group=root_group)
+
+    def cache_exists(self) -> bool:
+        return os.path.exists(self.cache_path)
+
+    def check(self):
+        if not self.cache_exists():
+            self.load()
+
+    def get(self) -> BaseHdfProvider:
+        self.check()
+        return self.hdf
+
+    def load(self):
+        ...

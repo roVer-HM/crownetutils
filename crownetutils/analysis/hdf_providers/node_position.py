@@ -247,6 +247,7 @@ class NodePositionWithRsdHdf:
         host_id_col: str | int = "hostId",
         time_col="time",
         append_interval: bool = False,
+        rsd_col_name: str = "servingEnb",
     ) -> pd.DataFrame:
         old_index = get_index_name_or_names(data)
         if isinstance(host_id_col, int):
@@ -299,6 +300,7 @@ class NodePositionWithRsdHdf:
         if ret["servingEnb"].isna().any():
             raise ValueError("got Nan")
         ret["servingEnb"] = ret["servingEnb"].astype(int)
+        ret = ret.rename(columns={"servingEnb": rsd_col_name})
         if old_index is not None:
             ret = ret.set_index(old_index)
         return ret

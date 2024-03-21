@@ -328,7 +328,8 @@ class RsdGridPlotter(PlotUtil_):
                 tp_target_rate[app] / 1000,
                 xmin=0,
                 xmax=1000,
-                color="red",
+                color="darkred",
+                linestyles="dashed",
                 label="target rate",
             )
 
