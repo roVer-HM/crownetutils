@@ -331,6 +331,9 @@ class GridPlot:
         self.colors: List[Any] = colors
         self.fig_args = fig_kwargs
 
+    def create_axes(self) -> List[plt.Figure, List[plt.Axes]]:
+        return plt.subplots(self.rows, self.columns, **self.fig_args)
+
     def __len__(self):
         return self.rows * self.columns
 
@@ -353,7 +356,7 @@ class GridPlotIter:
 
     @classmethod
     def lowerLeftOrig(cls, o: GridPlot):
-        fig, axes = plt.subplots(o.rows, o.columns, **o.fig_args)
+        fig, axes = o.create_axes()
         if o.rows == 1:
             axes_order = axes
         else:
@@ -362,7 +365,7 @@ class GridPlotIter:
 
     @classmethod
     def upperLeftOrig(cls, o: GridPlot):
-        fig, axes = plt.subplots(o.rows, o.columns)
+        fig, axes = o.create_axes()
         axes_order = axes
         return cls(o, fig, axes, axes_order)
 
@@ -477,7 +480,14 @@ class FigureSaver:
     def __init__(self) -> None:
         ...
 
-    def __call__(self, figure, *args: Any, **kwargs):
+    def __call__(
+        self,
+        figure,
+        *args: Any,
+        tight_layout: bool = True,
+        close_figure: bool = True,
+        **kwargs,
+    ):
         raise NotImplementedError()
 
     def __enter__(self, *arg, **kwargs):
@@ -499,7 +509,8 @@ class NullSaver(FigureSaver):
 
 
 class CallCountText:
-    """Track call count and returns value. If target count is reached null is returned."""
+    """Track call count and returns value. If target count is reached null is returned.
+    Use val<0 for infinite"""
 
     def __init__(self, val, count) -> None:
         self._val = val
@@ -527,61 +538,118 @@ class CallCountText:
 
 class FigureSaverSimple(FigureSaver):
     def __init__(
-        self, override_base_path: str | None = None, figure_type: str | None = None
+        self,
+        override_base_path: str | None = None,
+        figure_type: str | None = None,
+        **save_kw_args,
     ):
         self.override_base_path = override_base_path
         self._next_name = CallCountText(None, count=-1)
         self._next_suffix = CallCountText(None, count=-1)
+        self._next_prefix = CallCountText(None, count=-1)
         self.figure_type = figure_type
+        self.save_kw_args = save_kw_args
 
     @property
-    def next_name(self):
+    def peek_next_name(self):
         return self._next_name.peek()
 
     @property
-    def next_suffix(self):
+    def peek_next_suffix(self):
         return self._next_suffix.peek()
+
+    @property
+    def peek_next_prefix(self):
+        return self._next_prefix.peek()
 
     def with_name(self, name, count=1):
         self._next_name = CallCountText(name, count=count)
         return self
 
-    def with_suffix(self, suffix, count=1):
+    def with_suffix(self, suffix: str, count: int = 1) -> FigureSaverSimple:
+        """Use `suffix` for the next count calls. The suffix is extension aware
+        and will be placed like {root}{suffix}{extension}
+
+        Args:
+            suffix (str): String to add as suffix
+            count (int, optional): Positive integer for number of calls to FigureSaverSimple.__call__ the suffix is added. Use count<0 for infinite. Defaults to 1.
+
+        Returns:
+            self
+        """
         self._next_suffix = CallCountText(suffix, count=count)
         return self
 
+    def with_prefix(self, prefix: str, count: int = 1) -> FigureSaverSimple:
+        """Use `prefix` for the next count calls.
+
+        Args:
+            suffix (str): String to add as prefix
+            count (int, optional): Positive integer for number of calls to FigureSaverSimple.__call__ the prefix is added. Use count<0 for infinite. Defaults to 1.
+
+        Returns:
+            self
+        """
+        self._next_prefix = CallCountText(prefix, count=count)
+        return self
+
     @staticmethod
-    def append_suffix(path, suffix):
+    def apply_suffix(path, suffix):
         root, ext = os.path.splitext(path)
         return f"{root}{suffix}{ext}"
 
-    def __call__(self, figure, *args: Any, **kwargs):
+    @staticmethod
+    def apply_prefix(path, prefix):
+        tail, head = os.path.split(path)
+        return os.path.join(tail, f"{prefix}{head}")
+
+    def __call__(
+        self,
+        figure,
+        *args: Any,
+        tight_layout: bool = True,
+        close_figure: bool = True,
+        **kwargs,
+    ):
+        # pop next name and suffix
         self._next_name = self._next_name()
         self._next_suffix = self._next_suffix()
+        self._next_prefix = self._next_prefix()
 
-        if len(args) < 1 and self.next_name is None:
+        if len(args) < 1 and self.peek_next_name is None:
             raise TypeError("Expected argument for path")
-        if self.next_name is None:
+
+        if self.peek_next_name is None:
             path = args[0]
         else:
-            path = self.next_name
+            path = self.peek_next_name
+
         if self.override_base_path is not None:
             if os.path.isabs(path):
                 logger.warn(
                     "FigureSaver provides base path but absolute figure path provided. Use override path"
                 )
             path = os.path.join(self.override_base_path, os.path.basename(path))
+
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        if self.next_suffix is not None:
-            path = self.append_suffix(path, self.next_suffix)
+
+        if self.peek_next_suffix is not None:
+            path = self.apply_suffix(path, self.peek_next_suffix)
+        if self.peek_next_prefix is not None:
+            path = self.apply_prefix(path, self.peek_next_prefix)
+
         if self.figure_type is not None:
             base, ext = os.path.splitext(path)
             if self.figure_type != ext:
                 logger.info(f"override figure type from {ext} to {self.figure_type}")
             path = f"{base}{self.figure_type}"
-        figure.tight_layout()
-        figure.savefig(path, **kwargs)
-        plt.close(figure)
+
+        if tight_layout:
+            figure.tight_layout()
+
+        figure.savefig(path, **self.save_kw_args)
+        if close_figure:
+            plt.close(figure)
 
     def __enter__(self, *arg, **kwargs):
         return self
@@ -877,6 +945,12 @@ class PlotUtil_:
         for l in ax.yaxis.get_majorticklabels():
             if lbl_str in l.get_text():
                 l.set_verticalalignment("top")
+
+    def move_first_y_ticklabel_up(self, ax, lbl_str):
+        ax.figure.canvas.draw()  # populate ticks
+        for l in ax.yaxis.get_majorticklabels():
+            if lbl_str in l.get_text():
+                l.set_verticalalignment("bottom")
 
     def get_default_color_cycle(self):
         """Default color cycle defined in currently set rcParams"""
@@ -1911,3 +1985,18 @@ def enb_patch(
 
 
 enb_patch.__doc__ = pltPatch.PathPatch.__doc__
+
+
+class MultiWayNorm(matplotlib.colors.Normalize):
+    def __init__(self, x, y, vmin=..., vmax=..., clip=...) -> None:
+        super().__init__(vmin, vmax, clip)
+        self.x = x
+        self.y = y
+
+    def __call__(self, value, clip: bool | None = None):
+        x, y = [self.vmin, *self.x, self.vmax], [0, *self.y, 1]
+        return np.ma.masked_array(np.interp(value, x, y, left=-np.inf, right=np.inf))
+
+    def inverse(self, value):
+        y, x = [self.vmin, *self.x, self.vmax], [0, *self.y, 1]
+        return np.ma.masked_array(np.interp(value, x, y, left=-np.inf, right=np.inf))

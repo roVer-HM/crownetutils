@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import datetime
 import enum
 import json
@@ -11,7 +12,7 @@ import subprocess
 import timeit as it
 from abc import ABC
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from glob import glob
 from multiprocessing import get_context
@@ -1542,19 +1543,30 @@ class SuqcStudy:
         return run_map
 
 
+class CacheFunc(Protocol):
+    """Callable that creates some instance of CacheLoader"""
+
+    def __call__(self, run_map: RunMap) -> CacheLoader:
+        ...
+
+
+class IndexedSimulationFilter(Protocol):
+    def __call__(self, isim: IndexedSimulation) -> bool:
+        ...
+
+
+@dataclass
 class CacheLoader(ABC):
     """Create a RunMap level data cache file. The CacheLoader looks first if the cache file exists.
     Child classes can augment this to include additional checks. If the test fails the data is collected,
     possible in parallel, using the `load` method.
     """
 
-    def __init__(
-        self, run_map: RunMap, cache_path: str, root_group: str = "root"
-    ) -> None:
-        super().__init__()
-        self.run_map = run_map
-        self.cache_path = cache_path
-        self.hdf = BaseHdfProvider(self.cache_path, group=root_group)
+    run_map: RunMap
+    cache_path: str
+    root_group: str = "root"
+    hdf: BaseHdfProvider = field(init=False)
+    idx_sim_filter: IndexedSimulationFilter = field(default=lambda x: True)
 
     def cache_exists(self) -> bool:
         return os.path.exists(self.cache_path)
@@ -1569,3 +1581,25 @@ class CacheLoader(ABC):
 
     def load(self):
         ...
+
+    def filtered_indexed_simulation_iter(self):
+        for idx_sim in self.run_map.iter_all_sim():
+            if self.idx_sim_filter(idx_sim):
+                yield idx_sim
+
+    def __post_init__(self):
+        self.hdf = BaseHdfProvider(self.cache_path, group=self.root_group)
+        for f in dataclasses.fields(self):
+            if f.metadata is not None and "shared_hdf_provider" in f.metadata:
+                _group_name = f.name.replace("hdf_", "")
+                _property = self.hdf.created_shared_provider(group=_group_name)
+                setattr(self, f.name, _property)
+
+    @staticmethod
+    def shared_hdf_field():
+        """Name of property with removed 'hdf_' prefix if present will be the default group name"""
+        return field(init=False, metadata={"shared_hdf_provider": True})
+
+    @staticmethod
+    def save_hdf(hdf: BaseHdfProvider, frame: pd.DataFrame):
+        hdf.write_frame(group=hdf.group, frame=frame)

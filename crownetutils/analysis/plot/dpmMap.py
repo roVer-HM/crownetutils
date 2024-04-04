@@ -220,7 +220,7 @@ class _PlotDpmMap(PlotUtil_):
             inner_view (bool): If true only use data for nodes that are part of the selected rsd.
                                 Otherwise use all data.
         """
-        saver_name = saver.next_name
+        saver_name = saver.peek_next_name
         for rsd in rsd_list:
             if local_only:
                 df = data.hdf_cell_measure_rsd_local.select(
@@ -300,7 +300,7 @@ class _PlotDpmMap(PlotUtil_):
             inner_view (bool): If true only use data for nodes that are part of the selected rsd.
                                 Otherwise use all data.
         """
-        saver_name = saver.next_name
+        saver_name = saver.peek_next_name
         for rsd in rsd_list:
             if inner_view:
                 df = data.hdf_cell_measure_rsd_local.select(

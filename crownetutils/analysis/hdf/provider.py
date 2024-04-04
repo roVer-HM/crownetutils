@@ -473,6 +473,13 @@ class BaseHdfProvider:
 
         return ret
 
+    def __repr__(self):
+        type_ = type(self)
+        module = type_.__module__
+        qualname = type_.__qualname__
+        fname = os.path.basename(self._hdf_path)
+        return f"<{module}.{qualname}[{fname}/{self.group}] object at {hex(id(self))}>"
+
 
 class LazyHdfProvider(BaseHdfProvider):
     def __init__(
