@@ -341,16 +341,13 @@ class MapMeasurementsAgeOverDistance:
 
         stats_f = CalcStats(
             agg_function_list=[
-                "count",
-                "mean",
                 "std",
                 "min",
                 "max",
-                "var",
                 percentiles_dict(
                     1, 10, 20, 30, 40, 60, 70, 80, 90, 99
                 ),  # 50 will be median provide by calc_stats. Is much faster than single values.
-                calc_box_stats(),
+                calc_box_stats(include_mean=True),
             ],
             metric_map=self.metric_map,
         )
