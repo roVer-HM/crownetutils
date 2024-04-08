@@ -154,6 +154,10 @@ class DpmmCfg(abc.ABC):
     map_size_global: MapTypedFile = field(
         default_factory=lambda: MapTypedFile("map_size_global.csv", True)
     )
+    map_size_global_by_rsd: MapTypedFile = field(
+        default_factory=lambda: MapTypedFile("map_size_global_by_rsd.csv", True)
+    )
+
     map_measurements_age_over_distance: MapTypedFile = field(
         default_factory=lambda: MapTypedFile(
             "map_measurements_age_over_distance.h5", True
