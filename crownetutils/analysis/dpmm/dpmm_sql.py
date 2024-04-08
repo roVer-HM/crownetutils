@@ -6,16 +6,17 @@ import sqlite3 as sq
 import sys
 import timeit as it
 from dataclasses import dataclass
-from io import StringIO
 from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from crownetutils.analysis.dpmm.csv_loader import _apply_real_coords
 from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.utils.logging import logger, timing
+from crownetutils.utils.sqlite import SortedChunkStream
 
 
 class TimeChunks:
@@ -433,132 +434,47 @@ class DpmmSql:
         """
 
         _sql = "select d.uid, d.simtime, d.hostId, d.x , d.y from dcd_map as d where d.uid > {lower_bound} and d.uid <= {upper_bound}"
-
-        chunks = []
-        time_first = -1
-        time_last = -1
-        load_next = True
-        lower_bound = initial_offset
-        upper_bound = lower_bound + chunk_size
-
         self.create_row_cache_tables_if_missing()
-        with self.con() as _con:
-            num_chunks = 0
-            while load_next:
-                # todo pragma
-                ts = it.default_timer()
-                num_chunks += 1
-                sql = _sql.format(
-                    _sql, lower_bound=lower_bound, upper_bound=upper_bound
-                )
-                data = pd.read_sql_query(sql, _con)
-                logger.info(
-                    f"{num_chunks}/? query uid(ROW_ID interval) {lower_bound:,d} < ROWID <= {upper_bound:,d}  chunk_size={upper_bound - lower_bound:,d} took {it.default_timer() - ts:2,.2f}s"
-                )
-                lower_bound = upper_bound
-                upper_bound = lower_bound + chunk_size
-
-                if data.empty:
-                    # reached end of table stop processing
-                    logger.info(f"reached end of table stop after {num_chunks}")
-                    load_next = False
-                    if len(chunks) == 0:
-                        # in case  no chunks are left do not process further
-                        break
-                else:
-                    if len(chunks) == 0:
-                        # only set time_first if no older chunk is present.
-                        time_first = data["simtime"].iloc[0]
-                    time_last = data["simtime"].iloc[-1]
-                    chunks.append(data)
-
-                if time_first != time_last or load_next is False:
-                    logger.info(f"{num_chunks}/? Process loaded chunk(s).")
-                    # found more than one time process time
-                    # keep last time out of processing as it might not be
-                    if len(chunks) == 1:
-                        data = chunks[0]
-                    else:
-                        data = pd.concat(chunks, axis=0)
-
-                    # process chunk and return last time if present
-                    rest_chunk = self.process_chunk(
-                        data, time_first, time_last, connection=_con
-                    )
-                    chunks.clear()
-                    time_first = -1
-                    time_last = -1
-
-                    if rest_chunk is not None:
-                        time_first = rest_chunk["simtime"].iloc[0]
-                        time_last = rest_chunk["simtime"].iloc[-1]
-                        if time_first != time_last:
-                            raise ValueError(
-                                f"Rest chunk must be one time only!. Got {time_first} and {time_last}"
-                            )
-                        logger.info(
-                            f"Add rest chunk back to chunk with {rest_chunk.shape[0]:,d} rows back to list of chunks. New start time time is {time_first}"
-                        )
-                        chunks.append(rest_chunk)
-                else:
-                    # Chunk does not contain all data for one time.
-                    # Keep pulling data.
-                    logger.info(
-                        f"{num_chunks}/? loaded chunk(s) contains only one time value. Pull next chunk to check if there are more lines for that time value."
-                    )
-                    pass
-
-        rows, _ = self.get_last_processed_uid_of_row_mapping_cache()
-        logger.info(f"finished processing {rows:,d} rows of dcd_map table.")
-
-    @timing
-    def process_chunk(
-        self, data: pd.DataFrame, time_first, time_last, connection: sq.Connection
-    ):
-        all_rows = data.shape[0]
-        rest_chunk_rows = 0
-        processed_chunk_rows = all_rows
-        if time_first != time_last:
-            # more than one time!
-            last_time_mask = data["simtime"].iloc[-1] == data["simtime"]
-            rest_chunk = data[last_time_mask].copy()
-            data = data[~last_time_mask].copy()
-            rest_chunk_rows = rest_chunk.shape[0]
-            processed_chunk_rows = data.shape[0]
-        else:
-            rest_chunk = None
-
-        logger.info(
-            f"process {processed_chunk_rows:,d}/{all_rows:,d} rows. Keep {rest_chunk_rows:,d} rows of time {time_last}"
+        chunk_stream = SortedChunkStream(
+            sql_template=_sql, chunk_size=chunk_size, initial_offset=initial_offset
         )
-        mapping_by_time = (
-            data.groupby("simtime")["uid"]
-            .agg(["min", "max"])
-            .reset_index()
-            .set_axis(["simtime", "row_id_start", "row_id_end"], axis=1)
-        )
-        mapping_by_time_host_id = (
-            data.groupby(["simtime", "hostId"])["uid"]
-            .agg(["min", "max", "count"])
-            .reset_index()
-            .set_axis(
-                ["simtime", "host_id", "row_id_start", "row_id_end", "number_of_cells"],
-                axis=1,
+
+        for data, connection in chunk_stream.chunk_stream(connection_provider=self):
+            mapping_by_time = (
+                data.groupby("simtime")["uid"]
+                .agg(["min", "max"])
+                .reset_index()
+                .set_axis(["simtime", "row_id_start", "row_id_end"], axis=1)
             )
-        )
-        logger.info(f"save {mapping_by_time.shape[0]:,d} rows in mapping_by_time table")
-        connection.executemany(
-            self._tbl_insert_dpm_map_row_id_mapping_by_time, mapping_by_time.values
-        )
-        logger.info(
-            f"save {mapping_by_time_host_id.shape[0]:,d} rows in mapping_by_time_host_id table"
-        )
-        connection.executemany(
-            self._tbl_insert_dpm_map_row_id_mapping_by_time_hostId,
-            mapping_by_time_host_id.values,
-        )
-        connection.commit()
-        return rest_chunk
+            mapping_by_time_host_id = (
+                data.groupby(["simtime", "hostId"])["uid"]
+                .agg(["min", "max", "count"])
+                .reset_index()
+                .set_axis(
+                    [
+                        "simtime",
+                        "host_id",
+                        "row_id_start",
+                        "row_id_end",
+                        "number_of_cells",
+                    ],
+                    axis=1,
+                )
+            )
+            logger.info(
+                f"save {mapping_by_time.shape[0]:,d} rows in mapping_by_time table"
+            )
+            connection.executemany(
+                self._tbl_insert_dpm_map_row_id_mapping_by_time, mapping_by_time.values
+            )
+            logger.info(
+                f"save {mapping_by_time_host_id.shape[0]:,d} rows in mapping_by_time_host_id table"
+            )
+            connection.executemany(
+                self._tbl_insert_dpm_map_row_id_mapping_by_time_hostId,
+                mapping_by_time_host_id.values,
+            )
+            connection.commit()
 
     def get_dcd_map_row_id_cache(self):
         _sql = """select 
@@ -620,6 +536,53 @@ class DpmmSql:
         """
         _sql = "select d.simtime, count(*) as 'numberOfCells' from dcd_map_glb  as d group by  d.simtime;"
         return self.query(_sql, type="df")
+
+    def get_cell_count_global_by_rsd_over_time(
+        self, enb_pos: NDArray, chunk_size: int = 3_000_000
+    ) -> pd.DataFrame:
+        _sql = "select d.uid, d.simtime, d.x , d.y from dcd_map_glb as d where d.uid > {lower_bound} and d.uid <= {upper_bound}"
+
+        chunk_stream = SortedChunkStream(
+            sql_template=_sql,
+            chunk_size=chunk_size,
+            id_column="simtime",
+        )
+        glb_cell_count_by_enb: List[pd.DataFrame] = []
+        for chunk in chunk_stream.chunk_stream(self):
+            chunk.index = chunk["uid"]
+            ret = self._calc_min_dist_to_enb(chunk[["x", "y"]].values * 10, enb_pos)
+            ret.index = chunk["uid"]
+            data = (
+                pd.concat([chunk, ret], axis=1)
+                .groupby(["simtime", "enb"])["uid"]
+                .count()
+                .to_frame()
+                .set_axis(["glb_cell_count"], axis=1)
+            )
+            glb_cell_count_by_enb.append(data)
+            logger.debug(
+                f"processed times {chunk['simtime'].iloc[0]} to {chunk['simtime'].iloc[-1]}"
+            )
+
+        glb_cell_count_by_enb = pd.concat(glb_cell_count_by_enb, axis=0)
+        return glb_cell_count_by_enb
+
+    @staticmethod
+    def _calc_min_dist_to_enb(cells: NDArray, enb_pos: NDArray) -> pd.DataFrame:
+        """Calculates minimal distance between cells and enb position."""
+        selected_enb = np.zeros(cells.shape[0], dtype=int) - 1
+        selected_dist = np.zeros(cells.shape[0], dtype=float) + np.inf
+        for enb_ix, enb in enumerate(enb_pos):
+            dist = np.linalg.norm(cells - enb, axis=1)
+            mask_new_is_smaller = dist < selected_dist
+            selected_dist[mask_new_is_smaller] = dist[mask_new_is_smaller]
+            selected_enb[mask_new_is_smaller] = enb_ix + 1
+
+        cells_by_enb = (
+            np.concatenate([cells.T.flatten(), selected_enb]).reshape((3, -1)).T
+        )
+        cells_by_enb = pd.DataFrame(cells_by_enb, columns=["x", "y", "enb"])
+        return cells_by_enb
 
     def get_cell_count_by_host_id_over_time(self, sql_str=None) -> pd.DataFrame:
         """Return frame with [simtime, hostId, numberOfCells]
