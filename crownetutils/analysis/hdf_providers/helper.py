@@ -9,16 +9,31 @@ import pandas as pd
 from crownetutils.analysis.hdf.provider import BaseHdfProvider
 
 
-def save_box_plot_to_hdf(bbox: pd.Series, hdf: BaseHdfProvider, base_name: str = ""):
-    box_group = "{}boxes".format(base_name)
-    flier_group = "{}fliers".format(base_name)
+def save_box_plot_to_hdf(
+    bbox: pd.Series,
+    hdf: BaseHdfProvider,
+    base_name: str = "",
+    fliers_hdf: BaseHdfProvider = None,
+):
+    if fliers_hdf is None:
+        box_group = "{}boxes".format(base_name)
+        flier_group = "{}fliers".format(base_name)
+        hdf_box = hdf
+        hdf_fliers = hdf
+    else:
+        # ignore base_name and use separated providers
+        box_group = hdf.group
+        flier_group = fliers_hdf.group
+        hdf_box = hdf
+        hdf_fliers = fliers_hdf
+
     bbox = pd.DataFrame.from_records(data=bbox.values, index=bbox.index)
     fliers = (
         bbox["fliers"].explode().to_frame().set_axis(["fliers"], axis=1).astype(float)
     )
     bbox = bbox.drop(columns=["fliers"])
-    hdf.write_frame(frame=bbox, group=box_group)
-    hdf.write_frame(frame=fliers, group=flier_group)
+    hdf_box.write_frame(frame=bbox, group=box_group)
+    hdf_fliers.write_frame(frame=fliers, group=flier_group)
 
 
 class GroupWithAttributes:
