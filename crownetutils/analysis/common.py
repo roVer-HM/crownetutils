@@ -1555,6 +1555,11 @@ class IndexedSimulationFilter(Protocol):
         ...
 
 
+class IndexedSimulationFilterAll:
+    def __call__(self, isim: IndexedSimulation) -> bool:
+        return True
+
+
 @dataclass
 class CacheLoader(ABC):
     """Create a RunMap level data cache file. The CacheLoader looks first if the cache file exists.
@@ -1566,7 +1571,9 @@ class CacheLoader(ABC):
     cache_path: str
     root_group: str = "root"
     hdf: BaseHdfProvider = field(init=False)
-    idx_sim_filter: IndexedSimulationFilter = field(default=lambda x: True)
+    idx_sim_filter: IndexedSimulationFilter = field(
+        default_factory=IndexedSimulationFilterAll
+    )
 
     def cache_exists(self) -> bool:
         return os.path.exists(self.cache_path)
