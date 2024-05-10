@@ -95,7 +95,23 @@ class HdfInconsistentState(ValueError):
         super().__init__(*args)
 
 
-class BaseHdfProvider:
+class GroupedResultObject(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def group(self) -> str:
+        """Default group of result object"""
+        ...
+
+    def get_groups(self) -> List[str]:
+        """Return root groups of object"""
+        ...
+
+    def get_keys(self) -> List[str]:
+        """Return all result items in this object"""
+        ...
+
+
+class BaseHdfProvider(GroupedResultObject):
     def __init__(
         self,
         hdf_path: str,
@@ -104,11 +120,20 @@ class BaseHdfProvider:
         shared_loc: threading.Lock = None,
     ):
         self._lock = threading.Lock() if shared_loc is None else shared_loc
-        self.group: str = group
+        self._group: str = group
         self._hdf_path: str = hdf_path
         self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "blosc"}
         self.group_factory: Dict[str, HdfGroupFactory] = {}
         self._lazy_loading = allow_lazy_loading
+
+    @property
+    def group(self) -> str:
+        """Default group of result object"""
+        return self._group
+
+    @group.setter
+    def group(self, g: str):
+        self._group = g
 
     # allow pickling of hdf providers
     def __getstate__(self):
@@ -356,6 +381,12 @@ class BaseHdfProvider:
         with self.tables_file(self._hdf_path, "r") as hdf_file:
             ret = [c._v_name for c in hdf_file.root]
         return ret
+
+    def get_keys(self) -> List[str]:
+        k: List[str] = []
+        with self.ctx() as c:
+            k = c.keys()
+        return k
 
     def has_attribute(self, attr_key: str, group=None) -> bool:
         return self.get_attribute(attr_key, group, default=None) is not None

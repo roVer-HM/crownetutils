@@ -49,7 +49,7 @@ from crownetutils.analysis.dpmm.dpmm_cfg import (
     DpmmCfgCsv,
     DpmmCfgDb,
 )
-from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.hdf.provider import BaseHdfProvider, GroupedResultObject
 from crownetutils.dockerrunner.run_argparser import read_sim_run_context
 from crownetutils.entrypoint.parser import ArgList
 from crownetutils.omnetpp.scave import CrownetSql
@@ -1576,7 +1576,29 @@ class CacheLoader(ABC):
     )
 
     def cache_exists(self) -> bool:
-        return os.path.exists(self.cache_path)
+        if os.path.exists(self.cache_path):
+            # check if all groups exist
+            keys_on_disk = [k.strip("/") for k in self.hdf.get_keys()]
+            if self.hdf.group not in keys_on_disk:
+                logger.debug(
+                    f"group `{self.hdf.group}`not found ind groups: {keys_on_disk} of {self.hdf._hdf_path}"
+                )
+                return False
+            for f in dataclasses.fields(self):
+                if f.metadata is not None and "shared_hdf_provider" in f.metadata:
+                    _attr: GroupedResultObject = getattr(self, f.name)
+                    if not f.metadata["optional"]:
+                        _keys_expected = [k.strip("/") for k in _attr.get_keys()]
+                        all_found = all([k in keys_on_disk for k in _keys_expected])
+                        if not all_found:
+                            logger.debug(
+                                f"some keys not found. Expected: `{_keys_expected}` Keys on disk: {keys_on_disk}"
+                            )
+                            return False
+
+            return True
+
+        return False
 
     def check(self):
         if not self.cache_exists():
@@ -1596,16 +1618,49 @@ class CacheLoader(ABC):
 
     def __post_init__(self):
         self.hdf = BaseHdfProvider(self.cache_path, group=self.root_group)
+        found_root = None
         for f in dataclasses.fields(self):
             if f.metadata is not None and "shared_hdf_provider" in f.metadata:
                 _group_name = f.name.replace("hdf_", "")
-                _property = self.hdf.created_shared_provider(group=_group_name)
+                if "factory" in f.metadata and f.metadata["factory"] is not None:
+                    _property = f.metadata["factory"](self.hdf, _group_name)
+                else:
+                    _property = self.hdf.created_shared_provider(group=_group_name)
+                if f.metadata["is_root"]:
+                    if found_root is not None:
+                        raise ValueError(
+                            "Found to providers that claim to provide the root group. Only one can do that. Fix it. "
+                            f"Groups with root claim: `{found_root}` and `{_group_name}`"
+                        )
+
+                    self.root_group = _property.group
+                    self.hdf.group = _property.group
+                    found_root = _property.group
                 setattr(self, f.name, _property)
 
     @staticmethod
-    def shared_hdf_field():
-        """Name of property with removed 'hdf_' prefix if present will be the default group name"""
-        return field(init=False, metadata={"shared_hdf_provider": True})
+    def shared_hdf_field(
+        optional: bool = False, is_root: bool = False, factory=None
+    ) -> Any:
+        """Crates a new BaseHdfProvider object where the group name is equal to the
+         the name of property, with removed 'hdf_' prefix if present. The created property will
+         share the hdf path of the root BaseHdfProvider created during __post_init__.
+         All created poperies will be checked to see if the cached file includes the group.
+
+        Args:
+            optional (bool, optional): If true the group will be ignored during `cache_exist` call. Defaults to False.
+            is_root (bool, optional): If true this will override the root group set during init. Only one group can be the root group. Defaults to False.
+
+        """
+        return field(
+            init=False,
+            metadata={
+                "shared_hdf_provider": True,
+                "optional": optional,
+                "is_root": is_root,
+                "factory": factory,
+            },
+        )
 
     @staticmethod
     def save_hdf(hdf: BaseHdfProvider, frame: pd.DataFrame):
