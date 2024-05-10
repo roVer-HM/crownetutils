@@ -161,9 +161,13 @@ class BaseSimulationRunner:
         return filtered_map
 
     def post(self):
-        _post_f = list(self.f_map["post"])
+        _post_f = list(
+            self.f_map.get("post", [])
+        )  # f_map does may not have post key if no post function is defined in the run script
         _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
-        post_functions = [p for p in _post_f if self.qoi_filter.match(p[0], p[1])]
+        post_functions = [
+            p for p in _post_f if self.qoi_filter.match(p[0], p[1].__name__)
+        ]
 
         err = []
         total_post_timer = it.default_timer()

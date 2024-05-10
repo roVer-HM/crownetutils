@@ -372,6 +372,15 @@ class QoiFilter:
             return q.strip().split(",")
         return [q]
 
+    def sanitize(self, q: str):
+        # qoi is a output file name that will be created. Remove suffix and '.' if present
+        if "." in q:
+            q = q.split(".")[0]
+
+        # make qoi a valid method name
+        q = q.replace("-", "_")
+        return q
+
     def __init__(self, qoi) -> None:
         self._include = []
         self._exclude = [self.MatchAny()]  # none
@@ -383,7 +392,7 @@ class QoiFilter:
                         _qoi.extend(self.split_comma(ii))
                 else:
                     _qoi.extend(self.split_comma(i))
-
+            _qoi = [self.sanitize(q) for q in _qoi]
             filter_list = []
             for q in _qoi:
                 if q.startswith("!"):
