@@ -497,6 +497,40 @@ class FigureSaver:
         raise NotImplementedError()
 
 
+class FigureSaverList(FigureSaver):
+    def __init__(self, *saver: FigureSaver) -> None:
+        super().__init__()
+        self.savers: List[FigureSaver] = saver
+
+    def __call__(
+        self,
+        figure,
+        *args: Any,
+        tight_layout: bool = True,
+        close_figure: bool = True,
+        **kwargs,
+    ):
+        if len(self.savers) == 1:
+            self.savers(figure, *args, tight_layout, close_figure, **kwargs)
+        else:
+            last = self.savers[-1]
+            for s in self.savers[0:-1]:
+                s(
+                    figure,
+                    *args,
+                    tight_layout=tight_layout,
+                    close_figure=False,
+                    **kwargs,
+                )
+            last(
+                figure,
+                *args,
+                tight_layout=tight_layout,
+                close_figure=close_figure,
+                **kwargs,
+            )
+
+
 class NullSaver(FigureSaver):
     def __call__(self, figure, *args: Any, **kwargs):
         return
@@ -738,6 +772,7 @@ def matplotlib_set_latex_param() -> matplotlib.RcParams:
         [  # plots will use this preamble
             r"\usepackage[utf8]{inputenc}",
             r"\usepackage[T1]{fontenc}",
+            r"\usepackage{amssymb}",
             r"\usepackage[detect-all,round-mode=places,tight-spacing=true]{siunitx}",
         ]
     )
