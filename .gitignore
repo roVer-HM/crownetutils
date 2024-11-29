@@ -11,6 +11,9 @@ crownetutils/analysis/assets/
 crownetutils/analysis/flaskapp/application/static/*
 **/cache-directory
 
+# sphinx
+
+doc/source/_autosummary
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

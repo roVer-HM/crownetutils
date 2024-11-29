@@ -11,7 +11,6 @@ import pandas.testing as pdt
 import crownetutils.analysis.dpmm.csv_loader as DcdUtil
 from crownetutils.analysis.dpmm.dpmm import DpmMap
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
-from crownetutils.analysis.dpmm.plot.interactive import InteractiveAreaPlot
 from crownetutils.tests.utils import TestDataHandler
 from crownetutils.utils.misc import intersect
 from crownetutils.utils.path import PathHelper

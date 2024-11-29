@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import itertools
 import os
+import re
+from datetime import timedelta
 from functools import partial
 from typing import Callable, List, Tuple
 
@@ -10,8 +11,8 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 from pandas import IndexSlice as _i
-from pandas._typing import IntervalClosedType
 
 import crownetutils.omnetpp.scave as Scave
 import crownetutils.utils.plot as _Plot
@@ -22,17 +23,32 @@ from crownetutils.analysis.common import (
     Simulation,
     SimulationGroup,
 )
-from crownetutils.analysis.dpmm.dpmm import percentile
-from crownetutils.analysis.hdf_providers.node_position import (
+from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey
+from crownetutils.analysis.hdf.provider import (
     BaseHdfProvider,
-    EnbPositionHdf,
-    NodePositionHdf,
+    HdfGroupDataFactory,
+    HdfGroupFactory,
+    IHdfProvider,
+    ProviderVersion,
 )
-from crownetutils.omnetpp.scave import CrownetSql, SqlEmptyResult, SqlOp
-from crownetutils.utils.dataframe import FrameConsumer, append_index, merge_on_interval
+from crownetutils.analysis.hdf_providers.map_error_data import CellCountError
+from crownetutils.analysis.hdf_providers.node_position import NodePositionHdf
+from crownetutils.omnetpp.scave import (
+    CrownetSql,
+    SqlEmptyResult,
+    append_host_vector_index,
+)
+from crownetutils.omnetpp.sql import SqlOp
+from crownetutils.utils.dataframe import (
+    FrameConsumer,
+    append_columns,
+    append_index,
+    merge_on_interval,
+)
 from crownetutils.utils.logging import logger, timing
-from crownetutils.utils.misc import DataSource
-from crownetutils.utils.parallel import run_kwargs_map
+from crownetutils.utils.misc import DataSource, Project
+from crownetutils.utils.parallel import ExecutionItem, run_items, run_kwargs_map
+from crownetutils.utils.styles import STYLE_SIMPLE_169, style_context
 
 
 def make_run_series(
@@ -54,18 +70,32 @@ class _hdf_Extractor(AnalysisBase):
 
     @classmethod
     def extract_trajectories(cls, hdf_file: str, sql: CrownetSql):
+        # TODO: deprecated use NodePositionWithRsdHdf
         _hdf = BaseHdfProvider(hdf_file, "trajectories")
         pos = sql.node_position()
         _hdf.write_frame(group="trajectories", frame=pos)
 
     @classmethod
     def extract_rvcd_statistics(cls, hdf_file: str, sql: Scave.CrownetSql):
+        # TODO: deprecated use NodeRxData
         _hdf = BaseHdfProvider(hdf_file, "rcvd_stats")
         if _hdf.hdf_file_exists:
             logger.info("hdf file exists nothing to do.")
             return
         df = []
-        for module_name, m_str in [(sql.m_beacon(), "b"), (sql.m_map(), "m")]:
+
+        modules = []
+        # FIXME: check if applications are present.
+        try:
+            modules.append((sql.m_beacon(), "b"))
+        except:
+            pass
+        try:
+            modules.append((sql.m_map(), "m"))
+        except:
+            pass
+
+        for module_name, m_str in modules:
             logger.info(f"read vector data for {module_name}")
             seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
             seqNo_vec = sql.find_vector_name(module_name, seqNo_vec)
@@ -118,6 +148,7 @@ class _hdf_Extractor(AnalysisBase):
     def extract_packet_loss(
         cls, hdf_file: str, group_suffix: str, sql: CrownetSql, app: SqlOp
     ):
+        # TODO: depreated use Node
         try:
             pkt_loss_g = f"pkt_loss_{group_suffix}"
             raw_g = f"pkt_loss_raw_{group_suffix}"
@@ -139,64 +170,65 @@ class _hdf_Extractor(AnalysisBase):
             logger.error(e)
 
 
-class ServingEnbHdf(BaseHdfProvider):
-    @classmethod
-    def get(cls, hdf_path: str, sim: Simulation, **kwargs) -> ServingEnbHdf:
-        obj = cls(hdf_path=hdf_path, group="enb_association", allow_lazy_loading=True)
-        obj.add_group_factory(
-            obj.group,
-            partial(OppAnalysis.get_serving_enb, sql=sim.sql, with_host_id=True),
-        )
-        return obj
-
-    @classmethod
-    def from_sim(cls, sim: Simulation, **kwargs) -> ServingEnbHdf:
-        return cls.get(sim.path("position.h5"), sim, **kwargs)
-
-
 class _OppAnalysis(AnalysisBase):
     def __init__(self) -> None:
         pass
 
     def get_sim_real_time_ratio(
-        self, omnetpp_log_file_path: str | os.path = None
+        self, omnetpp_log_file_path: str = None
     ) -> pd.DataFrame:
         """
         Get ratio of simulation time and real time to measure performance
-        Packet age: (time x received packet i) - (time packet i created)
-                | sim_time        |  real_time   |  ratio_sim_real |
-            0   |  0.000          |  0.000021    | 0.000000        |
-            1   |  0.018          |  43.239500   | 0.000416        |
-            ... |  10.002         |  45.324600   | 4.788400        |
+        frame structure = ()["event_number", "simtime", "realtime", "events_per_simsec", "simsec_per_realsec", "events_per_simsec"]
         """
 
-        df = pd.DataFrame(data={"sim_time": [], "real_time": [], "ratio_sim_real": []})
+        # df = pd.DataFrame(data={"sim_time": [], "real_time": [], "ratio_sim_real": []})
 
-        self._check_omnetpp_container_log_file(omnetpp_log_file_path)
+        # self._check_omnetpp_container_log_file(omnetpp_log_file_path)
 
         with open(omnetpp_log_file_path, "r", encoding="utf-8") as fd:
             line_before = ""
-            for line in fd.readlines():
+
+            rows = []
+            row = []  # event_num
+
+            for line in fd:
+                if line.strip().startswith("<!>"):
+                    break
+                if line.strip().startswith("**"):
+                    col = re.sub("\s+", " ", line.strip()).split(" ")
+                    row.extend(
+                        [
+                            int(col[2][1:].strip()),  # event_num
+                            float(col[3].split("=")[1].strip()),  # simtime
+                            float(col[5][:-1].strip()),  # realtime_in_sec
+                        ]
+                    )
+                    line_before = line
+                    continue
+
                 if "Speed:" in line and "Elapsed:" in line_before:
                     # split strings and read values
-                    ratio = line.split("Speed:")[1]
-                    ratio_sim_real = float(
-                        ratio.split("simsec/sec=")[1].split("ev/simsec")[0]
-                    )
-                    sim_time = line_before.split("Elapsed:")[0]
-                    sim_time = float(sim_time.split("t=")[-1])
-                    real_time = line_before.split("Elapsed:")[1]
-                    real_time = float(real_time.split("s")[0])
+                    col = re.sub("\s+", " ", line.strip()).split(" ")
 
-                    df_ = pd.DataFrame(
-                        data={
-                            "sim_time": [sim_time],
-                            "real_time": [real_time],
-                            "ratio_sim_real": [ratio_sim_real],
-                        }
-                    )
-                    df = pd.concat([df, df_])
-                line_before = line
+                    ratio_ev_sec = float(col[1].split("=")[1].strip())
+                    ratio_sim_real = float(col[2].split("=")[1].strip())
+                    ratio_ev_sim_sec = float(col[3].split("=")[1].strip())
+                    row.extend([ratio_ev_sec, ratio_sim_real, ratio_ev_sim_sec])
+                    rows.append(tuple(row))
+                    row.clear()
+
+        df = pd.DataFrame.from_records(
+            rows,
+            columns=[
+                "event_number",
+                "simtime",
+                "realtime",
+                "events_per_sec",
+                "simsec_per_realsec",
+                "events_per_simsec",
+            ],
+        )
 
         df.reset_index(drop=True, inplace=True)
         if len(df) == 0:
@@ -205,6 +237,88 @@ class _OppAnalysis(AnalysisBase):
             )
 
         return df
+
+    def plot_simtime_to_realtime_ratios(
+        self, pef_data: str | pd.DataFrame, figure_path: str, nodes
+    ):
+        if isinstance(pef_data, str):
+            pef_data: pd.DataFrame = self.get_sim_real_time_ratio(pef_data)
+
+        pef_data = pef_data.dropna()
+        with style_context(STYLE_SIMPLE_169):
+            if nodes is None:
+                m = "a;a;c;c"
+            else:
+                m = "a;a;b;c;c"
+            fig, axes = plt.subplot_mosaic(m, figsize=(16, 18))
+
+            ax: plt.Axes = axes["a"]
+            tbla = axes["c"]
+            stats = pef_data[
+                ["events_per_sec", "simsec_per_realsec", "events_per_simsec"]
+            ]
+            _Plot.PlotUtil.stats_to_table(
+                stats, ax=tbla, num_format=lambda x: f"{x:.4e}"
+            )
+            # simsec/realsec over elapsed time
+            ax.scatter(
+                pef_data["realtime"],
+                pef_data["simsec_per_realsec"],
+                color="black",
+                marker=".",
+                label="sim/real-ratio",
+            )
+            ax.set_xlabel(
+                "Elapsed time -- realtime (days):hours:minutes / simtime hours:minute:seconds"
+            )
+            ax.set_ylabel("simtime / realtime ratio")
+            ax.set_ylim(0.0, 0.10)
+            ax.yaxis.set_major_locator(MultipleLocator(0.02))
+            ax.yaxis.set_minor_locator(MultipleLocator(0.01))
+            ax2: plt.Axes = ax.twinx()
+            ax2.scatter(
+                pef_data["realtime"],
+                pef_data["events_per_simsec"],
+                color="blue",
+                marker="+",
+                label="events/sim-ratio",
+            )
+            ax2.set_ylabel("events per simulated second")
+            ax2.grid(visible=False)
+            ax.set_title(
+                "Simulation time ratio and amount of events per simtime over elapsed time"
+            )
+            if nodes is not None:
+                ab = axes["b"]
+                ab.plot(
+                    nodes.reset_index()["simtime"] / 60,
+                    nodes["count"],
+                    "r--",
+                    label="number nodes",
+                )
+                ab.set_ylabel("Number of nodes")
+                ab.set_xlabel("Simulation time")
+
+            def time_format(x, pos=None):
+                days = int(np.floor(x / (60 * 60 * 24)))
+                hours = int(np.floor(x / (60 * 60)) % 24)
+                min = int(np.floor(x / 60) % 60)
+                days = f"{days}d:" if days > 0 else ""
+
+                nearest_match = np.abs(pef_data["realtime"] - x).idxmin()
+                simtime = timedelta(
+                    seconds=np.floor(pef_data.loc[nearest_match, "simtime"])
+                )
+                return f"{days}{hours:02}:{min:02}\n{simtime}"
+
+            # time_format(data["realtime"].max())
+
+            ax.xaxis.set_major_formatter(FuncFormatter(time_format))
+            ax.xaxis.set_major_locator(MultipleLocator(4 * 60 * 60))
+            ax.xaxis.set_minor_locator(MultipleLocator(1 * 60 * 60))
+            fig.legend(loc="center right")
+            fig.tight_layout()
+            fig.savefig(figure_path)
 
     def _check_omnetpp_container_log_file(self, omnetpp_log_file_path):
         if os.path.basename(omnetpp_log_file_path) != "container_opp.out":
@@ -320,7 +434,7 @@ class _OppAnalysis(AnalysisBase):
     def get_neighborhood_table_size(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str | None = None,
+        module_name: SqlOp | str | None = None,
         **kwargs,
     ) -> tuple[pd.DataFrame, np.ndarray]:
         """Extract neighborhood table size vectors from given module_name.
@@ -349,7 +463,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_jitter(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -370,7 +484,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_delay(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -391,7 +505,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_loss(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -412,7 +526,7 @@ class _OppAnalysis(AnalysisBase):
     def get_received_packet_count_per_source(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
         with_host_id: bool = False,
         append_source_id: bool = False,
         drop_self_message: bool = True,
@@ -433,7 +547,7 @@ class _OppAnalysis(AnalysisBase):
     def _get_received_host_ids(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
     ):
         # add eventNumber to allow concat with rx host id data
         columns = ["vectorId", "simtimeRaw", "value", "eventNumber"]
@@ -472,185 +586,10 @@ class _OppAnalysis(AnalysisBase):
         ).sort_index()
         return data
 
-    def get_serving_enb(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str | None = None,
-        with_host_id: bool = False,
-        drop_col: List[str] | None = ("vectorId",),
-    ):
-        """Serving enb based on 'serveringCell:vector for physical layer of nodes.
-        The vector contains the time point at which a switch to a new eNB takes place.
-        The eNB id of zero indicates no connection
-
-        Args:
-            sql (Scave.CrownetSql): _description_
-            module_name (Scave.SqlOp | str | None, optional): _description_. Defaults to None.
-            with_host_id (bool, optional): _description_. Defaults to False.
-            drop_col (List[str] | None, optional): _description_. Defaults to ("vectorId",).
-
-        Returns:
-            pd.DataFrame: [hostId, time, servingEnb]
-        """
-        module_name = sql.m_phy() if module_name is None else module_name
-        if with_host_id:
-            df = sql.vector_ids_to_host(
-                module_name,
-                "servingCell:vector",
-                pull_data=True,
-                value_name="servingEnb",
-                name_columns=["hostId"],
-                drop=drop_col if drop_col is None else list(drop_col),
-            )
-        else:
-            df = sql.vec_data(
-                module_name=module_name,
-                vector_name="servingCell:vector",
-                value_name="servingEnb",
-                drop=drop_col if drop_col is None else list(drop_col),
-            )
-        df = df.loc[:, ["hostId", "time", "servingEnb"]].sort_values(["hostId", "time"])
-        return df
-
-    def get_serving_enb_interval(
-        self,
-        sim: Simulation,
-        end_time_provider: Callable[[pd.Series], pd.Series] | None = None,
-        interval_closed: IntervalClosedType = "right",
-    ) -> pd.DataFrame:
-        """Get interval indexed serving cells with start and stop intervals.
-
-        Args:
-            sql (Scave.CrownetSql): Sql object.
-            end_time_provider (Callable[[pd.Series], pd.Series]): Apply callable to determine the last 'end' time. Callable has access to row [hostId, start, stop, servingEnb]
-            module_name (Scave.SqlOp | str | None, optional): Modules path. Defaults to None.
-            interval_closed (str, optional) =  Interval closing type . Defaults to right.
-
-
-        Returns:
-            pd.DataFrame: Indexed dataframe (hostId, interval)[start, stop, servingEnb]
-        """
-
-        if end_time_provider is None:
-            ue = NodePositionHdf.from_sim(sim).get_dataframe()
-            max_time_dict = ue.groupby("hostId")["time"].max().to_dict()
-            max_time = ue["time"].max()
-
-            def _apply(s):
-                if np.isnan(s["end"]):
-                    i = int(s["hostId"])
-                    if i in max_time_dict:
-                        t = (
-                            max_time
-                            if s["start"] > max_time_dict[i]
-                            else max_time_dict[i]
-                        )
-                        s["end"] = t
-                return s
-
-            end_time_provider = _apply
-
-        serving = ServingEnbHdf.from_sim(sim).get_dataframe()
-
-        serving = serving.loc[:, ["hostId", "time", "servingEnb"]].sort_values(
-            ["hostId", "time"]
-        )
-
-        # shift time column to get end time step.
-        _end = serving.groupby("hostId").shift(-1)
-        serving["end"] = _end["time"]
-        serving = serving.rename(columns={"time": "start"})
-
-        # set removal time of node as last time step based on end_time_provider
-        serving = serving.apply(end_time_provider, axis=1).dropna()
-        serving["delta"] = serving["end"] - serving["start"]
-
-        serving["interval"] = [
-            pd.Interval(*row, closed=interval_closed)
-            for _, row in serving[["start", "end"]].iterrows()
-        ]
-        serving = serving.loc[:, ["hostId", "interval", "start", "end", "servingEnb"]]
-        serving = serving.set_index(["hostId", "interval"]).sort_index()
-        return serving
-
-    def get_node_serving_data(
-        self,
-        sim: Simulation,
-        enb_pos: EnbPositionHdf | pd.DataFrame,
-        ue_pos: NodePositionHdf | pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Create data for positional eNB association of each node.
-
-        Args:
-            sql (Scave.CrownetSql): _description_
-            enb_pos (EnbPositionHdf): _description_
-            ue_pos (NodePositionHdf): _description_
-            end_time_provider (Callable[[pd.Series], pd.Series]): _description_
-
-        Returns:
-           Tuple[pd.DataFrame, LineCollection]: data frame of the form [hostId, time, host, vecIdx, x, y, servingEnb, x1, x2, color, segment]
-           and a LineCollection containing all segments
-        """
-
-        enb = (
-            enb_pos.get_dataframe() if isinstance(enb_pos, EnbPositionHdf) else enb_pos
-        )
-        ue = ue_pos.get_dataframe() if isinstance(ue_pos, NodePositionHdf) else ue_pos
-
-        enb_int = self.get_serving_enb_interval(sim)
-
-        # append enb association data
-        ue = ue.set_index(["hostId", "time"]).sort_index()
-        ue = merge_on_interval(ue, enb_int, index="time").fillna(-1)
-        ue = ue.drop(columns=["interval", "start", "end"])
-
-        # add next position (x1, y1) to create line segment (start point, end point)
-        ue2 = ue.groupby("hostId")[["x", "y"]].shift(-1).set_axis(["x1", "y1"], axis=1)
-        ue = pd.concat([ue, ue2], axis=1).dropna()
-
-        # extract enb association with start and end point data as array
-        ue_arr = (
-            ue.set_index(["hostId", "time"])
-            .sort_index()
-            .loc[:, ["servingEnb", "x", "y", "x1", "y1"]]
-            .to_numpy()
-        )
-
-        # use enb association as color index (will be used as array index )
-        enb_color_index = ue_arr[:, 0].astype(int) + 1
-
-        # create list of line segments. Each line segment consits of only two points. (start end end of line)
-        line_col = ue_arr[:, 1:].reshape(
-            -1, 2, 2
-        )  # [ [[x, y], [x1, y1]], [[.],[.]], ... ]
-
-        # create color array containg all enb's plus one for no connection and one for not in the simulation
-        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * enb.shape[0])))
-        enb_colors = enb_c[-(2 + enb.shape[0]) :]
-        enb_colors[0] = [
-            1,
-            1,
-            1,
-            1,
-        ]  # white: not in simulation (enb index -1) --> enb_color_index 0 (see above)
-        enb_colors[1] = [
-            0,
-            0,
-            0,
-            1,
-        ]  # black: not conneceted to any eNB (enb index 0) --> enb_color_index 1 (see above)
-
-        # match enb_color_index with actual color
-        enb_color_index = enb_colors[enb_color_index]  # replace color index with colors
-        # ue["color"] = enb_color_index.tolist()
-        ue["segment"] = line_col.tolist()
-
-        return ue
-
     def get_rcvd_generic_vec_data(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
         vector_name: str,
         value_name: str,
         with_host_id: bool = False,
@@ -708,6 +647,28 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     @timing
+    def cache_avgServedBlocksUl(
+        self,
+        sql: Scave.CrownetSql,
+        hdf: BaseHdfProvider,
+        enb_index_list: List[int],
+    ):
+        data = []
+        for enb in enb_index_list:
+            _data = OppAnalysis.get_avgServedBlocksUl(
+                sql, enb_index=enb, index=None
+            )  # uses index! not ID
+            _data["enb_idx"] = enb
+            data.append(_data)
+        data = pd.concat(data)
+        data["enb_idx"] = data["enb_idx"].astype(int)
+        data = data.set_index(["enb_idx", "time"]).sort_index()
+        hdf.write_frame(
+            group=hdf.group,
+            frame=data,
+        )
+
+    @timing
     def get_map_pkt_count_ts(
         self,
         sql: Scave.CrownetSql,
@@ -728,6 +689,7 @@ class _OppAnalysis(AnalysisBase):
         return df
 
     def append_run_col(self, func, run: int, **kwargs) -> pd.DataFrame:
+        """Add run coloumn. Used in pool based muliprocessing to concatenate data from different runs."""
         print(f"run func for run {run}")
         df = func(**kwargs)
         df["run"] = run
@@ -738,7 +700,7 @@ class _OppAnalysis(AnalysisBase):
     def sg_get_txAppInterval(
         self,
         sg: SimulationGroup,
-        app_type: str = "beacon",
+        module_names_f: Callable[[CrownetSql], SqlOp],
         interval_type: str = "all",
         jobs: int = 5,
     ) -> pd.DataFrame:
@@ -748,18 +710,14 @@ class _OppAnalysis(AnalysisBase):
                 func=self.get_txAppInterval,
                 run=run_id,
                 sql=sim.sql,
-                app_type=app_type,
+                module_names_f=module_names_f(sim.sql),
                 interval_type=interval_type,
             )
             for run_id, sim in sg.simulation_iter()
         ]
-        df = run_kwargs_map(func=self.append_run_col, kwargs_iter=kw_list, pool_size=5)
-        # for run_id, sim in sg.simulation_iter():
-        #     print(f"read run {run_id}")
-        #     _df = self.get_txAppInterval(sim.sql, app_type, interval_type)
-        #     _df["run"] = run_id
-        #     _df = _df.reset_index()
-        #     df.append(_df)
+        df = run_kwargs_map(
+            func=self.append_run_col, kwargs_iter=kw_list, pool_size=jobs
+        )
         df = pd.concat(df, ignore_index=True, verify_integrity=False)
         return df
 
@@ -767,17 +725,13 @@ class _OppAnalysis(AnalysisBase):
     def get_txAppInterval(
         self,
         sql: Scave.CrownetSql,
-        app_type: str = "beacon",
+        module_name: SqlOp,
         interval_type: str = "all",
     ) -> pd.DataFrame:
-        if app_type.lower() == "beacon":
-            m = sql.m_beacon(app_mod="scheduler")
-        else:
-            m = sql.m_map(app_mod="scheduler")
-
+        # TODO: deprecated use node_tx_data.py
         if interval_type in ["all", "real"]:
             df1 = sql.vector_ids_to_host(
-                module_name=m,
+                module_name=module_name,
                 vector_name="txInterval:vector",
                 name_columns=["hostId"],
                 pull_data=True,
@@ -786,7 +740,7 @@ class _OppAnalysis(AnalysisBase):
             ).drop(columns=["vectorId"])
         if interval_type in ["all", "det"]:
             df2 = sql.vector_ids_to_host(
-                module_name=m,
+                module_name=module_name,
                 vector_name="txDetInterval:vector",
                 name_columns=["host", "hostId"],
                 pull_data=True,
@@ -799,39 +753,6 @@ class _OppAnalysis(AnalysisBase):
             return df2
         else:
             return pd.concat([df1, df2], axis=1, ignore_index=False)
-
-    def _load_vectors(
-        self,
-        module_index,
-        sql: Scave.CrownetSql,
-        module_f,
-        vector_name: SqlOp | str | None = None,
-    ):
-        df = sql.vector_ids_to_host(
-            module_f(idx=module_index),
-            vector_name,
-            pull_data=True,
-            columns=["vectorId", "simtimeRaw", "value", "eventNumber"],
-            name_columns=["hostId"],
-        )
-        df = (
-            df.set_index(["eventNumber", "time", "hostId", "vectorId"])
-            .unstack(["vectorId"])
-            .droplevel(0, axis=1)
-        )
-        vec_names = sql.vec_info(
-            vector_ids=df.columns.to_list(), cols=["vectorId", "vectorName"]
-        )
-        vec_names["vectorName"] = vec_names["vectorName"].apply(
-            lambda x: x[: x.index(":")]
-        )
-        names = dict()
-        for idx, row in vec_names.reset_index().iterrows():
-            names[row["vectorId"]] = row["vectorName"]
-        df = df.rename(columns=names)
-        df["app"] = 0
-        df = df.reset_index().set_index(["app", "eventNumber", "time", "hostId"])
-        return df
 
     @timing
     def get_measured_sinr_d2d(
@@ -960,55 +881,10 @@ class _OppAnalysis(AnalysisBase):
             return df
         return hdf.get_dataframe(return_group)
 
-    @timing
-    def get_received_packet_loss2(
-        self,
-        sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
-    ) -> pd.DataFrame:
-        logger.info("load packet loss data from *.vec")
-
-        # statistic was renamed. Check old version fist.
-        seqNo_vec = ["rcvdPkSeqNo:vector", "rcvdPktPerSrcSeqNo:vector"]
-        seqNo_vec = sql.find_vector_name(module_name, seqNo_vec)
-        vec_names = {
-            seqNo_vec: {
-                "name": "seqNo",
-                "dtype": np.int32,
-            },
-            "rcvdPktPerSrcLossCount:vector": dict(name="pkt_loss_sum", dtype=np.int32),
-            "rcvdPktPerSrcCount:vector": dict(
-                name="total_pkt_received", dtype=np.int32
-            ),
-            "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
-            "rcvdPktPerSrcJitter:vector": dict(name="jitter", dtype=np.float32),
-            "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
-        }
-
-        vec_data = sql.vec_data_pivot(
-            module_name, vec_names, append_index=["srcHostId"]
-        ).sort_index()
-
-        # drop self messages, where hostId == srcHostId
-        _shape = vec_data.shape
-        _m = vec_data.index.get_level_values(
-            "hostId"
-        ) != vec_data.index.get_level_values("srcHostId")
-        vec_data = vec_data[_m].copy(deep=True)
-        logger.info(
-            f"remove self references (hostId==srcHostId): {_shape}->{vec_data.shape} "
-        )
-        vec_data["total_pkt_send"] = (
-            vec_data["pkt_loss_sum"] + vec_data["total_pkt_received"]
-        )
-        vec_data["PRR"] = vec_data["total_pkt_received"] / vec_data["total_pkt_send"]
-
-        return vec_data
-
     def get_received_packet_bytes(
         self,
         sql: Scave.CrownetSql,
-        module_name: Scave.SqlOp | str,
+        module_name: SqlOp | str,
     ) -> pd.DataFrame:
         df = sql.vec_data(
             module_name=module_name,
@@ -1023,6 +899,11 @@ class _OppAnalysis(AnalysisBase):
         hdf: BaseHdfProvider | None = None,
         hdf_group: str = "tx_pkt_bytes",
     ) -> pd.DataFrame:
+        """Sent bytes per application and node.
+
+        Returns:
+            pd.DataFrame: (app, time)[value]
+        """
         if hdf is not None:
             if hdf.contains_group(hdf_group):
                 return hdf.get_dataframe(hdf_group)
@@ -1053,7 +934,9 @@ class _OppAnalysis(AnalysisBase):
         freq: float = 1.0,
         hdf: BaseHdfProvider | None = None,
         hdf_group_base: str = "tx_throughput",
+        throuput_unit: float = 1000.0,
     ):
+        """Deprecated. use NodeTxData class"""
         hdf_group_diff = f"{hdf_group_base}_diff_{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group_diff):
             return hdf.get_dataframe(hdf_group_diff)
@@ -1064,7 +947,9 @@ class _OppAnalysis(AnalysisBase):
             data = hdf.get_dataframe(hdf_group)
         else:
             print("create packet throughput by app")
-            data = self.get_sent_packet_throughput_by_app(sql, freq=freq, hdf=hdf)
+            data = self.get_sent_packet_throughput_by_app(
+                sql, freq=freq, hdf=hdf, throughput_unit=throuput_unit
+            )
         for c in data.columns:
             _rate = target_rate[c]
             data[f"diff_{c}"] = data[c] - _rate
@@ -1080,7 +965,21 @@ class _OppAnalysis(AnalysisBase):
         tx_byte_data: pd.DataFrame | None = None,
         hdf: BaseHdfProvider | None = None,
         hdf_group_base: str = "tx_throughput",
+        throughput_unit: float = 1000.0,
     ):
+        """_summary_
+
+        Args:
+            sql (Scave.CrownetSql): _description_
+            freq (float, optional): _description_. Defaults to 1.0.
+            tx_byte_data (pd.DataFrame | None, optional): _description_. Defaults to None.
+            hdf (BaseHdfProvider | None, optional): _description_. Defaults to None.
+            hdf_group_base (str, optional): _description_. Defaults to "tx_throughput".
+            throughput_unit (float, optional): _description_. Defaults to 1000.0.
+
+        Returns:
+            _type_: _description_
+        """
         hdf_group = f"{hdf_group_base}{str(freq).replace('.','_')}"
         if hdf is not None and hdf.contains_group(hdf_group):
             return hdf.get_dataframe(hdf_group)
@@ -1102,7 +1001,7 @@ class _OppAnalysis(AnalysisBase):
             (
                 tx_rate.groupby([pd.cut(tx_rate.index, bins=bins), "app"]).sum()
                 / freq
-                / 1000
+                / throughput_unit
             )
             .unstack("app")
             .droplevel(0, axis=1)
@@ -1113,97 +1012,14 @@ class _OppAnalysis(AnalysisBase):
             hdf.write_frame(hdf_group, tx_rate)
         return tx_rate
 
-    # def get_sent_packet_bytes_for_map(
-    #     self,
-    #     sql: Scave.CrownetSql,
-    #     freq: float = 1.0,
-    # ) -> pd.DataFrame:
-    #     vec_ids = sql.vec_ids(
-    #         sql.m_map(),
-    #         "packetSent:vector(packetBytes)",
-    #     )
-    #     df = (
-    #         sql.vec_data(
-    #             # sql.m_map(),
-    #             # "packetSent:vector(packetBytes)",
-    #             ids=vec_ids[0:50],
-    #             time_slice=slice(0, 100.0),
-    #         )
-    #         .drop(columns=["vectorId"])
-    #         .sort_index()
-    #     )
-
-    #     bins = pd.interval_range(
-    #         start=0.0,
-    #         end=df.index.get_level_values(0).max(),
-    #         freq=freq,
-    #         closed="right",
-    #     )
-    #     df = df.groupby(pd.cut(df.index, bins)).sum() / freq / 1000  # kbps
-
-    #     return df
-
-    # def sg_get_sent_packet_throughput_by_app(
-    #     self, sim_group: SimulationGroup, freq: float = 1.0
-    # ) -> pd.DataFrame:
-    #     dfs = []
-    #     for rep, sim in sim_group.simulation_iter():
-    #         print(rep, sim)
-    #         df = self.get_sent_packet_bytes_for_map(sim.sql, freq=freq)
-    #         df["rep"] = rep
-    #         dfs.append(df.reset_index())
-
-    #     dfs = pd.concat(dfs, axis=1, ignore_index=True, verify_integrity=False)
-    #     dfs = dfs.set_index(["time", "app", "rep"])
-    #     return dfs
-
-    @timing
-    def append_count_diff_to_hdf(
-        self,
-        sim: Simulation,
-    ):
-        group_name = "count_diff"
-        _hdf = sim.get_base_provider(group_name, path=sim.builder.count_p._hdf_path)
-        if not _hdf.contains_group(group_name):
-            print(f"group '{group_name}' not found. Append to {_hdf._hdf_path}")
-            df = sim.get_dcdMap().count_diff()
-            _hdf.write_frame(group=group_name, frame=df)
-        else:
-            print(f"group '{group_name}' found. Nothing to do for {_hdf._hdf_path}")
-
     @timing
     def append_err_measures_to_hdf(
         self,
         sim: Simulation,
     ):
-        map = sim.get_dcdMap()
-        if sim.sql.is_count_map():
-            group = "map_measure"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group 'map_measure' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                map_measure = map.map_count_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=map_measure)
-
-        if sim.sql.is_entropy_map():
-            # use cell_value_measure method
-            group = "cell_measures"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                cell_measure = map.cell_value_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=cell_measure)
-        else:
-            # use cell_count_measure method
-            group = "cell_measures"
-            _hdf = sim.get_base_provider(group, path=sim.builder.count_p.hdf_path)
-            if _hdf.contains_group(group):
-                print(f"group '{group}' found. Nothing to do for {_hdf._hdf_path}")
-            else:
-                cell_measure = map.cell_count_measure(load_cached_version=False)
-                _hdf.write_frame(group=group, frame=cell_measure)
+        raise NotImplementedError(
+            "Logic moved to classed MapCountError, CellCountError and CellEntropyValueError."
+        )
 
     @timing
     def get_data_001(self, sim: Simulation):
@@ -1217,7 +1033,9 @@ class _OppAnalysis(AnalysisBase):
         dmap = sim.builder.build_dcdMap(selection=list(sel)[0])
 
         print("diff")
-        count_diff = DataSource.provide_result("count_diff", sim, dmap.count_diff())
+        count_diff = DataSource.provide_result(
+            "count_diff", sim, dmap.map_count_measure()
+        )
 
         print("box")
         err_box = DataSource.provide_result(
@@ -1347,7 +1165,7 @@ class _OppAnalysis(AnalysisBase):
         df = self.sg_collect_maps(sim_group, data, drop_nan)
 
         df = df.groupby(level=["sim", "simtime", "data"]).agg(
-            ["mean", "std", percentile(0.5)]
+            ["mean", "std", _Plot.percentile(50)]
         )  # over multiple runs/seeds
 
         if isinstance(df.columns, pd.MultiIndex):
@@ -1471,12 +1289,10 @@ class _OppAnalysis(AnalysisBase):
         self,
         sim_group: SimulationGroup,
         cell_count: int,
-        cell_slice: Tuple(slice) | pd.MultiIndex = (slice(None), slice(None)),
-        cell_slice_fc: FrameConsumer = FrameConsumer.EMPTY,
         consumer: FrameConsumer = FrameConsumer.EMPTY,
     ) -> pd.Series:
         """Mean squared (cell) error for all seed repetition in given SimulationGroup.
-        See DcDMap class for simulation based function.
+        See DcDMap/CellCountError class for simulation based function.
 
         Args:
             run_dict (Parameter_Variation): _description_
@@ -1487,37 +1303,34 @@ class _OppAnalysis(AnalysisBase):
         Returns:
             pd.Series: cell mean squared error over time and run_id index: [simtime, run_id]
         """
-        df = []
+        df: List[pd.DataFrame] = []
         print(f"execut group: {sim_group.group_name}")
-        if isinstance(cell_slice, pd.MultiIndex):
-            if cell_count > 0 and cell_count != cell_slice.shape[0]:
-                raise ValueError(
-                    "cell slice is given as an index object and cell_count value do not match.  Set cell_count=-1."
-                )
-            else:
-                cell_count = cell_slice.shape[0]
 
         for rep, sim in sim_group.simulation_iter():
             if sim.sql.is_count_map():
                 # handle based on density map counts
                 # missing values are set to a count of zero, assuming we do not count any
                 # nodes in these cells.
-                _df = sim.get_dcdMap().cell_count_measure(
-                    columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
-                )
+                cell_count_error = CellCountError(sim.dpmm_cfg.cell_count_error.path)
+                _df = cell_count_error.hdf_cell_measure.select(columns=["cell_mse"])
+
+                # _df = sim.get_dcdMap().cell_count_measure(
+                #     columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
+                # )
                 _df = _df.groupby(by=["simtime"]).sum() / cell_count
             else:
-                # any other kind of value (produced by the entropy map)
-                # missing values are removed and  not set to a reasonable estimate.
-                _df = sim.get_dcdMap().cell_value_measure(
-                    columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
-                )
-                _df = _df.groupby(
-                    by=["simtime"]
-                ).mean()  # mean of cell mean squared errror over all cels (i.e. MSME)
+                # # any other kind of value (produced by the entropy map)
+                # # missing values are removed and  not set to a reasonable estimate.
+                # _df = sim.get_dcdMap().cell_value_measure(
+                #     columns=["cell_mse"], xy_slice=cell_slice, fc=cell_slice_fc
+                # )
+                # _df = _df.groupby(
+                #     by=["simtime"]
+                # ).mean()  # mean of cell mean squared errror over all cels (i.e. MSME)
+                raise ValueError("Use CellEntropyValueError class....")
             _df.columns = [rep]
             _df.columns.name = "run_id"
-            print(f"add: {sim_group.group_name}_{sim.run_context.opp_seed}")
+            print(f"add: {sim_group.group_name} Seed {sim.run_context.opp_seed}")
             df.append(_df)
         df = pd.concat(df, axis=1, verify_integrity=True)
         df = consumer(df)
@@ -1569,6 +1382,36 @@ class _OppAnalysis(AnalysisBase):
             data = data.sort_index()
             data.to_hdf(run_map.path(hdf_path), key="cell_mse", format="table")
         return data
+
+    def run_collect_vec_info(
+        self,
+        run_map: RunMap,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        pool_size: int = 20,
+    ):
+        items: List[ExecutionItem] = []
+        sg: SimulationGroup
+        for g, sg in run_map.items():
+            for run_id, sim in sg.simulation_iter():
+                e = ExecutionItem(
+                    fn=sim.sql.vec_info,
+                    kwargs=dict(module_name=module_name, vector_name=vector_name),
+                )
+                e.add_post_function(append_columns, ["group", "run_id"], [g, run_id])
+                e.add_post_function(
+                    append_host_vector_index, sql=sim.sql, col_name="moduleName"
+                )
+                items.append(e)
+        print(f"got {len(items)} executon items")
+        df = run_items(
+            items=items,
+            pool_size=min(pool_size, len(items)),
+            raise_on_error=True,
+            unpack=True,
+        )
+        df = pd.concat(df)
+        return df
 
 
 class CellOccupancyInfo:

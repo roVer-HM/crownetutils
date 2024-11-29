@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from datetime import datetime
+from functools import partial
 from typing import Any, Dict, List
 
 from crownetutils.dockerrunner import DockerCfg, SimulationDispatcher
@@ -11,8 +12,18 @@ from crownetutils.dockerrunner.simulators.controllerrunner import add_control_ar
 from crownetutils.dockerrunner.simulators.omnetrunner import add_omnet_arguments
 from crownetutils.dockerrunner.simulators.sumorunner import add_sumo_arguments
 from crownetutils.dockerrunner.simulators.vadererunner import add_vadere_arguments
-from crownetutils.entrypoint.parser import SubstituteAction
-from crownetutils.utils.logging import levels, logger, set_format, set_level
+from crownetutils.entrypoint.parser import (
+    AppendEnvironmentAction,
+    QoiFilter,
+    SubstituteAction,
+)
+from crownetutils.utils.logging import (
+    add_file_handler,
+    levels,
+    logger,
+    set_format,
+    set_level,
+)
 
 
 def result_dir_with_opp(ns, working_dir) -> str:
@@ -21,7 +32,7 @@ def result_dir_with_opp(ns, working_dir) -> str:
     set result dir based on OMNeT++
     """
     config = ns["opp_args"].get_value("-c")
-    if os.path.abspath(ns["result_dir"]):
+    if os.path.isabs(ns["result_dir"]):
         return os.path.join(
             ns["result_dir"],
             f"{config}_{ns['experiment_label']}",
@@ -38,7 +49,7 @@ def result_dir_vadere_only(ns, working_dir):
     """Used with vader only setup.
     !Result directory callback
     """
-    if os.path.abspath(ns["result_dir"]):
+    if os.path.isabs(ns["result_dir"]):
         return ns["result_dir"]
     else:
         return os.path.join(working_dir, ns["result_dir"])
@@ -66,7 +77,7 @@ def read_sim_run_context(runner: Any, cfg_json: dict) -> Dict:
             f"Parse loop detected. The config file cannot contain the 'config' subcommand. [{cmd_args}]"
         )
 
-    logger.info(f"Load config {cmd_args}")
+    logger.debug(f"Load config {cmd_args}")
     return parse_run_script_arguments(runner=runner, args=cmd_args)
 
 
@@ -79,6 +90,14 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
         description=f"Used docker registry: {DockerCfg.registry}",
     )
     parent: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "--sqlite-tempdir",
+        default=None,
+        dest="sqlite_tmpdir",
+        action=partial(AppendEnvironmentAction, env_key="SQLITE_TMPDIR"),
+        help="Override temp directory for Sqlite. This can increase performance if the default directory location "
+        + "(/var/tmp, /usr/tmp, /tmp) are located on a network file system.",
+    )
     # arguments used by all sub-commands
     _add_base_arguments(parser=parent)
 
@@ -187,16 +206,47 @@ def parse_run_script_arguments(runner: SimulationDispatcher, args=None) -> Dict:
             cfg_json = json.load(fd)
         return read_sim_run_context(runner, cfg_json)
 
-    level_idx = ns["verbose"]
-    set_level(levels[level_idx])
-    set_format("%(asctime)s:%(module)s:%(levelname)s> %(message)s")
+    if runner.is_configure_logger():
+        # only do this the SimulationDispatcher is not a dummy object used for parallel setup.
+        level_idx = ns["verbose"]
+        log_level = levels[level_idx]
+        log_format = "%(asctime)s:%(module)s:%(levelname)s> %(message)s"
+        if ns["log_file"] is not None:
+            add_file_handler(ns["log_file"])
+        set_level(log_level)
+        set_format(log_format)
+
+    ns.setdefault("qoi_filter", QoiFilter(ns["qoi"]))
+    runner.set_options(ns)
+
+    if ns["print_qoi"] or ns["print_qoi_all"]:
+        runner.print_registered_qoi(apply_filter=not ns["print_qoi_all"])
+        sys.exit(os.EX_OK)  # code 0, all ok
 
     return ns
 
 
 def _add_base_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
-        "--qoi", action="append", nargs="+", help="specify qoi files", type=str
+        "--qoi",
+        action="append",
+        nargs="+",
+        help="Specify qoi files. Allows list of ids (1,4,7) as well as id ranges (2-5) inclusive. Defaults to none. Use 'all' to execute all",
+        type=str,
+    )
+    parser.add_argument(
+        "--qoi-list",
+        dest="print_qoi",
+        action="store_true",
+        default=False,
+        help="List all quantity of interest to be generated after applying filter provided with --qoi.",
+    )
+    parser.add_argument(
+        "--qoi-list-all",
+        dest="print_qoi_all",
+        action="store_true",
+        default=False,
+        help="List all available quantity of interest (implies --qoi all).",
     )
     parser.add_argument(
         "--pre",
@@ -228,6 +278,14 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         default=False,
         required=False,
         help="If true save docker stats for containers in result dir <result>/container_stats_<name>.out",
+    )
+
+    parser.add_argument(
+        "--write-log-to-file",
+        dest="log_file",
+        default=None,
+        required=False,
+        help="Write log messages to file provided file. This switch has no effect on the stdout log messages. To turn them off use the --silent. Default: None",
     )
 
     parser.add_argument(
@@ -291,4 +349,13 @@ def _add_base_arguments(parser: argparse.ArgumentParser):
         default="rovernet",
         required=False,
         help="Name of the docker bridge network that will be created",
+    )
+
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        default=False,
+        required=False,
+        action="store_true",
+        help="activate debug verbosity and fail fast with exepction chaining.",
     )

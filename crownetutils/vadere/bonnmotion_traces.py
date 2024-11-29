@@ -79,14 +79,16 @@ def read_traces(base_dir: str, trace_list_only: bool = False):
         return ret
 
 
-def write_seed_paring(seed, paring, base_output_path, comment: str = "") -> None:
+def write_seed_paring(
+    seed, paring, base_output_path, comment: str = "", mobility_name="vadere_seed"
+) -> None:
     vadere_seeds, opp_seeds = paring
     os.makedirs(base_output_path, exist_ok=True)
     with open(os.path.join(base_output_path, "omnetSeedManager.json"), "w") as fd:
         out = {
             "seed": seed,
             "reps": len(vadere_seeds),
-            "vadere_seeds": vadere_seeds,
+            mobility_name: vadere_seeds,
             "omnet_seeds": opp_seeds,
             "comment": comment,
         }
@@ -105,10 +107,12 @@ def seed_json_path(base_path: str, file_name: str = "omnetSeedManager.json") -> 
 
 
 def get_seed_paring(
-    base_path: str, file_name: str = "omnetSeedManager.json"
+    base_path: str,
+    file_name: str = "omnetSeedManager.json",
+    mobility_seeds="vadere_seeds",
 ) -> List[Tuple[int, int]]:
     f = read_seeds(base_path, file_name)
-    return list(zip(f["omnet_seeds"], f["vadere_seeds"]))
+    return list(zip(f["omnet_seeds"], f[mobility_seeds]))
 
 
 class CopyTrace:
@@ -144,13 +148,17 @@ def update_trace_config(
     opp_seed: int,
     trace_seed: int,
     seed_cfg: str = "*.bonnMotionServer.traceFile",
+    seed_format=None,
 ) -> dict:
     trace: str = par_var["omnet"][seed_cfg]
     if "SEED" not in trace:
         raise ValueError(
             f"trace config does not contain replacement key 'SEED': {trace}"
         )
-    trace = trace.replace("SEED", str(trace_seed))
+    if seed_format is None:
+        trace = trace.replace("SEED", str(trace_seed))
+    else:
+        trace = trace.replace("SEED", format(trace_seed, seed_format))
     par_var["omnet"][seed_cfg] = QString(trace)
     par_var["omnet"]["seed-set"] = str(opp_seed)
     return par_var

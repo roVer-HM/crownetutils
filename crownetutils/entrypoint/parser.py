@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import copy
+import os
 import re
 import shlex
-from typing import Sequence, Text
+from typing import Callable, Sequence, Text
 
 from crownetutils.dockerrunner.dockerrunner import DockerCleanup, DockerReuse
 
@@ -28,6 +31,46 @@ class SubstituteAction(argparse.Action):
             setattr(namespace, self.dest, self.sub_f(values))
         else:
             setattr(namespace, self.dest, values)
+
+
+class AppendEnvironmentAction(argparse.Action):
+    def __init__(
+        self,
+        env_key,
+        option_strings: Sequence[Text],
+        dest: Text,
+        nargs: int | Text | None = None,
+        const: argparse._T | None = None,
+        default: argparse._T | Text | None = None,
+        type: Callable[[str], argparse._T] | argparse.FileType | None = None,
+        choices: argparse.Iterable[argparse._T] | None = None,
+        required: bool = False,
+        help: Text | None = None,
+        metavar: Text | tuple[str, ...] | None = None,
+    ) -> None:
+        super().__init__(
+            option_strings,
+            dest,
+            nargs,
+            const,
+            default,
+            type,
+            choices,
+            required,
+            help,
+            metavar,
+        )
+        self.env_key = env_key
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Text | Sequence[argparse.Any] | None,
+        option_string: Text | None = None,
+    ) -> None:
+        if values is not None:
+            os.environ[self.env_key] = values
 
 
 class SimulationArgAction(argparse.Action):
@@ -281,3 +324,130 @@ class ArgList:
 
     def to_string(self, sep=" "):
         return sep.join(self.to_list())
+
+
+class QoiFilter:
+    class Match:
+        def __init__(self, invert: bool = False) -> None:
+            self.invert = invert
+
+    class MatchAny(Match):
+        def __init__(self) -> None:
+            super().__init__(False)
+
+        def match(self, prio, f_name):
+            return True
+
+    class MatchName(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: str = val
+
+        def match(self, prio, f_name):
+            return self.val == f_name
+
+    class MatchPrio(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: int = val
+
+        def match(self, prio, f_name):
+            return self.val == prio
+
+    class MatchPrioInterval(Match):
+        def __init__(self, val, invert: bool = False) -> None:
+            super().__init__(invert)
+            self.val: slice = val
+
+        def match(self, prio, f_name):
+            if self.val.start is None:
+                return prio <= self.val.stop
+            elif self.val.stop is None:
+                return prio >= self.val.start
+            else:
+                return prio >= self.val.start and prio <= self.val.stop
+
+    def split_comma(self, q: str):
+        if "," in q:
+            return q.strip().split(",")
+        return [q]
+
+    def sanitize(self, q: str):
+        # qoi is a output file name that will be created. Remove suffix and '.' if present
+        if "." in q:
+            q = q.split(".")[0]
+
+        # make qoi a valid method name
+        q = q.replace("-", "_")
+        return q
+
+    def __init__(self, qoi) -> None:
+        self._include = []
+        self._exclude = [self.MatchAny()]  # none
+        if qoi is not None:
+            _qoi = []
+            for i in qoi:
+                if isinstance(i, list):
+                    for ii in i:
+                        _qoi.extend(self.split_comma(ii))
+                else:
+                    _qoi.extend(self.split_comma(i))
+            _qoi = [self.sanitize(q) for q in _qoi]
+            filter_list = []
+            for q in _qoi:
+                if q.startswith("!"):
+                    invert = True
+                    q = q[1:]
+                else:
+                    invert = False
+
+                try:
+                    filter_list.append(self.MatchPrio(int(q), invert=invert))
+                    continue
+                except ValueError as e:
+                    ...
+
+                q_split = q.split("-")
+                if len(q_split) == 2:
+                    if q_split[0] == "":
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(None, int(q_split[1])), invert=invert
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                    if q_split[1] == "":
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(int(q_split[0]), None), invert=invert
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                    else:
+                        try:
+                            filter_list.append(
+                                self.MatchPrioInterval(
+                                    slice(int(q_split[0]), int(q_split[1])),
+                                    invert=invert,
+                                )
+                            )
+                            continue
+                        except ValueError as e:
+                            ...
+                if q == "all":
+                    filter_list.append(self.MatchAny())
+                else:
+                    filter_list.append(self.MatchName(q, invert=invert))
+            self._include = [m for m in filter_list if m.invert == False]
+            self._exclude = [m for m in filter_list if m.invert == True]
+
+    def match(self, prio, f_name) -> bool:
+        a = any([m.match(prio, f_name) for m in self._include])
+        b = not any([m.match(prio, f_name) for m in self._exclude])
+        return a and b

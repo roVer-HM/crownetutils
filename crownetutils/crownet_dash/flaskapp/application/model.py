@@ -181,11 +181,7 @@ def get_map_count_ts(sim: Simulation, node_id: int):
 @threaded_lru(maxsize=64)
 @timing
 def get_count_diff(sim: Simulation, node_id: int = -1):
-    if node_id == -1:
-        # all nodes -> mean count
-        return sim.get_dcdMap().count_diff(id_slice=slice(1, None, None))
-    else:
-        return sim.get_dcdMap().count_diff(id_slice=node_id)
+    raise NotImplementedError("use MapCountError class directly")
 
 
 @threaded_lru(maxsize=64)

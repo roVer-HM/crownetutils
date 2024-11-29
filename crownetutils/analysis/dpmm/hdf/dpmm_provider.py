@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, List, Union
+import sys
+from multiprocessing import set_forkserver_preload
+from typing import Callable, Dict, List, Union
 
 import geopandas as gpd
 import numpy as np
@@ -16,6 +18,7 @@ from crownetutils.analysis.dpmm.csv_loader import (
     owner_dist_feature,
     read_csv,
 )
+from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.hdf.groups import HdfGroups
 from crownetutils.analysis.hdf.provider import (
@@ -24,7 +27,7 @@ from crownetutils.analysis.hdf.provider import (
     VersionDict,
 )
 from crownetutils.utils.dataframe import FrameConsumer, LazyDataFrame
-from crownetutils.utils.logging import logger
+from crownetutils.utils.logging import TimeIt, logger, timing
 from crownetutils.utils.misc import ProgressCmd
 
 
@@ -47,6 +50,7 @@ class DpmmKey:
     HOST_ENTRY = "hostEntry"
     # v 0.4
     RSD_ID = "rsd_id"
+    RSD_ID_OWNER = "owner_rsd_id"
     # feature
     X_OWNER = "x_owner"
     Y_OWNER = "y_owner"
@@ -105,14 +109,15 @@ class DpmmKey:
                 SOURCE_ENTRY: float,
                 HOST_ENTRY: float,
                 SELECTION_RANK: float,
-                RSD_ID: float,
+                RSD_ID: int,
+                RSD_ID_OWNER: int,
             },
         }
     )
 
     count_map_creation_cols = {
         ProviderVersion.V0_1: [COUNT, X_OWNER, Y_OWNER],
-        ProviderVersion.V0_4: [COUNT, X_OWNER, Y_OWNER, RSD_ID],
+        ProviderVersion.V0_4: [COUNT, X_OWNER, Y_OWNER, RSD_ID, RSD_ID_OWNER],
     }
 
     types_features = {
@@ -154,6 +159,14 @@ class DpmmProvider(IHdfProvider):
     def group_key(self) -> str:
         return HdfGroups.DCD_MAP
 
+    def print_info(self, fd=sys.stdout):
+        with self.tables_file(self.hdf_path, mode="r") as hdf_file:
+            attr = hdf_file.root[self.group].table.attrs
+            print(f"Info for Group: {hdf_file.root['dcd_map']._v_pathname}", file=fd)
+            print(f"\tnumber of rows: {attr['NROWS']:,}", file=fd)
+            print(f"\ttime interval: {attr['time_interval']}", file=fd)
+            print(f"\tcell_size: {attr['cell_size']}", file=fd)
+
     def index_order(self) -> Dict:
         return {
             0: DpmmKey.SIMTIME,
@@ -169,26 +182,33 @@ class DpmmProvider(IHdfProvider):
     def default_index_key(self) -> str:
         return DpmmKey.SIMTIME
 
-    def create_from_csv(
-        self, csv_paths: List[str], frame_consumer: List[FrameConsumer] = [], **kwargs
+    def create_from_db(
+        self,
+        sql: DpmmSql,
+        frame_consumer: List[FrameConsumer] = [],
+        **kwargs,
     ) -> None:
-        progress = ProgressCmd(prefix="read csv: ", cycle_count=len(csv_paths))
-        for file_path in csv_paths:
+        host_ids = sql.get_host_ids()
+        progress = ProgressCmd(
+            prefix="read maps from db: ",
+            cycle_count=len(host_ids),
+            print_interval=0.01,
+            override_row=False,
+        )
+        for host_id in host_ids:
             progress.incr()
-            # build data frame from csv
             try:
-                dcd_df = self.build_dcd_dataframe(file_path, **kwargs)
+                dcd_df = self.build_dcd_dataframe_db(sql=sql, node_id=host_id, **kwargs)
             except EmptyDataError as e:
-                logger.warning(f"Empty DPMM file. Skip {file_path}")
+                logger.warning(f"Empty DPMM file. Skip host {host_id}")
                 continue
 
-            # append to table but do not index (will be done at the end)
             with self.ctx() as store:
                 store.append(
                     key=self.group,
                     value=dcd_df,
-                    index=True,
                     format="table",
+                    index=False,
                     data_columns=True,
                 )
             # send data frame to frame_consumers
@@ -198,14 +218,62 @@ class DpmmProvider(IHdfProvider):
         self.set_selection_mapping_attribute()
         self.set_used_selection_attribute()
 
-    def parse_node_id(self, path: str) -> int:
-        grps = [m.groupdict() for m in self.node_regex.finditer(path)]
-        if not grps:
-            raise ValueError(f"No node id found in: {path}")
-        node_id = int(grps.pop()["node"])
-        return node_id
+    def create_from_csv(
+        self,
+        csv_paths: List[str],
+        id_extractor: Callable[[str], str],
+        frame_consumer: List[FrameConsumer] = [],
+        **kwargs,
+    ) -> None:
+        progress = ProgressCmd(
+            prefix="read csv: ",
+            cycle_count=len(csv_paths),
+            print_interval=0.01,
+            override_row=False,
+        )
+        for file_path in csv_paths:
+            progress.incr()
+            # build data frame from csv
+            try:
+                node_id = id_extractor(file_path)
+                dcd_df = self.build_dcd_dataframe(file_path, node_id=node_id, **kwargs)
+            except EmptyDataError as e:
+                logger.warning(f"Empty DPMM file. Skip {file_path}")
+                continue
 
-    def build_dcd_dataframe(self, path: str, **kwargs) -> pd.DataFrame:
+            with self.ctx() as store:
+                store.append(
+                    key=self.group,
+                    value=dcd_df,
+                    format="table",
+                    index=False,
+                    data_columns=True,
+                )
+            # send data frame to frame_consumers
+            for consumer in frame_consumer:
+                consumer(dcd_df)
+
+        self.set_selection_mapping_attribute()
+        self.set_used_selection_attribute()
+
+    @timing
+    def build_dcd_dataframe_db(self, sql: DpmmSql, node_id, **kwargs) -> pd.DataFrame:
+        meta: DpmmMetaData = sql.metadata(node_id)
+        if meta.version != self.version:
+            logger.warn(
+                f"version missmatch {meta.version}!={self.version} for node {node_id}"
+            )
+        df, meta = sql.read_map(
+            host_id=node_id,
+            index_types=DpmmKey.types_csv_index[meta.version],
+            col_types_dict=DpmmKey.types_csv_columns[meta.version],
+            real_coords=True,
+            df_filter=self.csv_filters,
+        )
+        return self._build_dcd_dataframe(df, node_id, meta, **kwargs)
+
+    @timing
+    def build_dcd_dataframe(self, path: str, node_id: int, **kwargs) -> pd.DataFrame:
         _df = LazyDataFrame.from_path(path)
         meta = _df.read_meta_data()
         meta = DpmmMetaData.from_dict(meta)
@@ -219,8 +287,15 @@ class DpmmProvider(IHdfProvider):
             real_coords=True,
             df_filter=self.csv_filters,
         )
+        return self._build_dcd_dataframe(df, node_id, meta, **kwargs)
+
+    def _build_dcd_dataframe(
+        self, df: pd.DataFrame, node_id: int, meta: DpmmMetaData, **kwargs
+    ) -> pd.DataFrame:
+        if df.empty:
+            raise EmptyDataError()
         # add own node id
-        df[DpmmKey.NODE] = self.parse_node_id(path)
+        df[DpmmKey.NODE] = node_id
         # set index
         df = df.reset_index()
         index = list(self.index_order().values())
@@ -256,6 +331,14 @@ class DpmmProvider(IHdfProvider):
             )
 
         return df
+
+    def get_rsd_ids(self) -> pd.Series:
+        with self.ctx(mode="r") as store:
+            df = store.get(key=DpmmKey.RSD_ID)
+        return df
+
+    def has_rsd_is(self) -> bool:
+        return self.contains_group(DpmmKey.RSD_ID)
 
     def update_selection_map(self, keys):
         next_idx = max(self.selection_mapping.values()) + 1

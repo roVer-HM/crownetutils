@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import contextlib as c
 import locale
 import os
-import time
+import timeit
 from functools import partial
 from typing import Any, List
 
 import numpy as np
 import pyproj
 from shapely.ops import transform
+
+from crownetutils.utils.logging import logger
 
 
 class Result:
@@ -86,21 +90,30 @@ def apply_str_filter(filter: str, data: List[int]):
 
 
 class ProgressCmd:
-    def __init__(self, cycle_count, prefix="", print_interval=0.05):
+    def __init__(
+        self, cycle_count, prefix="", print_interval=0.05, override_row: bool = True
+    ):
         self.cycle_count = cycle_count
         self.print_interval = print_interval
         self.prefix = prefix
         self.curr = 0
         self.curr_th = 0.0
+        self.override_row = override_row
 
     def incr(self, cycle=1):
         self.curr += cycle
         if (self.curr / self.cycle_count) > self.curr_th:
             self.curr_th += self.print_interval
-            print(
-                f"\r{self.prefix}{self.curr:03}/{self.cycle_count:03}--{(self.curr / self.cycle_count):02.2%}",
-                end="",
-            )
+            if self.override_row:
+                print(
+                    f"\r{self.prefix}{self.curr:03}/{self.cycle_count:03}--{(self.curr / self.cycle_count):02.2%}",
+                    end="",
+                )
+            else:
+                logger.info(
+                    f"{self.prefix}{self.curr:03}/{self.cycle_count:03}--{(self.curr / self.cycle_count):02.2%}",
+                )
+
         if self.curr >= self.cycle_count:
             print("")
 
@@ -110,23 +123,46 @@ class Timer:
 
     @classmethod
     def create_and_start(cls, name="timer", label=0):
-        return cls(name, label)
+        t = cls(name, label)
+        return t.start()
 
-    def __init__(self, name, label):
+    def __init__(self, name="timer", label=0):
         self._name = name
         self._label = label
-        self._start = time.time()
+        self._start = timeit.default_timer()
+        self._round = self._start
 
-    def stop(self):
-        if self.ACTIVE:
-            print(
-                f"{self._label}::timer>> {time.time() - self._start:0.5f}s\t({self._name})"
-            )
+    def __enter__(self):
+        self._start = timeit.default_timer()
+        self._round = self._start
         return self
 
-    def start(self, name):
+    def __call__(self, name: str) -> Timer:
         self._name = name
-        self._start = time.time()
+
+    def __exit__(self, type, value, traceback):
+        self.stop("sum")
+
+    def stop(self, msg: str = ""):
+        return self._print(timeit.default_timer() - self._start, msg)
+
+    def round(self, msg: str = ""):
+        if self.ACTIVE:
+            now = timeit.default_timer()
+            t = now - self._round
+            self._round = now
+            self._print(t, msg)
+        self
+
+    def _print(self, t, name):
+        if self.ACTIVE:
+            logger.info(f"{self._label}::timer>> {t:2.4f}s\t({name})")
+        return self
+
+    def start(self, name: str = ""):
+        self._name = name
+        self._start = timeit.default_timer()
+        self._round = self._start
         return self
 
     def stop_start(self, new_name):

@@ -4,9 +4,12 @@ import abc
 import contextlib
 import os
 import re
+import shlex
 import subprocess
 import threading
+import timeit
 import warnings
+from dataclasses import dataclass
 from enum import Enum
 from tempfile import NamedTemporaryFile
 from typing import (
@@ -30,7 +33,7 @@ from geopandas.geodataframe import GeoDataFrame
 from crownetutils.analysis.hdf.geo_provider import GeoProvider
 from crownetutils.analysis.hdf.operator import Operation
 from crownetutils.omnetpp.sim_bound import SimBound
-from crownetutils.utils.logging import logger
+from crownetutils.utils.logging import TimeIt, logger
 
 
 class UnsupportedOperation(RuntimeError):
@@ -43,17 +46,94 @@ class HdfGroupDataFactory(Protocol):
         """Callable that returns a data frame"""
         ...
 
+    @staticmethod
+    def LAZY_LOAD_NOT_SUPPORTED(self) -> pd.DataFrame:
+        raise ("lazy loading not supported for this group.")
 
-class BaseHdfProvider:
+
+class HdfGroupAppendMetadata(Protocol):
+    def __call__(self) -> dict:
+        """Callable that returns dictionary with key value pairs added to group metadata"""
+        ...
+
+    @staticmethod
+    def EMPTY() -> dict:
+        return {}
+
+
+class HdfGroupFramePostProcessing(Protocol):
+    def __call__(
+        self, frame: pd.DataFrame, p: BaseHdfProvider, key=None
+    ) -> pd.DataFrame:
+        ...
+
+    @staticmethod
+    def EMPTY(frame: pd.DataFrame, p: BaseHdfProvider) -> pd.DataFrame:
+        return frame
+
+
+class HdfGroupFactory:
     def __init__(
-        self, hdf_path: str, group: str = "root", allow_lazy_loading: bool = False
+        self,
+        group_name: str,
+        factory: HdfGroupDataFactory,
+        meta: HdfGroupAppendMetadata = None,
+        post: HdfGroupFramePostProcessing = None,
+    ) -> None:
+        self.group = group_name
+        self.factory = factory
+        self.meta: HdfGroupAppendMetadata = (
+            HdfGroupAppendMetadata.EMPTY if meta is None else meta
+        )
+        self.post: HdfGroupFramePostProcessing = (
+            HdfGroupFramePostProcessing.EMPTY if post is None else post
+        )
+
+
+class HdfInconsistentState(ValueError):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
+class GroupedResultObject(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def group(self) -> str:
+        """Default group of result object"""
+        ...
+
+    def get_groups(self) -> List[str]:
+        """Return root groups of object"""
+        ...
+
+    def get_keys(self) -> List[str]:
+        """Return all result items in this object"""
+        ...
+
+
+class BaseHdfProvider(GroupedResultObject):
+    def __init__(
+        self,
+        hdf_path: str,
+        group: str = "root",
+        allow_lazy_loading: bool = False,
+        shared_loc: threading.Lock = None,
     ):
-        self._lock = threading.Lock()
-        self.group: str = group
+        self._lock = threading.Lock() if shared_loc is None else shared_loc
+        self._group: str = group
         self._hdf_path: str = hdf_path
-        self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "zlib"}
-        self.group_factory: Dict[str, HdfGroupDataFactory] = {}
+        self._hdf_args: Dict[str, Any] = {"complevel": 9, "complib": "blosc"}
+        self.group_factory: Dict[str, HdfGroupFactory] = {}
         self._lazy_loading = allow_lazy_loading
+
+    @property
+    def group(self) -> str:
+        """Default group of result object"""
+        return self._group
+
+    @group.setter
+    def group(self, g: str):
+        self._group = g
 
     # allow pickling of hdf providers
     def __getstate__(self):
@@ -73,12 +153,31 @@ class BaseHdfProvider:
                 self.repack_hdf(keep_old_file=False)
         return self
 
+    def created_shared_provider(self, group: str) -> BaseHdfProvider:
+        """Create a new BaseHdfProvider instance pointing to the same file and base configs but with other selected group.
+
+        The created provider shares the same thread lock to access the file
+
+        Args:
+            group (str): new group name
+
+        Returns:
+            BaseHdfProvider:
+
+        """
+        return BaseHdfProvider(
+            hdf_path=self._hdf_path,
+            group=group,
+            allow_lazy_loading=self._lazy_loading,
+            shared_loc=self._lock,
+        )
+
     @property
     def lazy_loading(self) -> bool:
         return self._lazy_loading
 
-    def add_group_factory(self, group: str, factory: HdfGroupDataFactory):
-        self.group_factory[group] = factory
+    def add_group_factory(self, f: HdfGroupFactory):
+        self.group_factory[f.group] = f
 
     def __setstate__(self, state):
         self.__dict__.update(state)
@@ -94,7 +193,16 @@ class BaseHdfProvider:
 
         with self.ctx(mode="r") as store:
             df = store.get(key=_key)
-        return pd.DataFrame(df)
+        df = pd.DataFrame(df)
+
+        if _key in self.group_factory:
+            df = self.group_factory[_key].post(df, self)
+
+        return df
+
+    def frame(self, group=None) -> pd.DataFrame:
+        """Alias for get_dataframe"""
+        return self.get_dataframe(group)
 
     def _check_lazy_load(self, group: str | None = None):
         key = self.group if group is None else group
@@ -106,19 +214,24 @@ class BaseHdfProvider:
             raise ValueError(f"group: {group} already exists. Cannot override content.")
         if not self.lazy_loading:
             raise ValueError(
-                f"group: {group} not in HDF file but lazy loading deactivated off"
+                f"group: {group} not in HDF file {self._hdf_path} but lazy loading deactivated off"
             )
         if group not in self.group_factory:
             raise KeyError(
-                f"group: {group} not in HDF file and no factory available. (lazy loading on)"
+                f"group: {group} not in HDF file {self._hdf_path} and no factory available. (lazy loading on)"
             )
 
         logger.info(
             f"execute group factory callback for group {group} for file {self._hdf_path}"
         )
-        data = self.group_factory[group]()
+        gf = self.group_factory[group]
+        data = gf.factory()
         logger.info(f"write group {group} to file {self._hdf_path}")
         self.write_frame(group=group, frame=data, index=True, index_data_columns=True)
+        if gf.meta is not None:
+            logger.info(f"append metadata to group {group} to file {self._hdf_path}")
+            for k, v in gf.meta().items():
+                self.set_attribute(attr_key=k, value=v, group=group)
 
     def write_frame(self, group, frame, index=True, index_data_columns=True):
         with self.ctx() as store:
@@ -159,24 +272,28 @@ class BaseHdfProvider:
             "ptrepack",
             "--chunkshape=auto",
             "--propindexes",
+            "--dont-regenerate-old-indexes",
             "--complib",
-            self._hdf_args.get("complib", "zlib"),
+            self._hdf_args.get("complib", "blosc"),
             "--complevel",
             str(self._hdf_args.get("complevel", 9)),
             self._hdf_path,
             new_path,
         ]
-
+        size_old_mb = os.path.getsize(self._hdf_path) / 1e6
         try:
-            fd = NamedTemporaryFile()
-            logger.info(f"repack {self._hdf_path}. This might take some time...")
-            ret = subprocess.check_call(
-                args,
-                stdout=fd,
-                stderr=fd,
-                env=os.environ,
-                cwd=os.path.dirname(self._hdf_path),
-            )
+            timer = TimeIt()
+            with timer:
+                fd = NamedTemporaryFile()
+                logger.info(f"repack {self._hdf_path}. This might take some time...")
+                logger.info(f"repack args: {' '.join(args)}")
+                ret = subprocess.check_call(
+                    args,
+                    stdout=fd,
+                    stderr=fd,
+                    env=os.environ,
+                    cwd=os.path.dirname(self._hdf_path),
+                )
         except subprocess.CalledProcessError:
             logger.error(f"Error while repacking {self._hdf_path}\nargs:{args}")
             with open(fd.name, "r") as f:
@@ -190,8 +307,12 @@ class BaseHdfProvider:
         else:
             os.rename(self._hdf_path, old_path)
             os.rename(new_path, self._hdf_path)
+            size_new_mb = os.path.getsize(self._hdf_path) / 1e6
+            msg = f"repack done. Took {timer.str()} size {size_old_mb:,.2f}MB -> {size_new_mb:,.2f}MB."
             if not keep_old_file:
+                msg = f"{msg} Removing old file."
                 os.remove(old_path)
+            logger.info(msg)
 
     def set_attribute(self, attr_key: str, value: Any, group=None):
         _key = self.group if group is None else group
@@ -201,17 +322,71 @@ class BaseHdfProvider:
                 hdf_file.create_group("/", _key, "")
             hdf_file.root[_key].table.attrs[attr_key] = value
 
-    def get_attribute(self, attr_key: str, group=None, default: Any = None):
+    def list_attributes(self, group, ignore_private: bool = True):
+        g = group
+        ret = {}
+        with self.tables_file(self._hdf_path, "r") as hdf_file:
+            path_items = g.split("/")
+            _dir = hdf_file.root
+            for _p in path_items:
+                if _p in _dir:
+                    _dir = _dir[_p]
+                else:
+                    raise ValueError(f"Group {g} not found")
+            attr = _dir.table.attrs
+            attr_keys = attr._f_list()
+            for k in attr_keys:
+                if ignore_private and k.startswith("_"):
+                    continue
+                else:
+                    ret[k] = attr[k]
+
+        return ret
+
+    def get_attribute(
+        self,
+        attr_key: str,
+        group=None,
+        default: Any = None,
+        raise_on_key_error: bool = True,
+    ):
         if not self.hdf_file_exists:
             return default
 
         _key = self.group if group is None else group
         with self.tables_file(self._hdf_path, "r") as hdf_file:
+            _dir = hdf_file.root
+            path_items = _key.split("/")
+            for p in path_items:
+                if p in _dir:
+                    _dir = _dir[p]
+                else:
+                    if raise_on_key_error:
+                        raise ValueError(
+                            f"Key not found {_key}. Root contains {hdf_file.root}"
+                        )
+                    else:
+                        return False
             # with tables.open_file(self._hdf_path, "r") as hdf_file:
-            if attr_key in hdf_file.root[_key].table.attrs:
-                return hdf_file.root[_key].table.attrs[attr_key]
-            else:
+            try:
+                if attr_key in _dir.table.attrs:
+                    return hdf_file.root[_key].table.attrs[attr_key]
+                else:
+                    return default
+            except tables.exceptions.NoSuchNodeError as e:
                 return default
+
+    def get_groups(self) -> List[str]:
+        """returns top level groups without leading or trailing '/'"""
+        with self.tables_file(self._hdf_path, "r") as hdf_file:
+            ret = [c._v_name for c in hdf_file.root]
+        return ret
+
+    def get_keys(self) -> List[str]:
+        k: List[str] = []
+        with self.ctx() as c:
+            k = c.keys()
+        return k
 
     def has_attribute(self, attr_key: str, group=None) -> bool:
         return self.get_attribute(attr_key, group, default=None) is not None
@@ -247,7 +422,13 @@ class BaseHdfProvider:
         """
         if self.hdf_file_exists:
             with self.ctx() as ctx:
-                return group in [g._v_name for g in ctx.groups()]
+                if "/" in group:
+                    # ensure absolute path
+                    if group[0] != "/":
+                        group = f"/{group}"
+                    return group in [g._v_pathname for g in ctx.groups()]
+                else:
+                    return group in [g._v_name for g in ctx.groups()]
         return False
 
     @contextlib.contextmanager  # to ensure store closes after access
@@ -317,7 +498,29 @@ class BaseHdfProvider:
                 iterator=iterator,
                 chunksize=chunksize,
             )
+
+        if key in self.group_factory:
+            ret = self.group_factory[key].post(ret, self)
+
         return ret
+
+    def __repr__(self):
+        type_ = type(self)
+        module = type_.__module__
+        qualname = type_.__qualname__
+        fname = os.path.basename(self._hdf_path)
+        return f"<{module}.{qualname}[{fname}/{self.group}] object at {hex(id(self))}>"
+
+
+class LazyHdfProvider(BaseHdfProvider):
+    def __init__(
+        self, hdf_path: str, group: str, group_factories: List[HdfGroupFactory]
+    ):
+        super().__init__(hdf_path, group, allow_lazy_loading=True)
+        if isinstance(group_factories, HdfGroupFactory):
+            group_factories = [group_factories]
+        for f in group_factories:
+            self.add_group_factory(f)
 
 
 class ProviderVersion(Enum):
@@ -617,30 +820,28 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
         return condition, columns
 
     def __getitem__(self, item: any) -> pd.DataFrame:
-        condition, columns = self.dispatch(self.default_index_key(), item)
-        condition.extend(list(self._filters))
-        # remove conditions containing 'None' values
-        condition = [i for i in condition if not "None" in i]
+        condition, columns = self.parse_index_slice(item)
         if len(condition) == 0 and columns is None:
             # empty condition -> return full frame
             dataframe = self.get_dataframe()
         else:
             dataframe = self._select_where(condition, columns)
-        # if (
-        #     dataframe.empty and columns is None
-        # ):  # if len(column) == 0 user only wants index!
-        #     raise ValueError(
-        #         f"Returned dataframe was empty. Please check your index names.{condition=}"
-        #     )
         # allow empty frames
         return dataframe
+
+    def parse_index_slice(self, item: any) -> Tuple[List[str], List[str]]:
+        condition, columns = self.dispatch(self.default_index_key(), item)
+        condition.extend(list(self._filters))
+        # remove conditions containing 'None' values
+        condition = [i for i in condition if not "None" in i]
+        return condition, columns
 
     def __setitem__(self, key, value):
         raise UnsupportedOperation("Not supported!")
 
     def write_dataframe(self, data: pd.DataFrame) -> None:
         with self.ctx(mode="a") as store:
-            store.put(key=self.group, value=data, format="table", data_columns=True)
+            store.put(key=self.group, value=data, format="table")
 
     def exists(self) -> bool:
         """check for HDF store"""
@@ -656,7 +857,8 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
 
     @staticmethod
     def _build_range_condition(key: str, _min: float, _max: float) -> List[str]:
-        return [f"{key}<={str(_max)}", f"{key}>={str(_min)}"]
+        # slice(a, b) -->  a <= x  < b max value not inclusive!
+        return [f"{key}<{str(_max)}", f"{key}>={str(_min)}"]
 
     @staticmethod
     def _build_exact_condition(
@@ -666,3 +868,25 @@ class IHdfProvider(BaseHdfProvider, metaclass=abc.ABCMeta):
             return [f"{key} in {value}"]
         else:
             return [f"{key}{operation}{str(value)}"]
+
+
+@dataclass
+class HdfSelector:
+    hdf: BaseHdfProvider
+    group: str
+    where: str | None = None
+    columns: List[str] | None = None
+
+    @classmethod
+    def from_path(
+        cls,
+        path,
+        group: str,
+        where: str | None = None,
+        columns: List[str] | None = None,
+    ) -> HdfSelector:
+        _h = BaseHdfProvider(hdf_path=path, group=group)
+        return cls(_h, group, where, columns)
+
+    def select_args(self) -> dict:
+        return {"key": self.group, "where": self.where, "columns": self.columns}

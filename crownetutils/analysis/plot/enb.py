@@ -1,3 +1,4 @@
+"""Base station metrics. Server ressource blocks(RB)"""
 from __future__ import annotations
 
 import os
@@ -7,12 +8,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib import colors
+from matplotlib.cm import ScalarMappable
 from matplotlib.collections import LineCollection
+from matplotlib.ticker import MultipleLocator
+from numpy.typing import NDArray
 
 import crownetutils.omnetpp.scave as Scave
+from crownetutils.analysis.hdf_providers.node_position import (
+    CoordinateType,
+    NodePositionWithRsdHdf,
+)
 from crownetutils.analysis.omnetpp import OppAnalysis, Simulation
 from crownetutils.utils.logging import logger, timing
-from crownetutils.utils.plot import FigureSaver, PlotUtil_, with_axis
+from crownetutils.utils.plot import (
+    FigureSaver,
+    PlotUtil_,
+    enb_patch_annotate,
+    enb_with_hex,
+    with_axis,
+)
 
 
 class _PlotEnb(PlotUtil_):
@@ -78,8 +92,8 @@ class _PlotEnb(PlotUtil_):
         sql: Scave.CrownetSql,
         saver: FigureSaver = FigureSaver.FIG,
     ):
-        num_enb = int(sql.get_run_config("*.numEnb"))
-        bins = int(sql.get_run_config("**.numBands"))
+        num_enb = 15  # int(sql.get_run_config("*.numEnb"))
+        bins = 25  # int(sql.get_run_config("**.numBands"))
         for n in range(num_enb):
             data = OppAnalysis.get_avgServedBlocksUl(sql, enb_index=n)
             fig, ax = self.plot_ts_enb_served_rb(data, time_bucket_length=1.0)
@@ -179,102 +193,88 @@ class _PlotEnb(PlotUtil_):
         return fig, ax
 
     @with_axis
-    def plot_node_enb_association_ts(
-        self,
-        data: pd.DataFrame | Scave.CrownetSql,
-        time_resolution: float = 1.0,
-        start_time: float = 0.0,
-        ax: plt.Axes = None,
-        **kwargs,
-    ):
-        if isinstance(data, Scave.CrownetSql):
-            data = OppAnalysis.get_serving_enb_interval(sql=data, **kwargs)
-
-        node_ids = data.index.get_level_values("hostId").unique()
-        min_time = start_time
-        max_time = data["end"].max()
-        time_index = pd.Index(
-            np.arange(min_time, max_time, step=time_resolution), name="time"
-        )
-        index = pd.MultiIndex.from_product((node_ids, time_index))
-        enb = pd.DataFrame(-1, columns=["interval"], index=index)
-        for host_id, df in enb.groupby("hostId"):
-            iindex = pd.IntervalIndex(data.loc[host_id].index)
-            bins = pd.cut(time_index, bins=iindex)
-            enb.loc[host_id, ["interval"]] = bins
-        enb = enb.reset_index().merge(
-            data["servingEnb"],
-            how="left",
-            left_on=["hostId", "interval"],
-            right_on=["hostId", "interval"],
-        )
-        enb = enb.drop(columns=["interval"]).sort_values(["hostId", "time"])
-
-        # create 2d-matrix for imshow
-        enb_grid = (
-            enb.set_index(["hostId", "time"])
-            .unstack(["time"])
-            .fillna(-1)
-            .to_numpy()
-            .astype(int)
-        )
-
-        # colormap
-        max_enb = int(enb["servingEnb"].max())
-        # ensure colors are not to faint, thus 1.5*....
-        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * max_enb)))
-        cmap = colors.ListedColormap(["white", "black", *enb_c[-max_enb:]])
-
-        img = ax.imshow(
-            enb_grid, interpolation="nearest", origin="lower", cmap=cmap, aspect="equal"
-        )
-        ax.set_ylabel("Node indices")
-        ax.set_xlabel("Time in seconds")
-        ax.set_title(
-            "Serving cell for nodes over time. \n (Black: NOT associated to any!)"
-        )
-
-        plt.colorbar(img, cmap=cmap, ticks=[-1, 0, max_enb])
-        ax.get_figure().tight_layout()
-
-        return ax.get_figure(), ax
-
-    @with_axis
     def plot_node_enb_association_map(
-        self, ue_position: pd.DataFrame, enb_position: pd.DataFrame, ax: plt.Axes = None
+        self,
+        rsd: NodePositionWithRsdHdf,
+        coord: CoordinateType = CoordinateType.xy,
+        base_cmap: str | colors.Colormap = "tab20",
+        inner_r: float = 650,
+        ue_where_clause: str | None = None,
+        ax: plt.Axes = None,
     ):
-        # colormap
-        max_enb = int(ue_position["servingEnb"].max())
-        # ensure colors are not to faint, thus 1.5*....
-        enb_c = plt.get_cmap("Reds")(np.linspace(0, 1, int(1.5 * max_enb)))
-        cmap = colors.ListedColormap(
-            [
-                np.array([1.0, 1.0, 1.0, 1.0]),
-                np.array([0.0, 0.0, 0.0, 1.0]),
-                *enb_c[-max_enb:],
-            ]
+        trace, segments, segment_colors, rsd_color_map, cmap, norm = rsd.get_ue_traces(
+            coord, cmap=base_cmap, ue_where_clause=ue_where_clause
         )
-        color_ar = np.array(cmap.colors)
 
-        enb_color_index = ue_position["servingEnb"].to_numpy().astype(int) + 1
+        enb = rsd.enb.frame()
+        enb["color"] = enb["rsd_id"].apply(lambda x: rsd_color_map[x])
 
-        _colors = color_ar[enb_color_index]
+        # append enb hex
+        enb_patches, hex_patches = enb_with_hex(
+            origin=enb[coord.cols].values, inner_r=inner_r, scale=100
+        )
+        ax.add_collection(hex_patches)
+        lc = LineCollection(segments=segments, colors=segment_colors)
+        cbar = ax.get_figure().colorbar(
+            ScalarMappable(norm=norm, cmap=cmap), ticks=MultipleLocator(1), ax=ax
+        )
+        ax.add_collection(lc)
 
-        ax.scatter(enb_position["x"], enb_position["y"], label="eNB", marker="s")
-        ax.legend()
-        lc = LineCollection(ue_position["segment"], cmap=cmap)
-        lc.set_array(enb_color_index)
-        line = ax.add_collection(lc)
-        ax.get_figure().colorbar(line, ax=ax)
+        # for _host, pos in trace.groupby("hostId"):
+        #     ax.scatter(pos.iloc[-1][coord.cols[0]], pos.iloc[-1][coord.cols[1]], color="red", marker=".")
 
-        for _host, pos in ue_position.groupby("hostId"):
-            ax.scatter(pos.iloc[-1]["x"], pos.iloc[-1]["y"], color="red", marker=".")
+        ax.add_collection(enb_patches)
+        for _, row in enb.iterrows():
+            ax.annotate(
+                f"enb {int(row['hostId'])+1}",
+                [row[coord.x], row[coord.y]],
+                xytext=[row[coord.x] - 150, row[coord.y] - 190],
+                textcoords=ax.transData,
+            )
 
-        ax.set_title("Node traces by cell association (black: no association)")
+        if coord.is_cartesian:
+            ax.xaxis.set_major_locator(MultipleLocator(500))
+            ax.yaxis.set_major_locator(MultipleLocator(500))
+            ax.xaxis.set_minor_locator(MultipleLocator(100))
+            ax.yaxis.set_minor_locator(MultipleLocator(100))
+
+            _min = (trace[coord.cols].min() - 500).values
+            _max = (trace[coord.cols].max() + 500).values
+            ax.set_xlim(_min[0], _max[0])
+            ax.set_ylim(_min[1], _max[1])
+            ax.set_aspect("equal")
+
+        ax.set_title("Pedestrian traces with cell association (black: no association)")
         ax.set_ylabel("North in meter")
         ax.set_xlabel("East in meter")
         ax.get_figure().tight_layout()
         return ax.get_figure(), ax
+
+    @with_axis
+    def plot_mac_cell_throughput_ul(
+        self,
+        sim: Simulation,
+        pos: NodePositionWithRsdHdf,
+        ax: plt.Axes = None,
+        saver: FigureSaver = None,
+    ):
+        saver = FigureSaver.FIG(saver)
+        fig, ax = self.check_ax(ax)
+        enbs = pos.enb.frame()
+        colors = pos.enb_colors()
+        for e in range(enbs.shape[0]):
+            df = sim.sql.vec_data(
+                f"World.eNB[{e}].cellularNic.mac",
+                "macCellThroughputUl:vector",
+            ).reset_index()
+            ax.scatter(df["time"], df["value"], marker=".", color=colors[e], alpha=0.5)
+
+        ax.set_ylabel("Bps")
+        ax.set_xlabel("time")
+        self.auto_major_minor_locator(ax)
+        ax.legend()
+        fig.tight_layout()
+        saver(fig, "mac_cell_throughput_ul.png")
 
 
 PlotEnb = _PlotEnb()

@@ -30,7 +30,7 @@ class DpmmMetaData:
         cell_count = [int(bound[0] / cell_size + 1), int(bound[1] / cell_size + 1)]
         node_id = meta["NODE_ID"]
         if "SIM_BBOX" not in meta:
-            logger.warn(
+            logger.warning(
                 f"key 'SIM_BBOX' missing  in metadata. Assume '0;0;XSIZE;YSIZE' "
             )
             meta["SIM_BBOX"] = f"0;0;{bound[0]};{bound[1]}"
@@ -214,6 +214,12 @@ class DpmmMetaData:
         full_df = full_df.set_index(full_index)
         full_df.update(df)
         return full_df
+
+    def position_to_cell(self, xy):
+        """Return cell id (lower left corner coordinates) for postion xy"""
+        x = int(xy[0] / self.cell_size) * self.cell_size
+        y = int(xy[1] / self.cell_size) * self.cell_size
+        return np.array([x, y])
 
     def create_full_index_from_df(self, df, real_coords=False):
         return self.create_full_index(

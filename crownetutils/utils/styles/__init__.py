@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 from importlib.resources import path as resource_path
 
@@ -17,4 +18,17 @@ def load_matplotlib_style(style) -> matplotlib.RcParams:
     else:
         plt.rcParams.update(plt.rcParamsDefault)
         plt.style.use(style)
+    if plt.rcParams["text.usetex"]:
+        if not matplotlib.checkdep_usetex(True):
+            logging.warning("tex/latex not installed set `text.usetex: False`")
+            plt.rcParams.update({"text.usetex": False})
+
     return old
+
+
+def style_context(style):
+    if isinstance(style, tuple):
+        with resource_path(*style) as path:
+            return plt.style.context(path)
+    else:
+        raise ValueError()

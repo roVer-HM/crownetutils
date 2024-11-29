@@ -1,3 +1,7 @@
+"""`Augmented Dickey-Fuller-Test <https://en.wikipedia.org/wiki/Dickey%E2%80%93Fuller_test>`_ to test presents of unit root in autoregression (AR) time series.
+
+"""
+
 import pandas as pd
 
 
@@ -16,7 +20,6 @@ def adf_test(data: pd.Series):
     out["tMax"] = data.index.max()
     for k, v in df_test[4].items():
         out[f"Critical Value ({k})"] = v
-    # print(out)
     return out
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import dataclasses
 import datetime
 import enum
 import json
@@ -8,8 +10,9 @@ import re
 import shutil
 import subprocess
 import timeit as it
-from ast import Param
+from abc import ABC
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from functools import partial
 from glob import glob
 from multiprocessing import get_context
@@ -21,6 +24,7 @@ from typing import (
     Callable,
     ContextManager,
     Dict,
+    Generator,
     Iterable,
     Iterator,
     List,
@@ -36,9 +40,16 @@ from matplotlib.backends.backend_pdf import PdfPages
 from omnetinireader.config_parser import ObjectValue, OppConfigFileBase, OppConfigType
 
 from crownetutils.analysis.base import AnalysisBase
+from crownetutils.analysis.dpmm import MapType
 from crownetutils.analysis.dpmm.builder import DpmmHdfBuilder
 from crownetutils.analysis.dpmm.dpmm import DpmMap
-from crownetutils.analysis.hdf.provider import BaseHdfProvider
+from crownetutils.analysis.dpmm.dpmm_cfg import (
+    DpmmCfg,
+    DpmmCfgBuilder,
+    DpmmCfgCsv,
+    DpmmCfgDb,
+)
+from crownetutils.analysis.hdf.provider import BaseHdfProvider, GroupedResultObject
 from crownetutils.dockerrunner.run_argparser import read_sim_run_context
 from crownetutils.entrypoint.parser import ArgList
 from crownetutils.omnetpp.scave import CrownetSql
@@ -323,9 +334,20 @@ class RunMap(dict):
             g = {}
             g["attr"] = group.attr
             g["group_name"] = group.group_name
-            g["data"] = [
-                (sim.run_context.ctx_path, sim.label, sim._id_offset) for sim in group
-            ]
+            data = []
+            for sim in group:
+                if sim.dpmm_cfg is None:
+                    data.append((sim.run_context.ctx_path, sim.label, sim._id_offset))
+                else:
+                    data.append(
+                        (
+                            sim.run_context.ctx_path,
+                            sim.label,
+                            sim._id_offset,
+                            sim.dpmm_cfg.as_dict(),
+                        )
+                    )
+            g["data"] = data
             ret["groups"][group.group_name] = g
 
         fd = self.path("run_map.json") if fd is None else fd
@@ -345,10 +367,23 @@ class RunMap(dict):
 
         ret = cls(map["output_dir"])
         for g_name, group in map["groups"].items():
-            sims = [
-                Simulation.from_context(ctx, label, id_offset)
-                for ctx, label, id_offset in group["data"]
-            ]
+            sims = []
+            for data in group["data"]:
+                if len(data) > 3:
+                    _obj = data[3]
+                    dpmm_cfg = DpmmCfgBuilder().load_from_json(
+                        obj=_obj, base_dir=_obj.get("base_dir", "None")
+                    )
+                    sim = Simulation.from_context(
+                        ctx=data[0], label=data[1], id_offset=data[2], cfg=dpmm_cfg
+                    )
+                else:
+                    sim = Simulation.from_context(
+                        ctx=data[0], label=data[1], id_offset=data[2]
+                    )
+
+                sims.append(sim)
+
             sim_group = SimulationGroup(g_name, data=sims, attr=group["attr"])
             ret.append_or_add(sim_group)
         return ret
@@ -415,9 +450,24 @@ class RunMap(dict):
         else:
             return super().__getitem__(__key)
 
+    def iter_all_sim(self, with_group: bool = False) -> Generator[IndexedSimulation]:
+        for g, sg in self.items():
+            sg: SimulationGroup
+            for idx, global_id, sim in sg.simulation_iter(enum=True):
+                i = IndexedSimulation(
+                    group_name=g, simulation_index=idx, global_id=global_id, sim=sim
+                )
+                if with_group:
+                    yield sg, i
+                else:
+                    yield i
+
 
 class RunContext:
     class _dummy_runner:
+        def __init__(self) -> None:
+            self.ns = None
+
         def run_simulation_omnet(self) -> int:
             raise NotImplementedError
 
@@ -440,6 +490,18 @@ class RunContext:
 
         def run_postprocessing_only(self) -> int:
             raise NotImplementedError
+
+        def print_registered_qoi(self) -> None:
+            """Print list of registered post processing functions in order of execution."""
+            raise NotImplementedError
+
+        def set_options(self, namespace: dict) -> None:
+            """provide Dispatcher with configuration dictionary"""
+            self.ns = namespace
+
+        def is_configure_logger(self) -> bool:
+            """Returns true if logger should be setup"""
+            return False
 
     @classmethod
     def from_path(cls, path):
@@ -501,6 +563,18 @@ class RunContext:
                 raise ValueError(f"no match for {key}={value} in regex {pattern}")
             value = match.groups()[0]
         return apply(value)
+
+    def init_contains(
+        self,
+        key: str,
+        regex: str | None = None,
+    ):
+        try:
+            self.ini_get(key, regex)
+        except ValueError:
+            return False
+        else:
+            return True
 
     def ini_get_or_default(
         self,
@@ -592,31 +666,61 @@ class RunContext:
         sample = self.args.get_value("--resultdir")
         return sample.split(os.sep)[-1]
 
+    @staticmethod
+    def flatt_list(data):
+        while isinstance(data, list):
+            r = []
+            for i in data:
+                if isinstance(i, list):
+                    r.extend(i)
+                else:
+                    r.append(i)
+            data = r
+        return data
+
     def create_postprocessing_args(self, qoi_default="all"):
+        a: ArgList = copy.copy(self.args)
+        a.add_override("--qoi", qoi_default)
+
+        args = ["post-processing"]
+        qoi = a.get_value("--qoi")
+        if isinstance(qoi, list):
+            for q in qoi:
+                args.extend(["--qoi", q])
+        else:
+            args.extend(["--qoi", qoi])
+
+        args.extend(["--resultdir", self.resultdir])
+
         return {
             "cwd": self.cwd,
             "script_name": self.data.get("script", "run_script.py"),
-            "args": [
-                "post-processing",
-                "--qoi",
-                self.args.get_value("--qoi", qoi_default),
-                "--resultdir",
-                self.resultdir,
-            ],
+            "args": args,
         }
 
-    def create_run_config_args(self):
-        return {
-            "cwd": self.cwd,
-            "script_name": self.data.get("script", "run_script.py"),
-            "args": ("config", "-f", "runContext.json"),
-        }
+    def create_run_config_args(self, do_postprocessing=True):
+        if do_postprocessing:
+            return {
+                "cwd": self.cwd,
+                "script_name": self.data.get("script", "run_script.py"),
+                "args": ("config", "-f", "runContext.json"),
+            }
+        else:
+            # no post processing. remove --qoi
+            args: ArgList = copy.copy(self.args)
+            args.remove_key("--qoi")
+            return {
+                "cwd": self.cwd,
+                "script_name": self.data.get("script", "run_script.py"),
+                "args": args.to_list(),
+            }
 
     @staticmethod
     def exec_runscript(args: dict, out=subprocess.DEVNULL, err=subprocess.DEVNULL):
         cmd = [os.path.join(args["cwd"], args["script_name"]), *args["args"]]
-        print(f"run command:\n\t\t{cmd}")
-        if args["log"]:
+        cmd_s = " ".join(cmd)
+        print(f"run command:\n\t\t{cmd_s}")
+        if "log" in args and args["log"]:
             os.makedirs(os.path.dirname(args["cwd"]), exist_ok=True)
             fd = open(os.path.join(args["cwd"], "log.out"), "w")
             out = fd
@@ -638,10 +742,47 @@ class RunContext:
             print(f"Simulation failed: {cmd}")
             return_code = -1
         finally:
-            if args["log"]:
+            if "log" in args and args["log"]:
                 fd.close()
         print(f"done: {cmd}")
         return return_code
+
+    def check_study_root(self, root) -> bool:
+        study_root = os.path.realpath(os.path.join(self.cwd, "../.."))
+        return root == study_root
+
+    @property
+    def study_root(self) -> str:
+        return os.path.realpath(os.path.join(self.cwd, "../.."))
+
+    def move_study_root(
+        self, new_study_root, bak_suffix, override_backup: bool = False
+    ):
+        ctx_path = os.path.abspath(self.ctx_path)
+        base, name = os.path.split(ctx_path)
+        ctx_backup_path = os.path.join(base, f"{name}_{bak_suffix}")
+        if os.path.exists(ctx_backup_path) and not override_backup:
+            raise ValueError("Backup file already exists. Remove it first.")
+        shutil.copyfile(
+            src=ctx_path,
+            dst=ctx_backup_path,
+        )
+
+        old_study_root = self.study_root
+        old_study_base = os.path.realpath(os.path.join(self.study_root, ".."))
+
+        new_study_root = os.path.abspath(new_study_root)
+        new_study_base = os.path.realpath(os.path.join(new_study_root, ".."))
+
+        new_lines = []
+        with open(ctx_path, "r", encoding="utf-8") as fd:
+            for line in fd:
+                _l = line.replace(old_study_root, new_study_root)
+                _l = _l.replace(old_study_base, new_study_base)
+                new_lines.append(_l)
+
+        with open(ctx_path, "w", encoding="utf-8") as fd:
+            fd.writelines(new_lines)
 
 
 class SimulationBase:
@@ -663,44 +804,103 @@ class Simulation:
     self.run_context    Access to simulation config used during simulation
     """
 
-    @classmethod
-    def from_context(cls, ctx: str | RunContext, label="", id_offset: int = 0):
-        if isinstance(ctx, str):
-            ctx = RunContext.from_path(ctx)
-        return cls(ctx.resultdir, label=label, run_context=ctx, id_offset=id_offset)
+    def raise_err(self, what, msg):
+        msg = f"{msg}\nSimulation:\n\tdata_root: {self.data_root}"
+        if self.dpmm_cfg is not None:
+            cfg = self.dpmm_cfg.to_json().splitlines()
+            cfg = [f"\t\t{l}" for l in cfg]
+            cfg = "\n".join(cfg)
+            msg = f"{msg}\n\tcfg: {cfg}"
+        raise what(msg)
 
     @classmethod
-    def from_suqc_result(cls, data_root, label="", id_offset: int = 0):
+    def from_context(
+        cls, ctx: str | RunContext, label="", id_offset: int = 0, cfg: DpmmCfg = None
+    ):
+        if isinstance(ctx, str):
+            ctx = RunContext.from_path(ctx)
+        return cls(
+            ctx.resultdir,
+            label=label,
+            run_context=ctx,
+            id_offset=id_offset,
+            dpmm_cfg=cfg,
+        )
+
+    @classmethod
+    def from_suqc_result(
+        cls, data_root, label="", id_offset: int = 0, cfg: DpmmCfg = None
+    ):
         for i, p in enumerate(data_root.split(os.sep)[::-1]):
             if p.startswith("Sample"):
                 label = f"{p}_{label}"
                 runcontext = join(data_root, "../../../", p, "runContext.json")
                 runcontext = os.path.abspath(runcontext.replace("Sample_", "Sample__"))
-                o = cls(data_root, label, RunContext.from_path(runcontext), id_offset)
+                o = cls(
+                    data_root,
+                    label,
+                    RunContext.from_path(runcontext),
+                    id_offset,
+                    dpmm_cfg=cfg,
+                )
                 # o.run_context = RunContext.from_path(runcontext)
                 return o
         raise ValueError("data_root not an suq-controller output directory")
 
     @classmethod
-    def from_output_dir(cls, data_root, **kwds):
-        data_root, builder, sql = AnalysisBase.builder_from_output_folder(
-            data_root, **kwds
-        )
-        lbl = os.path.basename(data_root)
-        c = cls(data_root, lbl, run_context=None, id_offset=0)
-        c._builder = builder
-        c._sql = sql
+    def from_output_dir(cls, data_root, cfg: DpmmCfg = None, **kwds):
+        if cfg is None:
+            data_root, builder, sql = AnalysisBase.builder_from_output_folder(
+                data_root, **kwds
+            )
+            lbl = os.path.basename(data_root)
+            c = cls(data_root, lbl, run_context=None, id_offset=0, dpmm_cfg=cfg)
+            c._builder = builder
+            c._sql = sql
+        else:
+            if data_root != cfg.base_dir:
+                raise ValueError(
+                    f"provided data_root and base_dir of DpmmCfg object are not the same. {data_root} != {cfg.base_dir}"
+                )
+            lbl = os.path.basename(cfg.base_dir)
+            c = cls(cfg.base_dir, lbl, dpmm_cfg=cfg, **kwds)
         return c
 
+    @classmethod
+    def from_dpmm_cfg(cls, cfg: DpmmCfg, label: str | None = None):
+        label = os.path.basename(cfg.base_dir) if label is None else label
+        return cls(cfg.base_dir, label, dpmm_cfg=cfg)
+
     def __init__(
-        self, data_root, label, run_context: RunContext = None, id_offset: int = 0
+        self,
+        data_root,
+        label,
+        run_context: RunContext = None,
+        id_offset: int = 0,
+        dpmm_cfg: DpmmCfg = None,
     ):
-        self.label = label
-        self._builder = None
-        self._sql = None
         self.data_root = data_root
+        self.label = label
         self.run_context: RunContext = run_context
         self._id_offset = id_offset
+        self._builder = None
+        self._sql = None
+        self.dpmm_cfg = dpmm_cfg
+        if self.dpmm_cfg is None:
+            self.dpmm_cfg: DpmmCfg = DpmmCfgBuilder.load_cfg(
+                data_root, error_on_nan=False
+            )
+            if self.dpmm_cfg is not None:
+                logger.info(
+                    f"found config of type {type(self.dpmm_cfg)} for map type {self.dpmm_cfg.map_type.name}"
+                )
+            else:
+                logger.warning(
+                    f"No config file found guess some default config for data root: {data_root}"
+                )
+                self.dpmm_cfg: DpmmCfg = DpmmCfgCsv(
+                    base_dir=data_root, hdf_file="data.h5", map_type=MapType.DENSITY
+                )
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} object at {hex(id(self))} {self.label} ({self.study_id()}[{self.global_id()}])>"
@@ -708,19 +908,13 @@ class Simulation:
     @property
     def builder(self) -> DpmmHdfBuilder:
         if self._builder is None:
-            self._builder = DpmmHdfBuilder.get("data.h5", self.data_root).epsg(
-                Project.UTM_32N
-            )
+            self._builder = DpmmHdfBuilder.get(self.dpmm_cfg)
         return self._builder
 
     @property
     def sql(self) -> CrownetSql:
         if self._sql is None:
-            self._sql = CrownetSql(
-                vec_path=f"{self.data_root}/vars_rep_0.vec",
-                sca_path=f"{self.data_root}/vars_rep_0.sca",
-                network="World",
-            )
+            self._sql = CrownetSql.from_dpmm_cfg(self.dpmm_cfg)
         return self._sql
 
     def get_base_provider(self, group_name="root", path="data.h5") -> BaseHdfProvider:
@@ -756,7 +950,7 @@ class Simulation:
         return self.run_context.par_id + self._id_offset
 
     def study_id(self):
-        return self.run_context.par_id
+        return -1 if self.run_context is None else self.run_context.par_id
 
     def path(self, *args):
         """Create path relative to Simulation object data_root directory"""
@@ -771,7 +965,7 @@ class Simulation:
     def get_dcdMap(self) -> DpmMap:
         sel = self.builder.map_p.get_attribute("used_selection")
         if sel is None:
-            raise ValueError("selection not set!")
+            self.raise_err(ValueError, "selection not set!")
         return self.builder.build_dcdMap(selection=list(sel)[0])
 
     def _check_container_log_stats_file(self, log_stats_file_path):
@@ -903,6 +1097,14 @@ class Simulation:
             logger.info(f"problem copying {join(sim.data_root, name)}: {e}")
 
 
+@dataclass
+class IndexedSimulation:
+    group_name: str
+    simulation_index: int
+    global_id: int
+    sim: Simulation
+
+
 class SimulationGroupFactory(Protocol):
     """Create a SimulationGroup using one simulation to access config to derive
     name or label information. **kwds must provide all necessary attributes to
@@ -1001,6 +1203,15 @@ class SuqcStudy:
 
         return OrderedDict(sorted(ret.items(), key=lambda i: (i[0][0], i[0][1])))
 
+    def is_postprocessing_failed(self, ctx: RunContext):
+        log_file = os.path.join(ctx.cwd, "log.out")
+        if os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8") as fd:
+                for line in fd.readlines():
+                    if "Traceback (most recent call last):" in line:
+                        return True
+        return False
+
     def get_failed_missing_runs(self, run_item_filter=lambda x: True):
         def check_fail(**kwargs) -> bool:
             if "out" not in kwargs:
@@ -1084,7 +1295,6 @@ class SuqcStudy:
         run = self.runs[key]
         ctx = RunContext.from_path(join(run["run"], "runContext.json"))
         lbl = f"{self.name}_{self.run_prefix}_{key[0]}_{key[1]}"
-        print(lbl)
         return Simulation.from_context(ctx, lbl, id_offset)
 
     def get_run_context(
@@ -1114,26 +1324,56 @@ class SuqcStudy:
         return os.path.join(self.base_path, *path)
 
     @classmethod
-    def rerun_postprocessing(cls, path: str, jobs=4, log=False, **kwargs):
-        run: SuqcStudy = cls(path)
+    def rerun_postprocessing(
+        cls, path: str, jobs=4, log=False, what="all", filter="all", **kwargs
+    ):
+        study: SuqcStudy = cls(path)
+
+        if what == "failed":
+            sims = [
+                sim
+                for sim in study.get_simulations()
+                if study.is_postprocessing_failed(sim.run_context)
+            ]
+        else:
+            sims = study.get_simulations()
+
+        if filter != "all":
+            # assume run_id==0 for all runs (true for Opp based)
+            par_ids = [r.run_context.par_id for r in sims]
+            filter_ids = apply_str_filter(filter, par_ids)
+            sims = [run for run in sims if run.run_context.par_id in filter_ids]
+
+        for sim in sims:
+            print(sim.run_context.sample_name)
+        print(f"found: {len(sims)} failed runs (with filter: {filter})")
+        if kwargs["list_only"]:
+            return True
+
         args = []
-        for sim in run.get_simulations():
-            _arg = sim.run_context.create_postprocessing_args()
-            log_file = os.path.join(sim.run_context.cwd, "log.out")
-            if kwargs["failed_only"]:
-                if os.path.exists(log_file):
-                    with open(log_file, "r", encoding="utf-8") as fd:
-                        for line in fd.readlines():
-                            if "Traceback (most recent call last):" in line:
-                                _arg["log"] = log
-                                args.append(_arg)
-                                break
-            else:
-                _arg["log"] = log
-                args.append(_arg)
+        for sim in sims:
+            _arg = sim.run_context.create_postprocessing_args(
+                qoi_default=kwargs.get("qoi", "all")
+            )
+            if log:
+                _arg = cls.update_log_args(_arg, **kwargs)
+            args.append(_arg)
         with get_context("spawn").Pool(processes=jobs) as pool:
             ret = pool.map(func=RunContext.exec_runscript, iterable=args)
         return all(ret)
+
+    @staticmethod
+    def update_log_args(main_args, **kwargs):
+        cmd = ArgList.from_flat_list(main_args["args"])
+        result_dir = cmd.get_value("--resultdir")
+        log_file = os.path.join(result_dir, "out.log")
+        cmd.add_override("--write-log-to-file", log_file)
+        v = kwargs.get("verbose", 0)
+        if v > 0:
+            v = "v" * v
+            cmd.add_override(f"-{v}")
+        main_args["args"] = cmd.to_list()
+        return main_args
 
     @classmethod
     def rerun_simulations(
@@ -1168,7 +1408,10 @@ class SuqcStudy:
 
         args = []
         for r in runs:
-            _arg = r.create_run_config_args()
+            _arg = r.create_run_config_args(
+                do_postprocessing=kwargs.get("do_postprocessing", True)
+            )
+            print(_arg)
             _arg["log"] = join(r.cwd, "runscript.out")
             _arg["clean_dir"] = r.resultdir
             args.append(dict(args=_arg))
@@ -1275,7 +1518,7 @@ class SuqcStudy:
         Returns:
             RunMap: Updated RunMap object. The run_map method argument is mutated.
         """
-        run_items = np.array(self.get_run_items(filter=id_filter))
+        run_items = np.array(self.get_run_items(filter=id_filter), dtype=object)
         if len(run_items) % sim_per_group != 0:
             raise ValueError(
                 f"Number of runs is not divisible by sim_per_group {len(run_items)}/{sim_per_group}. check id_filter function or sim_per_group count."
@@ -1298,3 +1541,127 @@ class SuqcStudy:
             run_map.append_or_add(sim_group)
 
         return run_map
+
+
+class CacheFunc(Protocol):
+    """Callable that creates some instance of CacheLoader"""
+
+    def __call__(self, run_map: RunMap) -> CacheLoader:
+        ...
+
+
+class IndexedSimulationFilter(Protocol):
+    def __call__(self, isim: IndexedSimulation) -> bool:
+        ...
+
+
+class IndexedSimulationFilterAll:
+    def __call__(self, isim: IndexedSimulation) -> bool:
+        return True
+
+
+@dataclass
+class CacheLoader(ABC):
+    """Create a RunMap level data cache file. The CacheLoader looks first if the cache file exists.
+    Child classes can augment this to include additional checks. If the test fails the data is collected,
+    possible in parallel, using the `load` method.
+    """
+
+    run_map: RunMap
+    cache_path: str
+    root_group: str = "root"
+    hdf: BaseHdfProvider = field(init=False)
+    idx_sim_filter: IndexedSimulationFilter = field(
+        default_factory=IndexedSimulationFilterAll
+    )
+
+    def cache_exists(self) -> bool:
+        if os.path.exists(self.cache_path):
+            # check if all groups exist
+            keys_on_disk = [k.strip("/") for k in self.hdf.get_keys()]
+            if self.hdf.group not in keys_on_disk:
+                logger.debug(
+                    f"group `{self.hdf.group}`not found ind groups: {keys_on_disk} of {self.hdf._hdf_path}"
+                )
+                return False
+            for f in dataclasses.fields(self):
+                if f.metadata is not None and "shared_hdf_provider" in f.metadata:
+                    _attr: GroupedResultObject = getattr(self, f.name)
+                    if not f.metadata["optional"]:
+                        _keys_expected = [k.strip("/") for k in _attr.get_keys()]
+                        all_found = all([k in keys_on_disk for k in _keys_expected])
+                        if not all_found:
+                            logger.debug(
+                                f"some keys not found. Expected: `{_keys_expected}` Keys on disk: {keys_on_disk}"
+                            )
+                            return False
+
+            return True
+
+        return False
+
+    def check(self):
+        if not self.cache_exists():
+            self.load()
+
+    def get(self) -> BaseHdfProvider:
+        self.check()
+        return self.hdf
+
+    def load(self):
+        ...
+
+    def filtered_indexed_simulation_iter(self):
+        for idx_sim in self.run_map.iter_all_sim():
+            if self.idx_sim_filter(idx_sim):
+                yield idx_sim
+
+    def __post_init__(self):
+        self.hdf = BaseHdfProvider(self.cache_path, group=self.root_group)
+        found_root = None
+        for f in dataclasses.fields(self):
+            if f.metadata is not None and "shared_hdf_provider" in f.metadata:
+                _group_name = f.name.replace("hdf_", "")
+                if "factory" in f.metadata and f.metadata["factory"] is not None:
+                    _property = f.metadata["factory"](self.hdf, _group_name)
+                else:
+                    _property = self.hdf.created_shared_provider(group=_group_name)
+                if f.metadata["is_root"]:
+                    if found_root is not None:
+                        raise ValueError(
+                            "Found to providers that claim to provide the root group. Only one can do that. Fix it. "
+                            f"Groups with root claim: `{found_root}` and `{_group_name}`"
+                        )
+
+                    self.root_group = _property.group
+                    self.hdf.group = _property.group
+                    found_root = _property.group
+                setattr(self, f.name, _property)
+
+    @staticmethod
+    def shared_hdf_field(
+        optional: bool = False, is_root: bool = False, factory=None
+    ) -> Any:
+        """Crates a new BaseHdfProvider object where the group name is equal to the
+         the name of property, with removed 'hdf_' prefix if present. The created property will
+         share the hdf path of the root BaseHdfProvider created during __post_init__.
+         All created poperies will be checked to see if the cached file includes the group.
+
+        Args:
+            optional (bool, optional): If true the group will be ignored during `cache_exist` call. Defaults to False.
+            is_root (bool, optional): If true this will override the root group set during init. Only one group can be the root group. Defaults to False.
+
+        """
+        return field(
+            init=False,
+            metadata={
+                "shared_hdf_provider": True,
+                "optional": optional,
+                "is_root": is_root,
+                "factory": factory,
+            },
+        )
+
+    @staticmethod
+    def save_hdf(hdf: BaseHdfProvider, frame: pd.DataFrame):
+        hdf.write_frame(group=hdf.group, frame=frame)

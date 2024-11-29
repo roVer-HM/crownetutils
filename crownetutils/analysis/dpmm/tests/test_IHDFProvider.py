@@ -47,8 +47,8 @@ class IHDFProviderTest(unittest.TestCase):
         mock_store.assert_called_once_with(
             self.sample_file_dir,
             mode="a",
-            complevel=self.provider._hdf_args["complevel"],
-            complib=self.provider._hdf_args["complib"],
+            complevel=self.provider._hdf_args.get("complevel", None),
+            complib=self.provider._hdf_args.get("complib", None),
         )
 
     def test_cast_to_set(self):
@@ -322,7 +322,7 @@ class IHDFProviderTest(unittest.TestCase):
         key = DpmmCountKey.SIMTIME
         _min = 0
         _max = 5
-        expected_condition = [f"{key}<={str(_max)}", f"{key}>={str(_min)}"]
+        expected_condition = [f"{key}<{str(_max)}", f"{key}>={str(_min)}"]
         result_condition = self.provider._build_range_condition(key, _min, _max)
         self.assertEqual(expected_condition, result_condition)
 

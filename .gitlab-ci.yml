@@ -1,6 +1,7 @@
 stages:
   - test
   - code_analysis
+  - doc
 
 # caching does not lead to a speed-up in our case - disabled
 # cache:
@@ -29,3 +30,13 @@ black_check:
     - black --version
     - black ./crownetutils/ --fast --check --diff
   allow_failure: true
+
+pages:
+  stage: doc
+  script:
+    - source ./venv/bin/activate
+    - pip3 install -U sphinx 
+    - ./venv/bin/sphinx-build -b html doc/source public
+  artifacts:
+    paths:
+      - public

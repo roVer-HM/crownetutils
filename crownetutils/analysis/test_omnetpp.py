@@ -25,9 +25,6 @@ class OmnetppTest(unittest.TestCase):
         ** Event #193792   t=10.002   Elapsed: 45.3246s (0m 45s)  71% completed  (71% total) \n \
         Speed:     ev/sec=92821.2   simsec/sec=4.7884   ev/simsec=19384.6 \n \
         Messages:  created: 99188   present: 502   in FES: 86 \
-        ** Event #344910   t=14   Elapsed: 46.7698s (0m 46s)  100% completed  (100% total) \n \
-        Speed:     ev/sec=104564   simsec/sec=2.76638   ev/simsec=37798.1 \n \
-        Messages:  created: 176996   present: 563   in FES: 90 \n \
         <!> Simulation time limit reached -- at t=14s, event #344910 \n \
         Container terminated."
 
@@ -43,11 +40,14 @@ class OmnetppTest(unittest.TestCase):
         # compare values from temporary file in setUp
         df_expected = pd.DataFrame(
             data={
-                "sim_time": [0.000, 0.018, 10.002, 14.000],
-                "real_time": [0.000021, 43.239500, 45.324600, 46.769800],
-                "ratio_sim_real": [0.0000, 0.000416286, 4.7884, 2.76638],
+                "event_number": [0, 256, 193792],
+                "simtime": [0.000, 0.018, 10.002],
+                "realtime": [0.000021, 43.239500, 45.324600],
+                "events_per_sec": [0, 5.94364, 92821.2],
+                "simsec_per_realsec": [0.0000, 0.000416286, 4.7884],
+                "events_per_simsec": [0, 14277.8, 19384.6],
             },
-            index=[0, 1, 2, 3],
+            index=[0, 1, 2],
         )
 
         file_path = os.path.join(self.test_dir, "container_opp.out")

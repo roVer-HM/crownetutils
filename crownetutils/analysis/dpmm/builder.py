@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 import pickle
+import re
 from functools import partial
 from typing import Union
 
@@ -13,22 +14,29 @@ import pandas as pd
 from pandas import IndexSlice as Idx
 
 import crownetutils.analysis.dpmm.csv_loader as DcdUtil
-from crownetutils.analysis.dpmm.dpmm import DpmMap, DpmMapMulti, MapType
+from crownetutils.analysis import RsdAssociationProvider
+from crownetutils.analysis.dpmm import MapType
+from crownetutils.analysis.dpmm.dpmm import DpmMap
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg, DpmmCfgCsv, DpmmCfgDb
+from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
 from crownetutils.analysis.dpmm.hdf.dpmm_count_provider import DpmmCount
 from crownetutils.analysis.dpmm.hdf.dpmm_global_positon_provider import (
     DpmmGlobal,
     DpmmGlobalPosition,
-    pos_density_from_csv,
+    create_and_save_position_and_global,
+    create_and_save_position_and_global_db,
 )
 from crownetutils.analysis.dpmm.hdf.dpmm_provider import DpmmKey, DpmmProvider
-from crownetutils.analysis.dpmm.metadata import DpmmMetaData
-from crownetutils.analysis.hdf.provider import ProviderVersion
-from crownetutils.utils.dataframe import (
+from crownetutils.analysis.dpmm.imputation import (
     ArbitraryValueImputation,
-    FrameConsumer,
     MissingValueImputationStrategy,
 )
-from crownetutils.utils.logging import logger, logging
+from crownetutils.analysis.dpmm.metadata import DpmmMetaData
+from crownetutils.analysis.hdf.provider import BaseHdfProvider, ProviderVersion
+from crownetutils.analysis.hdf_providers.helper import ExpectedHdfContent
+from crownetutils.omnetpp.scave import CrownetSql
+from crownetutils.utils.dataframe import FrameConsumer
+from crownetutils.utils.logging import LogWriter, logger, logging, timing
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 
@@ -45,6 +53,14 @@ def _hdf_job(args):
         _builder.create_hdf_fast()
     else:
         print(f"{_builder.hdf_path} already exist and override_existing is false")
+
+
+def parse_node_id(path: str, regex: re.Pattern) -> int:
+    grps = [m.groupdict() for m in regex.finditer(path)]
+    if not grps:
+        raise ValueError(f"No node id found in: '{path}' using pattern: '{regex}'")
+    node_id = int(grps.pop()["node"])
+    return node_id
 
 
 class DpmmProviders:
@@ -93,22 +109,15 @@ class DpmmHdfBuilder(FrameConsumer):
     @classmethod
     def get(
         cls,
-        hdf_path,
-        source_path,
-        map_glob="dcdMap_*.csv",
-        global_name="global.csv",
+        cfg: DpmmCfg,
         override_hdf: bool = False,
     ):
-        if not os.path.isabs(hdf_path):
-            hdf_path = os.path.join(source_path, hdf_path)
-        if override_hdf and os.path.exists(hdf_path):
-            logger.info(f"found hdf file but override hdf is active. remove {hdf_path}")
-            os.remove(hdf_path)
-        return cls(
-            hdf_path=hdf_path,
-            map_paths=glob.glob(os.path.join(source_path, map_glob)),
-            global_path=os.path.join(source_path, global_name),
-        )
+        if override_hdf and os.path.exists(cfg.hdf_path()):
+            logger.info(
+                f"found hdf file but override hdf is active. remove {cfg.hdf_path()}"
+            )
+            os.remove(cfg.hdf_path())
+        return cls(cfg=cfg)
 
     @classmethod
     def create(
@@ -141,13 +150,16 @@ class DpmmHdfBuilder(FrameConsumer):
         job_list = [[*i, _filter, override_existing] for i in job_list]
         pool.map(_hdf_job, job_list)
 
-    def __init__(self, hdf_path, map_paths, global_path, epsg=""):
+    def __init__(self, cfg: DpmmCfg):
         super().__init__()
+        self.cfg = cfg
+        self.sql = CrownetSql.from_dpmm_cfg(cfg)
         # paths
-        self.hdf_path = hdf_path
-        self.map_paths = map_paths
-        self.global_path = global_path
+        self.hdf_path = self.cfg.hdf_path()
+
         # providers
+        # self.count_p = DpmmCount(self.cfg.hdf_path("count.h5"))
+        self.rsd_association_provider: RsdAssociationProvider | None = None
         self.count_p = DpmmCount(self.hdf_path)
         self.map_p = DpmmProvider(self.hdf_path)
         self.position_p = DpmmGlobalPosition(self.hdf_path)
@@ -156,9 +168,9 @@ class DpmmHdfBuilder(FrameConsumer):
         # filters used during csv processing
         self.single_df_filters = []
         self._only_selected_cells = True
-        self._epsg = epsg
+        self._epsg = cfg.epsg_base
         self._imputation_function = ArbitraryValueImputation(0.0)
-        self._map_type: MapType = MapType.DENSITY
+        self._map_type: MapType = cfg.map_type
 
         # set later on
         self.global_df = None
@@ -185,6 +197,10 @@ class DpmmHdfBuilder(FrameConsumer):
     def set_map_type(self, t: MapType):
         self._map_type = t
 
+    def set_rsd_association_provider(self, p: RsdAssociationProvider) -> DpmmHdfBuilder:
+        self.rsd_association_provider = p
+        return self
+
     @property
     def map_type(self) -> MapType:
         return self._map_type
@@ -196,17 +212,61 @@ class DpmmHdfBuilder(FrameConsumer):
         x_slice: slice = slice(None),
         y_slice: slice = slice(None),
         override_hdf=False,
+        repack_on_build: bool = True,
     ) -> DpmmProviders:
-        if not self.hdf_exist or override_hdf:
-            try:
-                os.remove(self.hdf_path)
-                pass
-            except FileNotFoundError:
-                pass
+        build_map = False
+        if self.hdf_exist:
+            # check import markers to ensure, that the file was completely build last time
+            # Note that setting attributes is the last step in the process. So if they are present all should be good.
+            expected_content = ExpectedHdfContent().add_groups(
+                groups=[
+                    self.position_p.group,
+                    self.global_p.group,
+                    self.map_p.group,
+                    self.count_p.group,
+                ],
+                cell_size=None,
+                cell_count=None,
+                cell_bound=None,
+                sim_bbox=None,
+                offset=None,
+                epsg=None,
+                version=None,
+                time_interval=None,
+            )
+            is_content_as_expected, diff = expected_content.test_hdf(
+                BaseHdfProvider(self.hdf_path)
+            )
+
+            if is_content_as_expected:
+                # hdf file exists and contains all data with same parameters
+                logger.info(
+                    f"found existing Map HDF file with match parameter setup. No build required."
+                )
+            else:
+                logger.info("found difference in existing hdf file.")
+                diff.write_diff(writer=LogWriter.info(), header=f"Map HDF File:")
+                if not override_hdf:
+                    raise ValueError(
+                        f"found existing Map HDF file with inconsistent parameters but override_existing is false."
+                    )
+                else:
+                    logger.info(
+                        f"found existing Map HDF file with inconsistent parameter  and override_hdf=True. Delete old file and build new one."
+                    )
+                    os.remove(self.hdf_path)
+                    build_map = True
+        else:
+            logger.info("no existing hdf file found. Build hdf...")
+            build_map = True
+
+        if build_map:
             print(f"create HDF {self.hdf_path}")
             # append filters before processing
             self.map_p.csv_filters.extend(self.single_df_filters)
             self.create_hdf_fast()
+            if repack_on_build:
+                self.map_p.repack_hdf(keep_old_file=False)
 
         metadata = DpmmMetaData(
             cell_size=self.position_p.get_attribute("cell_size"),
@@ -289,10 +349,26 @@ class DpmmHdfBuilder(FrameConsumer):
 
     def create_hdf_fast(self):
         t = DcdUtil.Timer.create_and_start("create_hdf", label="")
-        # 1) parse global.csv in position and global provider
-        self.position_p, self.global_p, meta = pos_density_from_csv(
-            self.global_path, self.hdf_path
-        )
+        # 1a) parse global.csv in position and global provider
+        if isinstance(self.cfg, DpmmCfgCsv):
+            glb_csv_path = os.path.join(self.cfg.base_dir, self.cfg.global_map_csv_name)
+            self.position_p, self.global_p, meta = create_and_save_position_and_global(
+                csv_path=glb_csv_path,
+                hdf_path=self.hdf_path,
+                rsd_p=self.rsd_association_provider,
+            )
+        elif isinstance(self.cfg, DpmmCfgDb):
+            (
+                self.position_p,
+                self.global_p,
+                meta,
+            ) = create_and_save_position_and_global_db(
+                cfg=self.cfg,
+                hdf_path=self.hdf_path,
+                rsd_p=self.rsd_association_provider,
+            )
+        else:
+            raise ValueError("expected csv for db config")
         # 2) access global_df and setup helpers for parsing map_*.csv to create
         #    map and count provider together
         self.global_df = self.global_p.get_dataframe()
@@ -303,19 +379,42 @@ class DpmmHdfBuilder(FrameConsumer):
             .sort_values()
             .to_numpy()
         )
-        # add self as frame_consumer to build count_map iteratively
-        self.map_p.create_from_csv(
-            self.map_paths,
-            frame_consumer=[
-                partial(
-                    self.create_count_map,
-                    csv_version=self.map_p.version,
-                    imputation_f=self._imputation_function,
-                )
-            ],
-            global_position=self.position_df,
-            global_metadata=meta,
-        )
+        if isinstance(self.cfg, DpmmCfgCsv):
+            # add self as frame_consumer to build count_map iteratively
+            id_extractor = partial(
+                parse_node_id, regex=re.compile(self.cfg.node_map_csv_id_regex)
+            )
+            map_paths = glob.glob(
+                os.path.join(self.cfg.base_dir, self.cfg.node_map_csv_glob)
+            )
+            self.map_p.create_from_csv(
+                map_paths,
+                id_extractor=id_extractor,
+                frame_consumer=[
+                    partial(
+                        self.create_count_map,
+                        csv_version=self.map_p.version,
+                        imputation_f=self._imputation_function,
+                    )
+                ],
+                global_position=self.position_df,
+                global_metadata=meta,
+            )
+        elif isinstance(self.cfg, DpmmCfgDb):
+            self.map_p.create_from_db(
+                sql=DpmmSql(self.cfg),
+                frame_consumer=[
+                    partial(
+                        self.create_count_map,
+                        csv_version=self.map_p.version,
+                        imputation_f=self._imputation_function,
+                    )
+                ],
+                global_position=self.position_df,
+                global_metadata=meta,
+            )
+        else:
+            raise ValueError("expected csv for db config")
         # 3) append global count to count provider
         self.append_global_count()
         # 4) create index on count_map_provider
@@ -327,7 +426,18 @@ class DpmmHdfBuilder(FrameConsumer):
                 kind="full",
             )
 
-        # 5) set attributes
+        if self.map_p.version >= ProviderVersion.V0_4:
+            rsd = self.sql.get_resource_sharing_domains(ids_only=False)["rsd_id"]
+            with self.map_p.ctx() as store:
+                store.append(
+                    key=DpmmKey.RSD_ID,
+                    value=rsd,
+                    index=False,
+                    format="table",
+                    data_columns=True,
+                )
+
+        # 6) set attributes
         for p in [self.position_p, self.global_p, self.map_p, self.count_p]:
             p.set_attribute("cell_size", meta.cell_size)
             p.set_attribute("cell_count", meta.cell_count)
@@ -372,27 +482,9 @@ class DpmmHdfBuilder(FrameConsumer):
         }
 
     def create_hdf(self):
-        t = DcdUtil.Timer.create_and_start("create_hdf", label="")
-        print("build global")
-        self.position_p, self.global_p = pos_density_from_csv(
-            self.global_path, self.hdf_path
-        )
-        print("build dcd map")
-        self.map_p.create_from_csv(self.map_paths)
-        print("build count map")
-        count_df = DcdUtil.create_error_df(
-            self.map_p.get_dataframe(), self.global_p.get_dataframe()
-        )
-        self.count_p.write_dataframe(count_df)
-        t.stop()
-        print("done")
-        return {
-            "glb": self.global_p,
-            "pos": self.position_p,
-            "map": self.map_p,
-            "count": self.count_p,
-        }
+        raise DeprecationWarning("use create_hdf_fast")
 
+    @timing
     def create_count_map(
         self,
         df: pd.DataFrame,
@@ -400,9 +492,16 @@ class DpmmHdfBuilder(FrameConsumer):
         imputation_f: MissingValueImputationStrategy = ArbitraryValueImputation(),
     ):
         """
-        Creates dataframe of the form:
-          index: [simtime, x, y, ID]
-          columns: [count, err, sqerr, owner_dist]
+        Creates dataframe of the form (index)[column]:
+          (simtime, x, y, ID)[count, err, sqerr, owner_dist, missing_value]
+
+          The frame contains only time steps for which the node is also present in the simulation. Missing values,
+          for timestamped cells (simtime, x, y) the node does not have any information, are append using ground truth
+          data as well as the imputation strategy provide as an argument to the method.
+
+          The returned frame does not contain any NAN values in any column. If NAN values are present after the imputation
+          a ValueError is raised.
+
         df: Input data frame of one node containing count values seen by this node. It is possible
             that the node didn't see all occupied cells. To fill the gaps the data frame is concatednated
             with the ground truth to fill the missing cell values with zero (i.e. maximal error!)
@@ -414,46 +513,41 @@ class DpmmHdfBuilder(FrameConsumer):
             return
         # only use selected values
         _df = df[df["selection"] != 0].copy(deep=True)
-        # extract id, times and positions from data frame
+        # extract node id and times from data frame
         id = _df.index.get_level_values("ID").unique()[0]
-        present_at_times = (
-            _df.index.get_level_values("simtime").unique().sort_values().to_numpy()
+
+        # performance: use boolean index to filter time interval instead of frame.loc[xxx] (~18 times faster)
+        #              the filter assumes that a node is always present between start and end time. This is
+        #              always valid
+        t_min = _df.index.get_level_values("simtime").min()
+        t_max = _df.index.get_level_values("simtime").max()
+        # select global data for time interval the current node is in the simulation
+        _m = (self.global_df.index.get_level_values(0) >= t_min) & (
+            self.global_df.index.get_level_values(0) <= t_max
         )
-        not_present_at_times = np.setdiff1d(self._all_times, present_at_times)
-        positions = _df.loc[:, ["x_owner", "y_owner"]].droplevel(
-            ["x", "y", "ID", "source"]
-        )
-        positions = positions[np.invert(positions.index.duplicated(keep="first"))]
+        # glb = self.global_df.loc[present_at_times].set_axis(["glb_count"], axis=1)
+        glb = self.global_df[_m].set_axis(["glb_count"], axis=1)
 
         # get count and node position
         selected_columns = DpmmKey.count_map_creation_cols[csv_version]
         _df = _df.loc[:, selected_columns].droplevel(["source", "ID"])
-        # merge with global, rename columns and fill glb_count nan with '0'
-        # fill only global. The index where this happens are values where
-        # the global map does not have any values -> thus count=0
-        _df = pd.concat([self.global_df, _df], axis=1)
-        _df.columns = ["glb_count", *selected_columns]
-        # add marker column for which data imputation is used.
-        missing_value_idx = _df[_df["count"].isna().values].index
-        _df["missing_value"] = False
-        _df.loc[missing_value_idx, ["missing_value"]] = True
-        # use arbitrary value imputation with value=0
-        # For the default scenario (counting pedestrians via beacons) a count of
-        # zero (i.e. value=0) is a reasonable assumption because in the case of
-        # perfect reception and zero package loss no information from a given cell
-        # translates to no pedestrian in this cell, thus a count of zero. For other
-        # measurements this assumption is not automatically right and other imputation
-        # methods or deletion might be better.
-        _df = imputation_f(_df, "count")
-        # _df = _df.fillna(0)
+        # merge with global and mark 'missing values' based on 'count' column
+        # NAN values in 'glb_count' are not missing values. These are cases where
+        # the node measured something but there was nothing in the ground truth.
+        # If and how this kind of error is dealt with is determined by the imputation strategy
+        _df = pd.concat([glb, _df], axis=1)
+        # safe missing count values as discriminator
+        _df["missing_value"] = _df["count"].isna()
 
-        # remove times where node is not part of simulation
-        _df = _df.loc[Idx[present_at_times, :, :], :]
+        # See MissingValueImputationStrategy  configuration of builder for more information
+        # imputation will sort by index [simtime, x, y]
+        _df = imputation_f.with_csv_id(id=id).apply(_df)
 
-        # fill missing owner position values
-        for _time in present_at_times:
-            _df.loc[Idx[_time, :, :], "x_owner"] = positions.loc[_time, ["x_owner"]][0]
-            _df.loc[Idx[_time, :, :], "y_owner"] = positions.loc[_time, ["y_owner"]][0]
+        # no NAN values after this point.
+        if _df.isna().any(axis=0).any():
+            raise ValueError(
+                f"Count map processing for node {id} contains NAN values after imputation processing: NAN found in columns: {_df.isna().any(axis=0).to_dict()}"
+            )
 
         _x_idx = _df.index.get_level_values("x")
         _y_idx = _df.index.get_level_values("y")
@@ -465,8 +559,6 @@ class DpmmHdfBuilder(FrameConsumer):
         _df = _df.drop(columns=["glb_count", "x_owner", "y_owner"])
         _df["ID"] = id
         _df = _df.set_index(["ID"], drop=True, append=True)
-        # _df["count"] = _df["count"].astype(int)
-        # _df["err"] = _df["err"].astype(int)
         _df = _df.astype(
             {
                 k: v
@@ -485,11 +577,22 @@ class DpmmHdfBuilder(FrameConsumer):
         _df["owner_dist"] = 0.0
         _df["missing_value"] = False
         if self.global_p.version >= ProviderVersion.V0_4:
-            _df[DpmmKey.RSD_ID] = -1.0
+            _df[DpmmKey.RSD_ID] = -1
+            _df[DpmmKey.RSD_ID_OWNER] = -1
         _df = _df.set_index(["ID"], drop=True, append=True)
         self.append_to_provider(self.count_p, _df)
 
     @staticmethod
-    def append_to_provider(provider, df: pd.DataFrame):
+    @timing
+    def append_to_provider(provider: BaseHdfProvider, df: pd.DataFrame):
+        logger.debug(f"save frame with shape {df.shape} to group {provider.group}")
         with provider.ctx() as store:
-            store.append(key=provider.group, value=df, index=False, data_columns=True)
+            store.append(
+                key=provider.group,
+                value=df,
+                format="table",
+                index=False,
+                data_columns=True,
+                complevel=9,
+                complib="blosc",
+            )

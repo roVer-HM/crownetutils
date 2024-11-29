@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.typing import NDArray
 from pandas import IndexSlice as _i
 
 from crownetutils.analysis.common import RunMap
 from crownetutils.analysis.omnetpp import CellOccupancyInfo
 from crownetutils.utils.dataframe import format_frame, siunitx
-from crownetutils.utils.plot import PlotUtil_, plt_rc_same
+from crownetutils.utils.plot import PlotUtil_, enb_with_hex, plt_rc_same, with_axis
 
 
 class PlotCellOccupancy_(PlotUtil_):

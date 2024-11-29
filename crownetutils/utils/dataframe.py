@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import os
 from functools import partial
 from glob import escape
-from typing import Any, Callable, List, Protocol
+from typing import Any, Callable, Iterable, List, Literal, Protocol
 
 import numpy as np
 import pandas as pd
+from pandas._typing import IntervalClosedType
+from pandas.errors import EmptyDataError
 from pandas.io.formats.style import Styler
+
+from crownetutils.utils.logging import logger
 
 
 class EmptyFrameConsumer:
@@ -36,38 +41,11 @@ class FrameConsumer(Protocol):
 
     # the 'do nothing consumer'
     EMPTY: FrameConsumer = EmptyFrameConsumer()
+    """_summary_
+    """
 
     def __call__(self, df: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         pass
-
-
-class MissingValueImputationStrategy(Protocol):
-    """Imputation strategy to fill or remove missing values from a frame. Note that in case of removing the whole
-    row will be removed."""
-
-    def __call__(
-        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
-    ) -> pd.DataFrame:
-        ...
-
-
-class ArbitraryValueImputation(MissingValueImputationStrategy):
-    def __init__(self, fill_value=0.0) -> None:
-        self.fill_value = fill_value
-
-    def __call__(
-        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
-    ) -> pd.DataFrame:
-        df[data_column] = df[data_column].fillna(self.fill_value)
-        return df
-
-
-class DeleteMissingImputation(MissingValueImputationStrategy):
-    def __call__(
-        self, df: pd.DataFrame, data_column, *args: Any, **kwds: Any
-    ) -> pd.DataFrame:
-        mask = ~df[data_column].isna()
-        return df[mask].copy()
 
 
 def siunitx_format(val, cmd, options=None):
@@ -115,6 +93,17 @@ def format_frame(
         _df = _df.applymap(si_func)
 
     return _df
+
+
+def combine_stats(names, *args) -> pd.DataFrame:
+    """Combine statistics from different sources (pd.Series objects). Provide list of names to use as column names"""
+    ret = []
+    if len(names) != len(args):
+        raise ValueError()
+    for d in args:
+        ret.append(d.describe())
+    ret = pd.concat(ret, axis=1).set_axis(names, axis=1)
+    return ret
 
 
 def save_as_tex_table(
@@ -228,12 +217,24 @@ class LazyDataFrame(object):
             sep=meta["SEP"],
             header=0,
             usecols=column_selection,
-            dtype=self.dtype,
+            # dtype=self.dtype,
             decimal=".",
             index_col=False,
             encoding="utf-8",
             comment="#",
         )
+        if any(df.isna()):
+            if df.empty:
+                raise EmptyDataError()
+            _s = df.shape[0]
+            rows_with_nan = df.isna().any(axis=1)
+            df = df[~rows_with_nan].copy()
+            logger.warning(
+                f"{os.path.basename(self.path)} found {_s-df.shape[0]}/{_s} ({100*(_s-df.shape[0])/_s:.3f}%) rows with nan values. (removed.)"
+            )
+
+        df = df.astype(self.dtype)[column_selection].copy()
+
         if set_index and "IDXCOL" in meta:
             nr_row_indices = int(meta["IDXCOL"])
             if 0 < nr_row_indices <= df.shape[1]:
@@ -261,16 +262,91 @@ def append_index(df: pd.DataFrame, col: str, val=None):
     return df
 
 
+def append_columns(
+    df: pd.DataFrame, column_names: str | List[str], default_value: Any | List[Any]
+) -> pd.DataFrame:
+    """Append columns to data frame with the provided default values.
+    If both column_names and default_value are lists, there length must match. If the default_values is not a list
+    the value will be used by each column
+
+    Args:
+        df (pd.DataFrame): Frame which will be extended
+        column_names (str | List[str]): column names to add to frame
+        default_value (Any | List[Any]): default values used.
+    Raises:
+        ValueError:
+
+    Returns:
+        pd.DataFrame:
+    """
+
+    column_names = [column_names] if isinstance(column_names, str) else column_names
+    if isinstance(default_value, list):
+        if len(default_value) != len(column_names):
+            raise ValueError(
+                f"column_names and default values must match length. got {len(column_names)} != {len(default_value)}"
+            )
+    else:
+        default_value = np.repeat([default_value], len(column_names))
+    for idx, col in enumerate(column_names):
+        df[col] = default_value[idx]
+    return df
+
+
 def index_or_col(df, name):
-    if isinstance(df.index, pd.MultiIndex):
-        if name in df.index.names:
-            return df.index.get_level_values(name)
+    if isinstance(df.index, pd.MultiIndex) and name in df.index.names:
+        return df.index.get_level_values(name)
     elif df.index.name == name:
         return df.index
+    elif isinstance(df, pd.Series) and name in df.index:
+        # frame with one row  is reduced to pd.Series with columns as index.
+        # return as list with one item
+        return [df[name]]
     elif name in df.columns:
         return df[name]
     else:
         raise ValueError(f"name {name} not found in index or columns")
+
+
+def append_interval(
+    frame: pd.DataFrame,
+    interval_range: float,
+    time_col: str = "time",
+    start_time: float = 0.0,
+    end_time: float | None = None,
+    closed: IntervalClosedType = "left",
+    interval_col: str | None = "time_bin",
+):
+    time_data = index_or_col(frame, time_col)
+    end_time = (
+        np.ceil(time_data.max() + interval_range) if end_time is None else end_time
+    )
+    bins = pd.interval_range(
+        start=start_time, end=end_time, freq=interval_range, closed=closed
+    )
+    if interval_col is None:
+        return pd.cut(time_data, bins)
+    else:
+        frame[interval_col] = pd.cut(time_data, bins)
+        return frame
+
+
+def build_interval(frame: pd.DataFrame, provider) -> pd.DataFrame:
+    m = provider.get_attribute("interval_column")
+    if all(i in frame.columns for i in [m[1], m[2]]):
+        idx = [
+            pd.Interval(v[0], v[1], closed=m[3])
+            for v in frame.loc[:, [m[1], m[2]]].values
+        ]
+        frame[m[0]] = pd.IntervalIndex(idx, closed=m[3])
+    return frame
+
+
+def get_index_name_or_names(df):
+    if isinstance(df.index, pd.MultiIndex):
+        return df.index.names
+    else:
+        return df.index.name
 
 
 def merge_on_interval(
@@ -278,10 +354,13 @@ def merge_on_interval(
     df_interval,
     index="time",
     interval_col="interval",
+    interval_closed_at: IntervalClosedType = "left",
     merge: bool = True,
+    copy_data: bool = True,
     **merge_args,
 ):
-    data = data.copy()
+    if copy_data:
+        data = data.copy()
     if isinstance(data.index, pd.MultiIndex):
         group_by_index = list(data.index.names)
         if index not in group_by_index:
@@ -292,23 +371,28 @@ def merge_on_interval(
 
         data[interval_col] = np.nan
         for _index, _df in data.groupby(group_by_index):
+            if isinstance(_index, tuple) and len(_index) == 1:
+                _index = _index[0]
             i_index = pd.IntervalIndex(
-                index_or_col(df_interval.loc[_index], interval_col)
+                index_or_col(df_interval.loc[_index,], interval_col),
+                closed=interval_closed_at,
             )
             data.loc[_index, [interval_col]] = pd.cut(
                 _df.index.get_level_values(index), bins=i_index
             )
     else:
-        i_index = pd.IntervalIndex(index_or_col(df_interval, interval_col))
+        i_index = pd.IntervalIndex(
+            index_or_col(df_interval, interval_col), closed=interval_closed_at
+        )
+
         data[interval_col] = pd.cut(data.index.get_level_values(0), bins=i_index)
         group_by_index = []
 
-    merge_args.update(dict(on=[*group_by_index, interval_col], how="left"))
-
     if merge:
-        data = data.reset_index().merge(df_interval.reset_index(), **merge_args)
+        merge_args.update(dict(on=[*group_by_index, interval_col], how="left"))
+        out = data.reset_index().merge(df_interval.reset_index(), **merge_args)
 
-    return data
+    return out
 
 
 def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.DataFrame:
@@ -324,3 +408,79 @@ def partial_index_match(df: pd.DataFrame, partial_idx: pd.MultiIndex) -> pd.Data
     df = df.loc[idx]
     df = df.reset_index().set_index(idx_old)
     return df
+
+
+class DataFrameStructureError(Exception):
+    pass
+
+
+def assert_frame_structure(
+    df: pd.DataFrame, index_names=None, column_names=None, shape=(-1, -1), msg: str = ""
+):
+    if index_names is not None:
+        if isinstance(index_names, str):
+            if df.index.name != index_names:
+                raise DataFrameStructureError(
+                    f"expected index name '{index_names}' got '{df.index.name}' msg: {msg}"
+                )
+        else:
+            if (len(df.index.names) != len(index_names)) or any(
+                [i1 != i2 for (i1, i2) in zip(df.index.names, index_names)]
+            ):
+                raise DataFrameStructureError(
+                    f"expected index  '{index_names}' got '{df.index.names}'"
+                )
+    if column_names is not None:
+        if isinstance(column_names, str):
+            column_names = [column_names]
+        if len(df.columns) != len(column_names) or any(
+            [i1 != i2 for (i1, i2) in zip(list(df.columns.values), column_names)]
+        ):
+            raise DataFrameStructureError(
+                f"expected columns '{column_names}' got '{list(df.columns.values)}' msg: {msg}"
+            )
+
+
+def flatten_record_column(
+    data: pd.DataFrame | pd.Series,
+    cols: str | None | Iterable = None,
+    replace_columns: bool = True,
+) -> pd.DataFrame:
+    """Split column/series of dictionary records in separate columns. If data is a frame and replace_column is true,
+    than the original column is remove from th frame.
+
+    Args:
+        data (pd.DataFrame | pd.Series): Data containing a series/column/list of records.
+        col (str | None): Column to use if data is a frame
+        replace_column (bool, optional): If true the `col` is removed from the frame. Defaults to True.
+
+    Raises:
+        ValueError: data is not a Frame/Series or list of records.
+
+    Returns:
+        pd.DataFrame: Flattened frame
+    """
+    if isinstance(data, pd.Series):
+        ret = pd.DataFrame.from_records(data.values, index=data.index)
+    elif isinstance(data, pd.DataFrame):
+        if cols is None:
+            raise ValueError("Data is a frame. `col` is needed in this case")
+        elif isinstance(cols, str):
+            cols = [cols]
+
+        ret = [data]
+        try:
+            for c in cols:
+                ret.append(pd.DataFrame.from_records(data[c].values, index=data.index))
+        except TypeError as e:
+            raise ValueError("col must be a string or iterable if data is a frame.", e)
+
+        ret = pd.concat(ret, axis=1)
+
+        if replace_columns:
+            ret = ret.drop(columns=cols)
+
+    else:
+        ret = pd.DataFrame.from_records(data)
+
+    return ret

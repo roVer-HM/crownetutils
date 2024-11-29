@@ -6,10 +6,14 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, box
 
+from crownetutils.analysis import RsdAssociationProvider
 from crownetutils.analysis.dpmm.csv_loader import read_csv
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfgDb
+from crownetutils.analysis.dpmm.dpmm_sql import DpmmSql
 from crownetutils.analysis.dpmm.metadata import DpmmMetaData
 from crownetutils.analysis.hdf.groups import HdfGroups
 from crownetutils.analysis.hdf.provider import IHdfProvider
+from crownetutils.utils.logging import logger, timing
 
 
 class DpmMapKey:
@@ -192,9 +196,50 @@ class DpmmGlobal(IHdfProvider):
         return gdf
 
 
-def pos_density_from_csv(
+@timing
+def create_and_save_position_and_global_db(
+    cfg: DpmmCfgDb, hdf_path: str, rsd_p: RsdAssociationProvider | None = None
+):
+    sql: DpmmSql = DpmmSql(cfg)
+
+    pos = DpmmGlobalPosition(hdf_path)
+    density = DpmmGlobal(hdf_path)
+    meta: DpmmMetaData = sql.glb_metadata()
+    col_types = DpmMapKey.types_global_raw_csv_col
+    del col_types[DpmMapKey.NODE_ID]  # node ids are in an extra table load seperatly
+    global_df = sql.read_glb_map(
+        index_types=DpmMapKey.types_global_raw_csv_index,
+        col_types_dict=col_types,
+        real_coords=True,
+    )
+    position_df = sql.read_global_position(
+        index_types=DpmMapKey.types_global_raw_csv_index,
+        real_coords=True,
+    )
+
+    position_df.set_index(
+        keys=list(pos.index_order().values()), inplace=True, verify_integrity=True
+    )
+    logger.info(
+        f"position_df: {position_df.memory_usage(index=True).sum()/1e6} MB with shape {position_df.shape}"
+    )
+    logger.info(
+        f"global: {global_df.memory_usage(index=True).sum()/1e6} MB with shape {global_df.shape}"
+    )
+    if rsd_p is not None:
+        pos = rsd_p.merge_rsd_id_on_host_time_interval(
+            data=pos, host_id_col="node_id", time_col="simtime", append_interval=False
+        )
+    pos.write_dataframe(position_df)
+    density.write_dataframe(global_df)
+    return pos, density, meta
+
+
+@timing
+def create_and_save_position_and_global(
     csv_path: str,
     hdf_path: str,
+    rsd_p: RsdAssociationProvider | None = None,
 ) -> Tuple[DpmmGlobalPosition, DpmmGlobal, DpmmMetaData]:
     pos = DpmmGlobalPosition(hdf_path)
     density = DpmmGlobal(hdf_path)
@@ -208,7 +253,18 @@ def pos_density_from_csv(
     position_df.set_index(
         keys=list(pos.index_order().values()), inplace=True, verify_integrity=True
     )
+    logger.info(
+        f"position_df: {position_df.memory_usage(index=True).sum()/1e6} MB with shape {position_df.shape}"
+    )
+    logger.info(
+        f"global: {global_df.memory_usage(index=True).sum()/1e6} MB with shape {global_df.shape}"
+    )
+
+    if rsd_p is not None:
+        pos = rsd_p.merge_rsd_id_on_host_time_interval(
+            data=pos, host_id_col="node_id", time_col="simtime", append_interval=False
+        )
     pos.write_dataframe(position_df)
     density.write_dataframe(global_df)
-
+    # density.repack_hdf(keep_old_file=False)
     return pos, density, meta

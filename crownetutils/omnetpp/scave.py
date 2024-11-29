@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import glob
+import inspect
 import io
 import os
 import pprint as pp
@@ -10,16 +11,20 @@ import signal
 import sqlite3 as sq
 import subprocess
 import time
-from typing import Any, List, Tuple, Union
+from typing import Any, Callable, List, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely.geometry import Point, Polygon
 
+from crownetutils.analysis.dpmm import MapType
+from crownetutils.analysis.dpmm.dpmm_cfg import DpmmCfg
 from crownetutils.omnetpp.scave_config import ScaveConfig
 from crownetutils.omnetpp.sim_bound import SimBound
-from crownetutils.utils.logging import logger, timing
+from crownetutils.omnetpp.sql import SqlOp
+from crownetutils.utils.logging import TimeIt, logger, timing
+from crownetutils.utils.parallel import run_kwargs_map
 
 
 class SqlEmptyResult(Exception):
@@ -147,61 +152,6 @@ class ScaveFilter:
         return " ".join(self._filter)
 
 
-class SqlOp:
-    """
-    Helper class to build `WHERE` clause for matching a
-    column against a single or multiple values which
-    may contain placeholder strings `%`.
-
-    Use classmethods `OR` or `AND` for the respective boolean operator
-    needed.
-    """
-
-    def __init__(self, operator, group):
-        self._operator = operator
-        self._group = group if isinstance(group, list) else [group]
-
-    @classmethod
-    def OR(cls, items):
-        return cls("or", items)
-
-    @classmethod
-    def AND(cls, items):
-        return cls("and", items)
-
-    def get_names(self):
-        return self._group
-
-    def apply(self, table, column):
-        ret = []
-        for i in self._group:
-            if "%" in i:
-                ret.append(f"{table}.{column} like '{i}'")
-            else:
-                ret.append(f"{table}.{column} = '{i}'")
-        if len(ret) == 1:
-            return ret[0]
-        else:
-            ret = f" {self._operator} ".join(ret)
-            return f"({ret})"
-
-    def append_suffix(self, suffix: str):
-        self._group = [f"{i}{suffix}" for i in self._group]
-
-    def info_str(self) -> str:
-        _items = ", ".join(self._group)
-        return f"{self._operator}[{_items}]"
-
-    def __iter__(self):
-        return iter(self._group)
-
-    def __repr__(self) -> str:
-        return self.info_str()
-
-    def __str__(self) -> str:
-        return self.apply("TABLE", "COLUMN")
-
-
 class OppSql:
 
     """
@@ -268,11 +218,34 @@ class OppSql:
             else:
                 raise RuntimeError("Expected df or cursor as type")
 
+    def _write(self, sql_str, file="vec", **kwargs) -> None:
+        sql_file = self._file(file)
+        with sql_file() as _con:
+            _con.execute(sql_str, **kwargs)
+            _con.commit()
+
+    def _vacuum(self, file="vec", **kwargs) -> None:
+        sql_file = self._file(file)
+        with sql_file() as _con:
+            _con.execute("VACUUM", **kwargs)
+
     def query_vec(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="vec", type=type, **kwargs)
 
     def query_sca(self, sql_str, type="df", **kwargs):
         return self._query(sql_str, file="sca", type=type, **kwargs)
+
+    def write_sca(self, sql_str, **kwargs):
+        return self._write(sql_str, file="sca", **kwargs)
+
+    def write_vec(self, sql_str, **kwargs):
+        return self._write(sql_str, file="vec", **kwargs)
+
+    def vacuum_vec(self, **kwargs):
+        return self._vacuum(file="vec", **kwargs)
+
+    def vacuum_sca(self, **kwargs):
+        return self._vacuum(file="vec", **kwargs)
 
     @staticmethod
     def _to_sql(obj: Union[str, SqlOp], table, column, prefix="", suffix=""):
@@ -288,6 +261,102 @@ class OppSql:
                 return f"{prefix} {table}.{column} = '{obj}' {suffix}"
         else:
             raise ValueError("expected SqlOp or string")
+
+    def check_if_index_exists(self, print_info: bool = False) -> bool:
+        """Check for indexes on 'vectorId' and 'eventNumber' on vectorData table.
+
+        CREATE INDEX IF NOT EXISTS vectorData_vectorId_index ON vectorData (vectorId);
+        CREATE INDEX IF NOT EXISTS vectorData_eventNumber_index ON vectorData (eventNumber);
+
+        CREATE INDEX IF NOT EXISTS vector_moduleName_index ON vector (moduleName);
+        CREATE INDEX IF NOT EXISTS vector_vectorName_index ON vector (vectorName);
+        """
+        except_indices = [
+            ("vector", "vector_moduleName_index", "moduleName"),
+            ("vector", "vector_vectorName_index", "vectorName"),
+            ("vectorData", "vectorData_vectorId_index", "vectorId"),
+            ("vectorData", "vectorData_eventNumber_index", "eventNumber"),
+        ]
+        with self.vec_con() as c:
+            idx_info = []
+            found_at = []
+            for table in ["vectorData", "vector"]:
+                indexes = c.execute(f"PRAGMA index_list({table});").fetchall()
+                if len(indexes) <= 0:
+                    continue
+                index_names = [r[1] for r in indexes]
+                for idx, i_name in enumerate(index_names):
+                    index_infos = c.execute(f"PRAGMA index_info({i_name});").fetchall()
+                    if len(index_infos) == 0:
+                        idx_info.append((table, index_names[idx], None))
+                    else:
+                        idx_info.append((table, index_names[idx], index_infos[0][2]))
+
+            for expected in except_indices:
+                found = False
+                for idx, i in enumerate(idx_info):
+                    found = False
+                    if expected == i:
+                        found_at.append((idx, True))
+                        found = True
+                        break
+                    elif expected[0] == i[0] and expected[2] == i[2]:
+                        found_at.append((idx, False))
+                        found = True
+                        break
+                if not found:
+                    found_at.append((-1, False))
+
+            if print_info:
+                print(
+                    "expected indices:\nnum | table | index_name | column | match(full/partial)\n "
+                )
+                for idx, e in enumerate(except_indices):
+                    m = found_at[idx]
+                    if m[0] >= 0:
+                        if m[1]:
+                            m = f"match at {idx}"
+                        else:
+                            m = f"partial match at {idx}"
+                    else:
+                        m = "not found!"
+                    print(f"{idx} | {e[0]} |  {e[1]} | {e[2]} |  {m}")
+                print("-" * 80)
+                print(
+                    "found indices:\nnum | table | index_name | column | match(full/partial)\n "
+                )
+                for idx, e in enumerate(idx_info):
+                    print(f"{idx} | {e[0]} | {e[1]} | {e[2]}")
+
+            if all([i[0] >= 0 for i in found_at]):
+                return True
+            return False
+
+    def append_index_if_missing(self):
+        """Append missing indexes to vector database. Will increase memory footprint by about 1/3.
+
+        CREATE INDEX IF NOT EXISTS vectorDataIndex ON vectorData (vectorId);
+        CREATE INDEX IF NOT EXISTS vectorDataIndexEventNumber ON vectorData (eventNumber);
+
+        CREATE INDEX IF NOT EXISTS moduleNameIndex ON vector (moduleName);
+        CREATE INDEX IF NOT EXISTS vectorNameIndex ON vector (vectorName);
+        """
+        index_sql = [
+            "CREATE INDEX IF NOT EXISTS vectorData_vectorId_index ON vectorData (vectorId);",
+            "CREATE INDEX IF NOT EXISTS vectorData_eventNumber_index ON vectorData (eventNumber);",
+            "CREATE INDEX IF NOT EXISTS vector_moduleName_index ON vector (moduleName);",
+            "CREATE INDEX IF NOT EXISTS vector_vectorName_index ON vector (vectorName);",
+        ]
+        timer = TimeIt()
+        with timer:
+            with self.vec_con() as c:
+                for s in index_sql:
+                    logger.debug(f"execute: {s}")
+                    ret = c.execute(s).fetchall()
+                    logger.debug(
+                        f"Done in {timer.round_str()} with return value: {ret}"
+                    )
+        logger.debug(f"indices create in {timer.str()}")
 
     def vector_exists(
         self,
@@ -329,6 +398,67 @@ class OppSql:
             )
 
         return None
+
+    def hist_info(
+        self,
+        module_name: SqlOp | str | None = None,
+        stat_name: SqlOp | str | None = None,
+        stat_ids: List[int] | None = None,
+        run_id: int = 1,
+        cols: List[str] | None = None,
+        **kwargs,
+    ):
+        """Query statistic table for histogram information"""
+        if cols is None:
+            cols = "*"  # select all columns
+        else:
+            cols = ", ".join([f"v.{c}" for c in cols])
+
+        if all(i is not None for i in [module_name, stat_name]):
+            _sql = f"select {cols} from statistic v where v.runId = '{run_id}' and v.isHistogram == 1"
+            _sql += self._to_sql(module_name, "v", "moduleName", "and")
+            _sql += self._to_sql(stat_name, "v", "statName", "and")
+        elif stat_ids is not None:
+            _id_str = [str(i) for i in stat_ids]
+            _sql = f"select {cols} from statistic v where v.runId = '{run_id}' and v.isHistogram == 1"
+            _sql += f" and v.statId in ({', '.join(_id_str)})"
+        else:
+            raise ValueError(
+                "expected either moduleName and vectorName or list of vector ids"
+            )
+        df = self.query_sca(_sql, type="df", **kwargs)
+        return df
+
+    def hist_data(
+        self,
+        module_name: SqlOp | str | None = None,
+        stat_name: SqlOp | str | None = None,
+        stat_ids: List[int] | None = None,
+        run_id: int = 1,
+        **kwargs,
+    ):
+        if all(i is not None for i in [module_name, stat_name]):
+            _sql = f"select v.*, b.lowerEdge, b.binValue from statistic v  inner join histogramBin as b on  v.statId == b.statId where v.runId = '{run_id}'"
+            _sql += self._to_sql(module_name, "v", "moduleName", "and")
+            _sql += self._to_sql(stat_name, "v", "statName", "and")
+        elif stat_ids is not None:
+            _id_str = [str(i) for i in stat_ids]
+            _sql = f"select v.*, b.lowerEdge, b.binValue from statistic v inner join histogramBin as b on  v.statId == b.statId where v.runId = '{run_id}'"
+            _sql += f" and v.statId in ({', '.join(_id_str)})"
+        else:
+            raise ValueError(
+                "expected either moduleName and vectorName or list of vector ids"
+            )
+        df = self.query_sca(_sql, type="df", **kwargs)
+        if not df.empty:
+            df = df.sort_values(["statId", "lowerEdge"])
+            df["upperEdge"] = df["lowerEdge"].shift(-1)
+            df["_statId"] = df["statId"].shift(-1)
+            df[df["statId"] == df["_statId"]]
+            df = df[~df["_statId"].isna()]
+            df["bin_size"] = np.abs(df["upperEdge"] - df["lowerEdge"])
+            df["inf_bin"] = df["bin_size"] == np.inf
+        return df
 
     def vec_info(
         self,
@@ -573,6 +703,50 @@ class OppSql:
                 f.writelines(lines)
             return None
 
+    def vec_data_paginate(
+        self,
+        module_name: SqlOp | str | None = None,
+        vector_name: SqlOp | str | None = None,
+        ids: List[int] | pd.DataFrame | None = None,
+        runId: int = 1,
+        vec_ids_per_page: int = 5,
+        columns: List[str] = ("vectorId", "simtimeRaw", "value"),
+        order_by: List[str] = (),
+        value_name: str = "value",
+        time_slice: slice = slice(None),
+        time_resolution=1e12,
+        index: List[str] | None = None,
+        index_sort: bool = True,
+        drop: str | List[str] | None = None,
+        **kwargs,
+    ):
+        _loc = locals()
+        sig = inspect.signature(self.vec_data_paginate)
+        sig = [
+            i[0]
+            for i in list(sig.parameters.items())
+            if i[0]
+            not in ["module_name", "vector_name", "ids", "vec_ids_per_page", "kwargs"]
+        ]
+        vec_ids_sig = {k: _loc[k] for k in sig}
+        if module_name is not None and vector_name is not None:
+            _ids = self.vec_ids(module_name, vector_name)
+        elif type(ids) == pd.DataFrame:
+            _ids = ids["vectorId"].unique()
+            if "vectorId" not in columns:
+                columns = [*columns, "vectorId"]
+        else:
+            _ids = ids
+
+        data = []
+        pages = int(np.ceil(len(_ids) / vec_ids_per_page))
+        for i in range(0, len(_ids), vec_ids_per_page):
+            print(f"query page: {int(i/vec_ids_per_page)}/{pages}")
+            page_ids = _ids[i : min(i + 5, len(_ids) - 1)]
+            o = self.vec_data(ids=page_ids, **vec_ids_sig, **kwargs)
+            data.append(o)
+        return pd.concat(data, axis=1)
+
     @timing
     def vec_data(
         self,
@@ -581,6 +755,7 @@ class OppSql:
         ids: List[int] | pd.DataFrame | None = None,
         runId: int = 1,
         columns: List[str] = ("vectorId", "simtimeRaw", "value"),
+        order_by: List[str] = (),
         value_name: str = "value",
         time_slice: slice = slice(None),
         time_resolution=1e12,
@@ -600,6 +775,7 @@ class OppSql:
 
         _ids = ", ".join([str(i) for i in _ids])
         columns = ", ".join([f"v_data.{c}" for c in columns])
+        order_by = ", ".join([f"v_data.{c}" for c in order_by])
         if time_slice != slice(None):
             if time_slice.start is None:
                 _time = f" and v_data.simTimeRaw == {time_slice.stop * time_resolution}"
@@ -608,6 +784,9 @@ class OppSql:
         else:
             _time = ""
         _sql = f"select {columns} from vectorData v_data where v_data.vectorId in ({_ids}) {_time}"
+        if len(order_by) > 0:
+            _sql = f"{_sql}  ORDER BY {order_by}"
+
         # print(_sql)
         df = self.query_vec(_sql, type="df", **kwargs)
         if time_resolution is not None and "simtimeRaw" in columns:
@@ -636,24 +815,113 @@ class OppSql:
 
 
 class HostIdMap:
+    """Provides access to OMNeT++ module name to module ids. The caller must check if the provided id exists.
+    If not and this is an acceptable state for the application a dummy unique identifier is provided.
+    Key: str of module name
+    Value: module identifier (or dummy id)
+    """
+
     def __init__(self, id_map) -> None:
         self.id_map: dict = id_map
-        self._next_dummy_id = -1
+        self.key_set = set(list(id_map.keys()))
+
+    def _next_id_peek(self):
+        if len(self.key_set) == 0:
+            return 0
+        else:
+            return max(self.key_set) + 1
+
+    def _next_id(self):
+        i = self._next_id_peek()
+        self.key_set.add(i)
+        return i
 
     def __getitem__(self, key):
         return self.id_map[key]
 
     def get_dummy_id(self, key):
         if key not in self.id_map:
-            logger.warn(
-                f"module '{key}' not found in id_map. Provide dummy id {self._next_dummy_id}"
-            )
-            self.id_map[key] = self._next_dummy_id
-            self._next_dummy_id -= 1
+            i = self._next_id()
+            logger.warn(f"module '{key}' not found in id_map. Provide dummy id {i}")
+            self.id_map[key] = i
         return self.id_map[key]
 
     def __contains__(self, key):
         return key in self.id_map
+
+
+class ModuleMatcher:
+    """Extract module name, vector index and module id (OMNeT interval node identifier) from
+    OMNeT++ module path. The module name ist the OMNeT++ module path to the module which
+    contains the '@NetworkNode` marker in the OMNeT++ ned file definition. In combination with
+    the `hostId` statistic a match between the module id and the network path is possible.
+
+    In case of missing `hostId` statistics a dummy unique identifier is used. See `HostIdMap`
+    for more information.
+    """
+
+    def __init__(self, sql) -> None:
+        self.sql: CrownetSql = sql
+        self._module_map = None
+
+    @property
+    def module_map(self):
+        if self._module_map is None:
+            self._module_map = self.sql.module_to_host_ids()
+        return self._module_map
+
+    def _match_host(self, x):
+        if _m := self.sql._host_index_regex.match(x):
+            return f'{_m.groupdict()["type"]}[{_m.groupdict()["hostIdx"]}]'
+        raise ValueError(
+            f"given moduelName '{x}' does not match vector index regex {self.sql._host_index_regex}"
+        )
+
+    def _match_host_id(self, x):
+        if _m := self.sql._host_id_regex.match(x):
+            if _m.groupdict()["host"] in self.module_map:
+                return self.module_map[_m.groupdict()["host"]]
+            elif _m.groupdict()["type"] in ["eNB", "gNB"]:
+                return self.sql._host_index_regex.match(x).groupdict()["hostIdx"]
+            else:
+                return self.module_map.get_dummy_id(_m.groupdict()["host"])
+        raise ValueError(
+            f"given moduleName '{x}' does match module regex {self._host_id_regex}"
+        )
+
+    def _match_vector_idx(self, x):
+        if _m := self.sql._host_index_regex.match(x):
+            return int(_m.groupdict()["hostIdx"])
+        raise ValueError(
+            f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
+        )
+
+    def get_host(self, s: pd.Series) -> pd.Series:
+        return s.apply(lambda x: self._match_host(x))
+
+    def get_host_id(self, s: pd.Series) -> pd.Series:
+        return s.apply(lambda x: self._match_host_id(x))
+
+    def get_vector_index(self, s: pd.Series) -> pd.Series:
+        return s.apply(lambda x: self._match_vector_idx(x))
+
+
+def append_host_id(
+    df: pd.DataFrame, sql: CrownetSql, col_name: str = "moduleName"
+) -> pd.DataFrame:
+    if col_name not in df.columns:
+        raise ValueError(f"expected {col_name} in frame got {df.columns}")
+    df["host_id"] = sql.module_matcher.get_host_id(df[col_name])
+    return df
+
+
+def append_host_vector_index(
+    df: pd.DataFrame, sql: CrownetSql, col_name: str = "moduleName"
+) -> pd.DataFrame:
+    if col_name not in df.columns:
+        raise ValueError(f"expected {col_name} in frame got {df.columns}")
+    df["vec_idx"] = sql.module_matcher.get_vector_index(df[col_name])
+    return df
 
 
 class CrownetSql(OppSql):
@@ -680,13 +948,41 @@ class CrownetSql(OppSql):
     _vehicle = "%s.misc[%d]"
     _vehicle_app = "%s.misc[%d].app[%d]"
 
-    module_vectors = ["misc", "pNode", "vNode"]
+    @property
+    def module_vectors(self) -> List[str]:
+        if self.dpmm_cfg is None:
+            return self._module_vectors
+        else:
+            return self.dpmm_cfg.module_vectors
 
-    def __init__(self, vec_path=None, sca_path=None, network="World"):
+    @property
+    def network(self) -> str:
+        if self.dpmm_cfg is None:
+            return self._network
+        else:
+            return self.dpmm_cfg.network_name
+
+    @classmethod
+    def from_dpmm_cfg(cls, cfg: DpmmCfg):
+        return cls(
+            vec_path=cfg.vec_path(),
+            sca_path=cfg.sca_path(),
+            network=cfg.network_name,
+            dpmm_cfg=cfg,
+        )
+
+    def __init__(
+        self,
+        vec_path=None,
+        sca_path=None,
+        network="World",
+        dpmm_cfg: DpmmCfg | None = None,
+    ):
         super().__init__(vec_path=vec_path, sca_path=sca_path)
-        self.network = network
+        self.dpmm_cfg = dpmm_cfg
+        self._network = network
         self.module_names = self.OR(
-            [f"{self.network}.{i}[%]" for i in self._module_vectors]
+            [f"{self.network}.{i}[%]" for i in self.module_vectors]
         )
         self._host_id_regex = re.compile(
             f"(?P<host>^{self.network}\.(?P<type>{'|'.join(self._all_modules)})\[\d+\]).*"
@@ -695,6 +991,7 @@ class CrownetSql(OppSql):
             f"^{self.network}\.(?P<type>{'|'.join(self._all_modules)})\[(?P<hostIdx>\d+)\].*"
         )
         self._module_id_map: HostIdMap = None
+        self.module_matcher: ModuleMatcher = ModuleMatcher(self)
 
     def host_ids(self, module_name: Union[None, str, SqlOp] = None):
         """
@@ -750,11 +1047,47 @@ class CrownetSql(OppSql):
 
     def module_to_host_ids(self):
         if self._module_id_map is None:
-            m = self.OR([f"{self.network}.{i}[%]" for i in self._module_vectors])
-            self._module_id_map = HostIdMap(
-                {v: k for k, v in self.host_ids(module_name=m).items()}
-            )
+            m = self.OR([f"{self.network}.{i}[%]" for i in self.module_vectors])
+            _host_ids = self.host_ids(module_name=m)
+            self._module_id_map = HostIdMap({v: k for k, v in _host_ids.items()})
         return self._module_id_map
+
+    def debug_load_host_id_map_from_data(self):
+        if len(self.module_to_host_ids().id_map) == 0:
+            logger.warning(
+                "no hostId map found create one from zero send delay. And append it to sca DB!"
+            )
+            vec_names = {
+                "rcvdPkHostId:vector": dict(name="srcHostId", dtype=np.int32),
+                "rcvdPkLifetime:vector": dict(name="delay", dtype=np.float32),
+            }
+            vec_data = self.vec_data_pivot(
+                module_name=self.m_app0(),
+                vector_name_map=vec_names,
+                append_index=["srcHostId"],
+            ).sort_index()
+            _d = vec_data["delay"] == 0.0
+            _dummy_to_host = {v: k for k, v in self.module_to_host_ids().id_map.items()}
+            vec_data: pd.DataFrame = (
+                vec_data.reset_index()
+                .drop(columns=["eventNumber", "time"])[_d.values]
+                .drop_duplicates()
+            )
+            insert = []
+            for _, row in vec_data.iterrows():
+                insert.append(
+                    f"(1, '{_dummy_to_host[row['hostId']]}', 'hostId:last', {row['srcHostId']})"
+                )
+
+            insert = ",\n".join(insert)
+            sql_str = f"INSERT INTO scalar (runId, moduleName, scalarName, scalarValue) VALUES \n {insert};"
+
+            self.write_sca(sql_str)
+
+            # update id map
+            self._module_id_map = None
+            self.module_to_host_ids()
+            self.module_matcher = ModuleMatcher(self)
 
     def create_bonnmotion_trace(
         self,
@@ -807,6 +1140,47 @@ class CrownetSql(OppSql):
             bottom_left_origin=bottom_left_origin,
             cols=cols,
         )
+
+    def get_resource_sharing_domains(
+        self,
+        ids_only: bool = False,
+        epsg_code_base: str | None = None,
+        epsg_code_to: str | None = None,
+        apply_offset: bool = True,
+        bottom_left_origin: bool = True,
+    ) -> pd.Series | pd.DataFrame:
+        module_name = self.m_enb()
+        rsd = self.sca_data(
+            module_name=module_name.append_path(".cellularNic.phy"),
+            scalar_name="macNodeId:last",
+            cols=("modulename", "scalarValue"),
+        )
+        if ids_only:
+            r = rsd["scalarValue"].astype(int)
+            r.name = "rsd_id"
+            return r
+
+        rsd = rsd.set_axis(["hostId", "rsd_id"], axis=1)
+        rsd["rsd_id"] = rsd["rsd_id"].astype(int)
+        p = re.compile(r".*\[(\d+)\].*")
+        rsd["hostId"] = rsd["hostId"].apply(lambda x: int(p.match(x).groups()[0]))
+        enb = self.enb_position(
+            module_name=self.m_enb(),
+            epsg_code_base=epsg_code_base,
+            epsg_code_to=epsg_code_to,
+            apply_offset=apply_offset,
+            bottom_left_origin=bottom_left_origin,
+            cols=("hostId", "host", "x", "y"),
+        )
+        enb["hostId"] = enb["hostId"].astype(int)
+        if rsd.empty:
+            logger.warning(
+                f"scalar name of rsd_id not found. use enb vector index +1 as rsd_id"
+            )
+            enb["rsd_id"] = enb["hostId"] + 1
+        else:
+            enb = enb.merge(rsd, how="inner", on="hostId")
+        return enb
 
     def node_position(
         self,
@@ -998,34 +1372,6 @@ class CrownetSql(OppSql):
         Returns:
             pd.DataFrame: Structure depends on args
         """
-        module_map = self.module_to_host_ids()
-
-        def _match_host(x):
-            if _m := self._host_index_regex.match(x):
-                return f'{_m.groupdict()["type"]}[{_m.groupdict()["hostIdx"]}]'
-            raise ValueError(
-                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
-            )
-
-        def _match_host_id(x):
-            if _m := self._host_id_regex.match(x):
-                if _m.groupdict()["host"] in module_map:
-                    return module_map[_m.groupdict()["host"]]
-                elif _m.groupdict()["type"] in ["eNB", "gNB"]:
-                    return self._host_index_regex.match(x).groupdict()["hostIdx"]
-                else:
-                    return module_map.get_dummy_id(_m.groupdict()["host"])
-            raise ValueError(
-                f"given moduleName '{x}' does match module regex {self._host_id_regex}"
-            )
-
-        def _match_vector_idx(x):
-            if _m := self._host_index_regex.match(x):
-                return int(_m.groupdict()["hostIdx"])
-            raise ValueError(
-                f"given moduelName '{x}' does not match vector index regex {self._host_index_regex}"
-            )
-
         _cols = list(vec_info_columns)  # copy
         if "moduleName" not in vec_info_columns:
             # moduleName must be returned to create needed names. Will be
@@ -1048,13 +1394,13 @@ class CrownetSql(OppSql):
         )
 
         if "host" in name_columns:
-            _df["host"] = _df["moduleName"].apply(lambda x: _match_host(x))
+            _df["host"] = self.module_matcher.get_host(_df["moduleName"])
             _cols.append("host")
         if "hostId" in name_columns:
-            _df["hostId"] = _df["moduleName"].apply(lambda x: _match_host_id(x))
+            _df["hostId"] = self.module_matcher.get_host_id(_df["moduleName"])
             _cols.append("hostId")
         if "vecIdx" in name_columns:
-            _df["vecIdx"] = _df["moduleName"].apply(lambda x: _match_vector_idx(x))
+            _df["vecIdx"] = self.module_matcher.get_vector_index(_df["moduleName"])
             _cols.append("vecIdx")
 
         if pull_data:
@@ -1064,6 +1410,51 @@ class CrownetSql(OppSql):
         if drop is not None:
             df = df.drop(columns=drop, errors="ignore")
         return df
+
+    def create_event_number_join(self, records: dict) -> Tuple[str, str]:
+        """Create join based on vectorData table and same eventNumber
+
+        Performance: ensure that db has an index on vectorData.vectorId and
+        vectorData.eventNumber. See self.check_if_index_exists() and
+        self.append_index_if_missing() for checking and creating db index.
+
+        Args:
+            records (dict): record containing the hostId key with column name / vectorId mapping
+                            as key value pairs.
+        Raises:
+            ValueError: If maximum number of joins is reached (20 for now)
+
+        Returns:
+            Tuple[str, str]: (hostId, sql statement)
+        """
+        statements = []
+        for record in records:
+            host_id = record["hostId"]
+            joins = [(k, v) for k, v in record.items() if k != "hostId"]
+            if len(joins) > 20:
+                raise ValueError(f"To many joins max. 20 got {len(joins)}")
+
+            selects = [
+                f"v{idx}.value as '{col_name}'"
+                for idx, (col_name, _) in enumerate(joins)
+            ]
+            selects_str = ",\n    ".join(selects)
+            sql = f"select v0.simtimeRaw/1e12 as 'time', v0.eventNumber,\n    {selects_str}\n"
+            sql = f"{sql}from vectorData as v0\n"
+
+            def inner_join(first_id, second_id, join_idx):
+                ret = f"    INNER JOIN vectorData as v{join_idx}\n"
+                ret = f"{ret}        on v0.eventNumber == v{join_idx}.eventNumber\n"
+                if join_idx == 1:
+                    ret = f"{ret}        and v0.vectorID == {first_id}\n"
+                ret = f"{ret}        and v{join_idx}.vectorID == {second_id}\n"
+                return ret
+
+            first_id = joins[0][1]  # first vectorId
+            for idx, (_, second_id) in enumerate(joins[1:]):
+                sql = f"{sql}{inner_join(first_id, second_id, idx+1)}"
+            statements.append((host_id, sql))
+        return statements
 
     @timing
     def vec_data_pivot(
@@ -1116,24 +1507,42 @@ class CrownetSql(OppSql):
             raise SqlEmptyResult(
                 f"No data for vector names: {list(vector_name_map.keys())} found."
             )
-        vec_data = self.vec_data(
-            ids=df, columns=("vectorId", "eventNumber", "simtimeRaw", "value")
+        timer = TimeIt()
+
+        # get rows of vectorIds where columns are the vector names that should be joined.
+        # performance: ensure that db has an index on vectorData.vectorId and vectorData.eventNumber.
+        #              See self.check_if_index_exists() and self.append_index_if_missing()
+        join_by_host_id = df.pivot(
+            index="hostId", columns="vectorName", values="vectorId"
         )
-        vec_data["vectorName"] = vec_data["vectorName"].map(
-            {k: v["name"] for k, v in vector_name_map.items()}
+        num_vecs = join_by_host_id.shape[1]
+        with timer:
+            join_it = self.create_event_number_join(
+                join_by_host_id.reset_index().to_dict("records")
+            )
+            data = []
+            for host_id, _sql in join_it:
+                df = self.query_vec(sql_str=_sql)
+                if df.shape[1] - 2 != num_vecs:
+                    logger.warn(
+                        f"Did not found all vectors for host {host_id} expected {num_vecs} vectors found {df.shape}: {df.columns}"
+                    )
+                df["hostId"] = host_id
+                data.append(df)
+        logger.info(
+            f"Db inner join {join_by_host_id.shape[1]} vectors for {join_by_host_id.shape[0]} hostIds. Took: {timer.str()}"
         )
-        vec_data = (
-            vec_data.drop(columns=["vectorId"])
-            .pivot(index=["hostId", "time", "eventNumber"], columns=["vectorName"])
-            .droplevel(level=0, axis=1)
-            .reset_index()
+
+        vec_data = pd.concat(data, axis=0)
+        vec_data = vec_data.rename(
+            columns={k: v["name"] for k, v in vector_name_map.items()}
         )
+
         _dtypes = {v["name"]: v["dtype"] for _, v in vector_name_map.items()}
         col_dtypes = self.get_column_types(
             vec_data.columns.to_list(), time=float, **_dtypes
         )
         vec_data = vec_data.astype(col_dtypes)
-        vec_data.columns.name = ""
         if index is None:
             _idx = ["hostId", *append_index, "eventNumber", "time"]
             # ensure no duplicates added and keep order. https://stackoverflow.com/a/480227
@@ -1165,18 +1574,42 @@ class CrownetSql(OppSql):
         return ret
 
     def is_entropy_map(self):
-        cfg = self.get_run_config("*.globalDensityMap.typename", full_match=True)
-        if cfg is None:
-            # fixme: typo in simulation setup...
-            cfg = self.get_run_config("*.gloablDensityMap.typename", full_match=True)
-        if cfg is None:
-            logger.warn("cannot determine map type. Assume count type")
-            return False
-            # raise ValueError("Simulation does not contain a measurement map module.")
-        return "entropy" in cfg.lower()
+        if self.dpmm_cfg is not None:
+            return self.dpmm_cfg.is_entropy_map()
+        else:
+            map_type, _ = self.guess_map_type()
+            return map_type == MapType.ENTROPY
 
     def is_count_map(self):
-        return not self.is_entropy_map()
+        if self.dpmm_cfg is not None:
+            return self.dpmm_cfg.is_count_map()
+        else:
+            map_type, _ = self.guess_map_type()
+            return map_type == MapType.DENSITY
+
+    def guess_map_type(self) -> Tuple[MapType, str]:
+        _paths = ["globalDensityMap", "gloablDensityMap", "globalMeasurementMap"]
+        logger.warning(
+            "Guessing map type is departed provide DpmmCfg object with concrete map type and where to find it."
+        )
+        out = []
+        for _path in _paths:
+            cfg = self.get_run_config(f"*.{_path}.typename", full_match=True)
+            if "entropy" in cfg.lower():
+                out.append(MapType.ENTROPY, _path)
+            else:
+                out.append(MapType.DENSITY, _path)
+
+        if len(out) == 0:
+            raise ValueError(
+                f"Cannot guess global map type based on he following paths {_paths} (No key found).  Provide a concrete MapType via a DpmmCfg object. Guessing map type is deprecated."
+            )
+        elif len(out) > 1:
+            raise ValueError(
+                f"Cannot guess global map type because multiple values found {out}.  Provide a concrete MapType via a DpmmCfg object. Guessing map type is deprecated."
+            )
+
+        return out[0]
 
     # some default module selectors based on the vector database
 
@@ -1191,59 +1624,67 @@ class CrownetSql(OppSql):
         return self.OR([f"{self.network}.{i}[{idx}].cellularNic.phy" for i in _m])
 
     def m_app0(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[{idx}].app[0].{app_mod}" for i in _m])
+        path = path if path.startswith(".") else f".{path}"
+        return self.OR([f"{self.network}.{i}[{idx}].app[0]{path}" for i in _m])
 
     def m_app1(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        return self.OR([f"{self.network}.{i}[{idx}].app[1].{app_mod}" for i in _m])
+        path = path if path.startswith(".") else f".{path}"
+        return self.OR([f"{self.network}.{i}[{idx}].app[1]{path}" for i in _m])
 
     def m_beacon(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
         """SqlOperation to select beacon application"""
         _m = modules if modules is not None else self.module_vectors
-        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
-        _t0 = self.parameter_data(_typename_0, "typename")
-        if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
-            return self.m_app0(modules, app_mod=app_mod, idx=idx)
+        if self.dpmm_cfg is None:
+            _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+            _t0 = self.parameter_data(_typename_0, "typename")
+            if all(["Beacon" in i for i in _t0["paramValue"].to_list()]):
+                return self.m_app0(_m, path=path, idx=idx)
 
-        _typename_1 = self.OR(
-            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
-        )
-        _t1 = self.parameter_data(_typename_1, "typename")
-        if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
-            return self.m_app1(modules, app_mod=app_mod, idx=idx)
+            _typename_1 = self.OR([f"{self.network}.{i}[{idx}].app[1].app" for i in _m])
+            _t1 = self.parameter_data(_typename_1, "typename")
+            if all(["Beacon" in i for i in _t1["paramValue"].to_list()]):
+                return self.m_app1(_m, path=path, idx=idx)
 
-        raise ValueError("Did not find beacon application at index app[0] or app[1]")
+            raise ValueError(
+                "Did not find beacon application at index app[0] or app[1]"
+            )
+        else:
+            return self.dpmm_cfg.m_beacon(_m, node_index=idx, path=path)
 
     def m_map(
-        self, modules: List[str] | None = None, app_mod="app", idx: int | str = "%"
+        self, modules: List[str] | None = None, path="app", idx: int | str = "%"
     ) -> SqlOp:
         _m = modules if modules is not None else self.module_vectors
-        _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
-        _t0 = self.parameter_data(_typename_0, "typename")
-        if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
-            return self.m_app0(modules, app_mod=app_mod, idx=idx)
+        if self.dpmm_cfg is None:
+            _typename_0 = self.OR([f"{self.network}.{i}[{idx}].app[0].app" for i in _m])
+            _t0 = self.parameter_data(_typename_0, "typename")
+            if all(["DensityMap" in i for i in _t0["paramValue"].to_list()]):
+                return self.m_app0(_m, path=path, idx=idx)
 
-        _typename_1 = self.OR(
-            [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
-        )
-        _t1 = self.parameter_data(_typename_1, "typename")
-        if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
-            return self.m_app1(modules, app_mod=app_mod, idx=idx)
+            _typename_1 = self.OR(
+                [f"{self.network}.{i}[{idx}].app[1].app.typename" for i in _m]
+            )
+            _t1 = self.parameter_data(_typename_1, "typename")
+            if all(["DensityMap" in i for i in _t1["paramValue"].to_list()]):
+                return self.m_app1(_m, path=path, idx=idx)
 
-        raise ValueError("Did not find beacon application at index app[0] or app[1]")
-
-    def m_enb(self, index: int = -1, module: str = "") -> str:
-        if index < 0:
-            return f"{self.network}.eNB[%]{module}"
+            raise ValueError("Did not find map application at index app[0] or app[1]")
         else:
-            return f"{self.network}.eNB[{index}]{module}"
+            return self.dpmm_cfg.m_map(_m, node_index=idx, path=path)
+
+    def m_enb(self, index: int = -1, module: str = "") -> SqlOp:
+        if index < 0:
+            return SqlOp(operator="", group=f"{self.network}.eNB[%]{module}")
+        else:
+            return SqlOp(operator="", group=f"{self.network}.eNB[{index}]{module}")
 
     def m_append_suffix(
         self, suffix: str, modules: str | List[str] | SqlOp | None = None
@@ -1253,7 +1694,7 @@ class CrownetSql(OppSql):
         elif isinstance(modules, SqlOp):
             return modules.append_suffix(suffix)
         else:
-            _m = modules if modules is not None else self._module_vectors
+            _m = modules if modules is not None else self.module_vectors
             return self.OR([f"{self.network}.{i}[%]{suffix}" for i in _m])
 
     def m_table(self, modules: List[str] | None = None) -> SqlOp:

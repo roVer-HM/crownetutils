@@ -1,6 +1,9 @@
+import io
 import os
 import signal
 import time
+import timeit as it
+import traceback
 from typing import Any, List
 
 import docker
@@ -16,6 +19,7 @@ from crownetutils.dockerrunner.simulators.controllerrunner import ControlRunner
 from crownetutils.dockerrunner.simulators.omnetrunner import OppRunner
 from crownetutils.dockerrunner.simulators.sumorunner import SumoRunner
 from crownetutils.dockerrunner.simulators.vadererunner import VadereRunner
+from crownetutils.entrypoint.parser import QoiFilter
 from crownetutils.utils.logging import logger
 from crownetutils.utils.path import PathHelper
 
@@ -41,7 +45,6 @@ class BaseSimulationRunner:
         return cls(workding_dir, args=["config", "-f", config_path])
 
     def __init__(self, working_dir, args=None):
-        self.ns = parse_run_script_arguments(self, args)
         self.docker_client = DockerClient.get()  # increased timeout
         self.working_dir = working_dir
         self.vadere_runner = None
@@ -50,7 +53,7 @@ class BaseSimulationRunner:
         self.sumo_runner = None
 
         # prepare post and pre map
-        self.f_map: dict = {}
+        self.f_map: dict = {}  # key: pre/post value: list of functions
         for key in [i for i in dir(self) if not i.startswith("__")]:
             __o = self.__getattribute__(key)
             if callable(__o):
@@ -62,6 +65,42 @@ class BaseSimulationRunner:
                     self.f_map[__type] = __type_list
                 except AttributeError:
                     continue
+        # namespace set though set_options by the parser
+        parse_run_script_arguments(self, args)
+        if getattr(self, "ns", None) is None:
+            raise ValueError(
+                "ns (namespace) not set. Did you call set_options on the SimulationDispatcher?"
+            )
+
+        if getattr(self, "qoi_filter", None) is None:
+            raise ValueError(
+                "qoi_filter not set. Did you call set_options on the SimulationDispatcher?"
+            )
+
+    def set_options(self, namespace: dict) -> None:
+        self.ns = namespace
+        self.qoi_filter: QoiFilter = self.ns["qoi_filter"]
+
+    def is_configure_logger(self) -> bool:
+        return True
+
+    def print_registered_qoi(self, apply_filter: bool = True) -> None:
+        """Print list of registered post processing functions in order of execution."""
+        _post_f = list(self.f_map["post"])
+        _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
+        if apply_filter:
+            _post_f = [p for p in _post_f if self.qoi_filter.match(p[0], p[1])]
+        s = io.StringIO()
+        if apply_filter:
+            s.write(
+                f"{len(_post_f)} Registered post processing functions (filtered):\n"
+            )
+        else:
+            s.write(f"{len(_post_f)} Registered post processing functions (all):\n")
+        for p, f in _post_f:
+            s.write(f"{p}\t{f.__name__}\n")
+        s.seek(0)
+        print(s.getvalue())
 
     def result_base_dir(self):
         """
@@ -81,7 +120,6 @@ class BaseSimulationRunner:
             raise RuntimeError(f"Error in Simulation. Error code = {ret}")
         logger.info("execute post hooks")
         self.post()
-        logger.info("done")
 
     @staticmethod
     def _to_int_if_possible(qoi: List[str]) -> List[Any]:
@@ -119,28 +157,47 @@ class BaseSimulationRunner:
         filtered_map = [
             [prio, _f] for prio, _f in map if _f.__name__.lower() in method_list
         ]
-        filtered_map.sort(key=lambda x: x[0], reverse=True)
+        filtered_map.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
         return filtered_map
 
     def post(self):
-        method_list = self.ns["qoi"]
+        _post_f = list(
+            self.f_map.get("post", [])
+        )  # f_map does may not have post key if no post function is defined in the run script
+        _post_f.sort(key=lambda x: (x[0], x[1].__name__), reverse=True)
+        post_functions = [
+            p for p in _post_f if self.qoi_filter.match(p[0], p[1].__name__)
+        ]
+
         err = []
-        if method_list:
-            _post_map = self.sort_processing("post", method_list)
-            for prio, _f in _post_map:
-                print(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
+        total_post_timer = it.default_timer()
+        for prio, _f in post_functions:
+            ts = it.default_timer()
+            logger.info(f"post: '{_f.__name__}' as post function with prio: {prio} ...")
+            if self.ns["debug"]:
+                _f()
+                logger.info(
+                    f"post: '{_f.__name__}' with prio: {prio} took {it.default_timer() - ts:2,.2f} seconds to finish."
+                )
+            else:
                 try:
                     _f()
+                    logger.info(
+                        f"post: '{_f.__name__}' with prio: {prio} took {it.default_timer() - ts:2,.2f} seconds to finish."
+                    )
                 except Exception as e:
-                    _err = f"Error while executing post processing {prio}:{_f.__name__}>> {e}"
+                    _err = f"Error while executing post processing {prio}:{_f.__name__} with runtime of {it.default_timer() - ts:2,.2f} seconds >> {e}"
                     logger.error(_err)
-                    logger.error(e.print_exc())
+                    logger.error(traceback.format_exc())
                     err.append(f"  {_err}")
                     break
 
-            if len(err) > 0:
-                err = "\n".join(err)
-                raise RuntimeError(f"Error in Postprocessing:\n{err}")
+        logger.info(
+            f"post: total postprocessing took {it.default_timer() - total_post_timer:2,.2f} seconds."
+        )
+        if len(err) > 0:
+            err = "\n".join(err)
+            raise RuntimeError(f"Error in Postprocessing:\n{err}")
 
     def pre(self):
         method_list = self.ns["pre"]

@@ -30,24 +30,127 @@ from typing import (
 
 import matplotlib
 import matplotlib.patches as pltPatch
+import matplotlib.path as pltPath
 import matplotlib.pyplot as plt
+import matplotlib.transforms as pltTrans
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.collections import PatchCollection
 from matplotlib.colorbar import Colorbar
-from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm, to_rgba_array
 from matplotlib.image import AxesImage
-from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator
+from matplotlib.table import Cell, Table
+from matplotlib.ticker import (
+    AutoLocator,
+    AutoMinorLocator,
+    EngFormatter,
+    FixedFormatter,
+    MaxNLocator,
+    MultipleLocator,
+)
 from mpl_toolkits import axes_grid1
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from numpy.typing import NDArray
+from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import Polygon
 
 import crownetutils.utils.logging as _log
 import crownetutils.utils.styles as Styles
+from crownetutils.utils.dataframe import index_or_col
 from crownetutils.vadere.plot.topgraphy_plotter import VadereTopographyPlotter
 
 logger = _log.logger
+
+
+# https://stackoverflow.com/a/67870930
+class MulticolorPatch:
+    def __init__(self, colors):
+        self.colors = colors
+
+
+class MulticolorPatchHandler:
+    def __init__(self) -> None:
+        pass
+
+    def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+        patches = []
+        for i, c in enumerate(orig_handle.colors):
+            patches.append(
+                plt.Rectangle(
+                    [
+                        handlebox.width / len(orig_handle.colors) * i
+                        - handlebox.xdescent,
+                        -handlebox.ydescent,
+                    ],
+                    handlebox.width / len(orig_handle.colors),
+                    handlebox.height,
+                    facecolor=c,
+                    edgecolor="none",
+                )
+            )
+
+        patch = PatchCollection(patches, match_original=True)
+
+        handlebox.add_artist(patch)
+        return patch
+
+
+class mpl_table_cell_iter:
+    @staticmethod
+    def _tbl_dim(tbl: plt.Table):
+        keys = list(tbl.get_celld().keys())
+        rows = max([k[0] for k in keys]) + 1
+        cols = max([k[1] for k in keys]) + 1
+        return rows, cols
+
+    @staticmethod
+    def col(key):
+        return key[1]
+
+    @staticmethod
+    def row(key):
+        return key[0]
+
+    @classmethod
+    def col_header(cls, tbl: plt.Table):
+        _, cols = cls._tbl_dim(tbl)
+        _header_keys = [(0, c) for c in range(cols)]
+        return cls(tbl.get_celld(), _header_keys)
+
+    @classmethod
+    def by_row(cls, tbl: plt.Table):
+        rows, cols = cls._tbl_dim(tbl)
+        _keys = []
+        for c in range(cols):
+            for r in range(rows):
+                _keys.append((r, c))
+        return cls(tbl.get_celld(), _keys)
+
+    @classmethod
+    def by_col(cls, tbl: plt.Table):
+        rows, cols = cls._tbl_dim(tbl)
+        _keys = []
+        for r in range(rows):
+            for c in range(cols):
+                _keys.append((r, c))
+        return cls(tbl.get_celld(), _keys)
+
+    def __init__(self, cells, keys) -> None:
+        self.cells = cells
+        self.keys: List[Any] = keys
+        self.cur = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Tuple[Any, Cell]:
+        if self.cur < len(self.keys):
+            key = self.keys[self.cur]
+            cell = self.cells[key]
+            self.cur += 1
+            return key, cell
+        else:
+            raise StopIteration
 
 
 def percentile(n: int) -> Callable[[Any], Any]:
@@ -67,6 +170,116 @@ def percentile(n: int) -> Callable[[Any], Any]:
 
     percentile_.__name__ = f"p{n}"
     return percentile_
+
+
+def percentiles_dict(*arg) -> Callable[[Any], Any]:
+    """Function to generate a numpy based percentile function
+
+    Args:
+        n (int): Percentile to compute, which must be between 0 and 100 inclusive.
+    Returns:
+        Callable[[Any], Any]: Function that compute the n-th percentile of the provided data.
+    """
+
+    def percentile_(x):
+        if not x.empty:
+            r = np.percentile(x, arg)
+            ret = {f"p{i}": val for i, val in zip(arg, r)}
+            return ret
+        else:
+            return np.nan
+
+    percentile_.__name__ = f"percentile_records"
+    return percentile_
+
+
+def calc_box_stats(
+    use_mpl_name: bool = False, include_mean: bool = False
+) -> Callable[[Any], Any]:
+    def _calc_box_stats(x, **kwargs):
+        if x.empty:
+            return np.nan
+
+        _x: pd.Series = x.sort_values().values
+        q = np.percentile(_x, [25, 50, 75])  # faster only needs to sort once
+        q1 = q[0]
+        q2 = q[1]
+        q3 = q[2]
+        var = np.var(_x)
+        count = _x.shape[0]
+        outliers = []
+        iqr = q3 - q1
+        lower_w = q1 - 1.5 * iqr
+        lower_out_mask = _x < lower_w
+        if lower_out_mask.any():
+            # found outliers
+            outliers.append(list(_x[lower_out_mask]))
+            lower_w = _x[~lower_out_mask][
+                0
+            ]  # set whisker to lowest value in data that is not an outlier!
+        else:
+            # no outliers set whisker to lower value
+            lower_w = _x[0]
+            outliers.append([])
+
+        upper_w = q3 + 1.5 * iqr
+        upper_out_mask = _x > upper_w
+        if upper_out_mask.any():
+            outliers.append(list(_x[upper_out_mask]))
+            upper_w = _x[~upper_out_mask][-1]
+        else:
+            upper_w = _x[-1]
+            outliers.append([])
+
+        if use_mpl_name:
+            ret = {
+                "q1": q1,
+                "q3": q3,
+                "iqr": iqr,
+                "med": q2,
+                "whislo": lower_w,
+                "whishi": upper_w,
+                "fliers": outliers[0],
+                "var": var,
+                "count": count,
+            }
+            ret["fliers"].extend(outliers[1])
+            if isinstance(x, pd.Series):
+                ret["label"] = x.name
+        else:
+            ret = {
+                "q1": q1,
+                "q3": q3,
+                "iqr": iqr,
+                "median": q2,
+                "lower_w": lower_w,
+                "upper_w": upper_w,
+                "outliers": outliers,
+                "var": var,
+                "count": count,
+            }
+
+        if include_mean:
+            ret["mean"] = np.mean(x)
+
+        return ret
+
+    _calc_box_stats.__name__ = "box_stats"
+    return _calc_box_stats
+
+
+def box_stats_to_plt_box(stat: dict, mean: float, label: str):
+    ret = {}
+    ret["label"] = label
+    ret["mean"] = mean
+    ret["q1"] = stat["q1"]
+    ret["q3"] = stat["q3"]
+    ret["med"] = stat["median"]
+    ret["whislo"] = stat["lower_w"]
+    ret["whishi"] = stat["upper_w"]
+    ret["fliers"] = stat["outliers"][0]
+    ret["fliers"].extend(stat["outliers"][1])
+    return ret
 
 
 def with_axis(func):
@@ -91,6 +304,131 @@ def with_axis(func):
         return func(self, *func_args, **func_kwargs)
 
     return with_axis_impl
+
+
+class GridPlot:
+    """Create Grid based figure with provided rows and columns.
+    This class provides iterators starting at the lowerLeft or
+    upper right. The lowerLeftOrigin is the default behavior for
+    grid based resource domains.
+
+    """
+
+    @classmethod
+    def grid_3x5(cls, colors, **fig_kwargs):
+        if len(colors) != 15:
+            raise ValueError("Need 15 colors")
+
+        return cls(rows=3, columns=5, colors=colors, **fig_kwargs)
+
+    def __init__(self, rows, columns, colors, **fig_kwargs) -> None:
+        if rows * columns != len(colors):
+            raise ValueError(
+                f"row x cols does not match number of colors {rows}x{columns} != {len(colors)}"
+            )
+        self.rows = rows
+        self.columns = columns
+        self.colors: List[Any] = colors
+        self.fig_args = fig_kwargs
+
+    def create_axes(self) -> List[plt.Figure, List[plt.Axes]]:
+        return plt.subplots(self.rows, self.columns, **self.fig_args)
+
+    def __len__(self):
+        return self.rows * self.columns
+
+    def __iter__(self):
+        return GridPlotIter.lowerLeftOrig
+
+    def iter_lowerLeftOrig(self) -> GridPlotIter:
+        return GridPlotIter.lowerLeftOrig(self)
+
+    def iter_upperLeftOrig(self) -> GridPlotIter:
+        return GridPlotIter.upperLeftOrig(self)
+
+
+class GridPlotIter:
+    """Iterator which provides the triplet [plt.Figure, plt.Axes, color]
+
+    Returns:
+        _type_: _description_
+    """
+
+    @classmethod
+    def lowerLeftOrig(cls, o: GridPlot):
+        fig, axes = o.create_axes()
+        if o.rows == 1:
+            axes_order = axes
+        else:
+            axes_order = axes[::-1].flatten()
+        return cls(o, fig, axes, axes_order)
+
+    @classmethod
+    def upperLeftOrig(cls, o: GridPlot):
+        fig, axes = o.create_axes()
+        axes_order = axes
+        return cls(o, fig, axes, axes_order)
+
+    def __init__(self, o: GridPlot, fig, axes, axes_order) -> None:
+        self.o: GridPlot = o
+        self.fig: plt.Figure = fig
+        self.axes: plt.Axes = axes
+        self._order = axes_order
+        self.curr = 0
+
+    def lower_axes(self) -> List[plt.Axes]:
+        if self.o.rows == 1:
+            return self.axes
+        else:
+            return self.axes[-1]
+
+    def left_axes(self) -> List[plt.Axes]:
+        if self.o.rows == 1:
+            return [self.axes[0]]
+        else:
+            return self.axes[:, 0]
+
+    def __next__(self):
+        if self.curr >= len(self):
+            raise StopIteration()
+        color = self.o.colors[self.curr]
+        ax = self._order[self.curr]
+        self.curr += 1
+        return self.fig, ax, color
+
+    def flat_iter(self) -> Iterable[plt.Axes]:
+        return iter(self.axes.flatten())
+
+    def __iter__(self):
+        return GridPlotIter(self.o, self.fig, self.axes, self._order)
+
+    def __len__(self):
+        return len(self.o)
+
+    def __getitem__(self, key):
+        return self._order[key]
+
+    def close(self):
+        plt.close(self.fig)
+
+    def set_ylabel(self, lbl: str):
+        """Set y label on left column of grid plot
+
+        Args:
+            lbl (str): Label
+        """
+        for ax in self.left_axes():
+            ax.set_ylabel(lbl)
+
+    def set_xlabel(self, lbl: str):
+        """Set x label on lower row of grid plot
+
+        Args:
+            lbl (str): Label
+        """
+
+        for ax in self.lower_axes():
+            ax.set_xlabel(lbl)
 
 
 def savefigure(func):
@@ -142,7 +480,14 @@ class FigureSaver:
     def __init__(self) -> None:
         ...
 
-    def __call__(self, figure, *args: Any, **kwargs):
+    def __call__(
+        self,
+        figure,
+        *args: Any,
+        tight_layout: bool = True,
+        close_figure: bool = True,
+        **kwargs,
+    ):
         raise NotImplementedError()
 
     def __enter__(self, *arg, **kwargs):
@@ -150,6 +495,40 @@ class FigureSaver:
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
         raise NotImplementedError()
+
+
+class FigureSaverList(FigureSaver):
+    def __init__(self, *saver: FigureSaver) -> None:
+        super().__init__()
+        self.savers: List[FigureSaver] = saver
+
+    def __call__(
+        self,
+        figure,
+        *args: Any,
+        tight_layout: bool = True,
+        close_figure: bool = True,
+        **kwargs,
+    ):
+        if len(self.savers) == 1:
+            self.savers(figure, *args, tight_layout, close_figure, **kwargs)
+        else:
+            last = self.savers[-1]
+            for s in self.savers[0:-1]:
+                s(
+                    figure,
+                    *args,
+                    tight_layout=tight_layout,
+                    close_figure=False,
+                    **kwargs,
+                )
+            last(
+                figure,
+                *args,
+                tight_layout=tight_layout,
+                close_figure=close_figure,
+                **kwargs,
+            )
 
 
 class NullSaver(FigureSaver):
@@ -163,40 +542,148 @@ class NullSaver(FigureSaver):
         return
 
 
-class FigureSaverSimple(FigureSaver):
-    def __init__(
-        self, override_base_path: str | None = None, figure_type: str | None = None
-    ):
-        self.override_base_path = override_base_path
-        self.next_name = None
-        self.figure_type = figure_type
+class CallCountText:
+    """Track call count and returns value. If target count is reached null is returned.
+    Use val<0 for infinite"""
 
-    def with_name(self, name):
-        self.next_name = name
+    def __init__(self, val, count) -> None:
+        self._val = val
+        self._count = count
+
+    def peek(self) -> str:
+        """Peek at value without decrementing call count"""
+        return self._val
+
+    def __call__(self, *args: Any, **kwds: Any) -> CallCountText:
+        return self.call()
+
+    def call(self) -> CallCountText:
+        if self._count < 0:
+            # infinite count. Value will not be reset.
+            pass
+        elif self._count == 0:
+            # call count reached remove value.
+            self._val = None
+        else:
+            self._count -= 1
+
         return self
 
-    def __call__(self, figure, *args: Any, **kwargs):
-        if len(args) < 1 and self.next_name is None:
+
+class FigureSaverSimple(FigureSaver):
+    def __init__(
+        self,
+        override_base_path: str | None = None,
+        figure_type: str | None = None,
+        **save_kw_args,
+    ):
+        self.override_base_path = override_base_path
+        self._next_name = CallCountText(None, count=-1)
+        self._next_suffix = CallCountText(None, count=-1)
+        self._next_prefix = CallCountText(None, count=-1)
+        self.figure_type = figure_type
+        self.save_kw_args = save_kw_args
+
+    @property
+    def peek_next_name(self):
+        return self._next_name.peek()
+
+    @property
+    def peek_next_suffix(self):
+        return self._next_suffix.peek()
+
+    @property
+    def peek_next_prefix(self):
+        return self._next_prefix.peek()
+
+    def with_name(self, name, count=1):
+        self._next_name = CallCountText(name, count=count)
+        return self
+
+    def with_suffix(self, suffix: str, count: int = 1) -> FigureSaverSimple:
+        """Use `suffix` for the next count calls. The suffix is extension aware
+        and will be placed like {root}{suffix}{extension}
+
+        Args:
+            suffix (str): String to add as suffix
+            count (int, optional): Positive integer for number of calls to FigureSaverSimple.__call__ the suffix is added. Use count<0 for infinite. Defaults to 1.
+
+        Returns:
+            self
+        """
+        self._next_suffix = CallCountText(suffix, count=count)
+        return self
+
+    def with_prefix(self, prefix: str, count: int = 1) -> FigureSaverSimple:
+        """Use `prefix` for the next count calls.
+
+        Args:
+            suffix (str): String to add as prefix
+            count (int, optional): Positive integer for number of calls to FigureSaverSimple.__call__ the prefix is added. Use count<0 for infinite. Defaults to 1.
+
+        Returns:
+            self
+        """
+        self._next_prefix = CallCountText(prefix, count=count)
+        return self
+
+    @staticmethod
+    def apply_suffix(path, suffix):
+        root, ext = os.path.splitext(path)
+        return f"{root}{suffix}{ext}"
+
+    @staticmethod
+    def apply_prefix(path, prefix):
+        tail, head = os.path.split(path)
+        return os.path.join(tail, f"{prefix}{head}")
+
+    def __call__(
+        self,
+        figure,
+        *args: Any,
+        tight_layout: bool = True,
+        close_figure: bool = True,
+        **kwargs,
+    ):
+        # pop next name and suffix
+        self._next_name = self._next_name()
+        self._next_suffix = self._next_suffix()
+        self._next_prefix = self._next_prefix()
+
+        if len(args) < 1 and self.peek_next_name is None:
             raise TypeError("Expected argument for path")
-        if self.next_name is None:
+
+        if self.peek_next_name is None:
             path = args[0]
         else:
-            path = self.next_name
-            self.next_name = None
+            path = self.peek_next_name
+
         if self.override_base_path is not None:
             if os.path.isabs(path):
                 logger.warn(
                     "FigureSaver provides base path but absolute figure path provided. Use override path"
                 )
             path = os.path.join(self.override_base_path, os.path.basename(path))
+
         os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        if self.peek_next_suffix is not None:
+            path = self.apply_suffix(path, self.peek_next_suffix)
+        if self.peek_next_prefix is not None:
+            path = self.apply_prefix(path, self.peek_next_prefix)
+
         if self.figure_type is not None:
             base, ext = os.path.splitext(path)
             if self.figure_type != ext:
                 logger.info(f"override figure type from {ext} to {self.figure_type}")
             path = f"{base}{self.figure_type}"
-        figure.tight_layout()
-        figure.savefig(path)
+
+        if tight_layout:
+            figure.tight_layout()
+
+        figure.savefig(path, **self.save_kw_args)
+        if close_figure:
+            plt.close(figure)
 
     def __enter__(self, *arg, **kwargs):
         return self
@@ -204,6 +691,48 @@ class FigureSaverSimple(FigureSaver):
     def __exit__(self, exception_type, exception_value, exception_traceback):
         # nothing todo. No context to close because caller provides figure for saving
         pass
+
+
+def combine_images(
+    images: List[dict], direction="horizontal", font_ttf="DejaVuSansMono.ttf'"
+):
+    for image in images:
+        image_paths = image["input"]
+        total_width = 0
+        total_heigth = 0
+        img_list = []
+        img_label = image.get("labels", [])
+        label_height = 0 if len(img_label) == 0 else 40
+        for path in image_paths:
+            i: Image = Image.open(path)
+            if direction == "horizontal":
+                total_width += i.size[0]
+                total_heigth = max(total_heigth, i.size[1] + label_height)
+            elif direction == "vertical":
+                total_width = max(total_width, i.size[0])
+                total_heigth += i.size[1] + label_height
+            img_list.append(i)
+
+        new_im = Image.new("RGB", (total_width, total_heigth))
+
+        label: ImageDraw = ImageDraw.Draw(new_im)
+        x_off = 0
+        y_off = 0
+        for i, im in enumerate(img_list):
+            new_im.paste(im, (x_off, y_off))
+            if direction == "horizontal":
+                if len(img_label) > 0:
+                    font = ImageFont.truetype(font_ttf, 24)
+                    label.text(
+                        (x_off + im.size[0] / 2, im.size[1] + 2),
+                        img_label[i],
+                        font=font,
+                    )
+                x_off += im.size[0]
+            elif direction == "vertical":
+                y_off += im.size[1] + label_height
+
+        new_im.save(image["output_path"])
 
 
 class FigureSaverPdfPages:
@@ -243,6 +772,7 @@ def matplotlib_set_latex_param() -> matplotlib.RcParams:
         [  # plots will use this preamble
             r"\usepackage[utf8]{inputenc}",
             r"\usepackage[T1]{fontenc}",
+            r"\usepackage{amssymb}",
             r"\usepackage[detect-all,round-mode=places,tight-spacing=true]{siunitx}",
         ]
     )
@@ -362,10 +892,66 @@ class PlotUtil_:
         f"{c}{l}" for c, l in itertools.product(_plot_colors, _line_types)
     ]
 
+    def fig_size_mm(
+        self,
+        width: float | None = None,
+        height: float | None = None,
+        ratio: float | None = 16 / 9,
+    ) -> (float, float):
+        """Create fig_size tuple. If both width and height are provided ratio is ignored.
+        Ratio is given as width/height and will be applied appropriately if either width or height is missing.
+
+        Returns:
+            (float, float): fig_size tuple
+        """
+        mm_to_inch = 0.0393701
+        return self.fig_size(width, height, ratio=ratio, unit_conversion=mm_to_inch)
+
+    def fig_size_cm(
+        self,
+        width: float | None = None,
+        height: float | None = None,
+        ratio: float | None = 16 / 9,
+    ):
+        """Create fig_size tuple. If both width and height are provided ratio is ignored.
+        Ratio is given as width/height and will be applied appropriately if either width or height is missing.
+
+        Returns:
+            (float, float): _description_
+        """
+        cm_to_inch = 0.393701
+        return self.fig_size(width, height, ratio=ratio, unit_conversion=cm_to_inch)
+
+    def fig_size(
+        self,
+        width: float | None = None,
+        height: float | None = None,
+        ratio: float | None = 16 / 9,
+        unit_conversion: float = 1.0,
+    ):
+        """Create fig_size tuple. If both width and height are provided ratio is ignored.
+        Ratio is given as width/height and will be applied appropriately if either width or height is missing.
+        `unit_conversion` is applied mulipltiplicative to width and heigth.
+
+        Returns:
+            (float, float): fig_size tuple
+        """
+        if width is None and height is None:
+            raise ValueError("provide at least height or width")
+
+        if height is None:
+            return width * unit_conversion, width / ratio * unit_conversion
+
+        if width is None:
+            return height * ratio * unit_conversion, height * unit_conversion
+
+        return width * unit_conversion, height * unit_conversion
+
     def __init__(self) -> None:
         random.Random(13).shuffle(self._plot_color_markers)
         random.Random(13).shuffle(self._plot_color_lines)
         self.ax_provider = self._check_ax
+        self.style = Style()
 
     def append_title(self, ax: plt.Axes, *, prefix="", suffix=""):
         """Append string at front or back of the axes title
@@ -379,6 +965,27 @@ class PlotUtil_:
         prefix = prefix if len(prefix) < 1 else f"{prefix.strip()} "
         _title = _title if len(suffix) < 1 else f"{_title.strip()} "
         ax.set_title(f"{prefix}{_title}{suffix}")
+
+    def move_last_x_ticklabel_left(self, ax, lbl_str):
+        ax.figure.canvas.draw()  # populate ticks
+        for l in ax.xaxis.get_majorticklabels():
+            if lbl_str in l.get_text():
+                l.set_horizontalalignment("right")
+
+    def update_dict(self, dict, **kwargs):
+        pass
+
+    def move_last_y_ticklabel_down(self, ax, lbl_str):
+        ax.figure.canvas.draw()  # populate ticks
+        for l in ax.yaxis.get_majorticklabels():
+            if lbl_str in l.get_text():
+                l.set_verticalalignment("top")
+
+    def move_first_y_ticklabel_up(self, ax, lbl_str):
+        ax.figure.canvas.draw()  # populate ticks
+        for l in ax.yaxis.get_majorticklabels():
+            if lbl_str in l.get_text():
+                l.set_verticalalignment("bottom")
 
     def get_default_color_cycle(self):
         """Default color cycle defined in currently set rcParams"""
@@ -396,26 +1003,48 @@ class PlotUtil_:
         """
         return plt.rcParams.get(key, default)
 
+    def ecdf(self, data: pd.DataFrame | pd.Series, column: str | int = 0):
+        if isinstance(data, pd.Series):
+            x = data.sort_values().values
+        elif isinstance(data, pd.DataFrame):
+            if isinstance(column, int):
+                x = data.uloc[:, 0].sort_values().values
+            else:
+                x = pd.Series(index_or_col(data, name=column)).sort_values().values
+        else:
+            x = data
+
+        y = np.arange(len(x)) / float(len(x))
+
+        return x, y
+
     @with_axis
-    def ecdf(
-        self, data: pd.Series | pd.DataFrame, ax: plt.Axes | None = None, **kwargs
+    def plot_ecdf(
+        self,
+        data: pd.Series | pd.DataFrame,
+        column: int | str = 0,
+        ax: plt.Axes | None = None,
+        return_data: bool = False,
+        **kwargs,
     ) -> plt.Axes:
-        """Create empirical copulative density function (ECDF) of provided data.
+        """Create empirical commulative density function (ECDF) of provided data.
 
         Args:
-            data (pd.Series | pd.DataFrame): Data used. If Dataframe use first column
+            data (pd.Series | pd.DataFrame): Data used
+            column (int|str): Column for which the cdf is created. If integer use iloc otherwise column name. If data is Series column is ignored. Defaults to 0.
             ax (plt.Axes | None, optional): Provided axes for plotting. New object inject via `@with_axis` if None. Defaults to None.
 
         Returns:
             plt.Axes:
         """
-        if isinstance(data, pd.DataFrame):
-            data = data.iloc[:, 0]  # first column
-        _x = data.sort_values()
-        _y = np.arange(len(_x)) / float(len(_x))
+        _x, _y = self.ecdf(data, column)
         ax.plot(_x, _y, drawstyle="steps-pre", **kwargs)
         ax.set_ylabel("density")
-        return ax
+
+        if return_data:
+            return ax, _x, _y
+        else:
+            return ax
 
     def color_marker_lines(self, line_type="--") -> List[str]:
         """Create color/marker/line_type string for provided line type.
@@ -485,8 +1114,16 @@ class PlotUtil_:
                 ax.set_xlim([min_, max_])
 
     def df_to_table(
-        self, df: pd.DataFrame, ax: plt.Axes | None = None, title: str | None = None
-    ) -> Tuple[plt.Figuer, plt.Axes, plt.Table]:
+        self,
+        df: pd.DataFrame,
+        ax: plt.Axes | None = None,
+        title: str | None = None,
+        col_width=None,
+        use_col_labels: bool = True,
+        cell_height: float = 0.2,
+        col_header_height: float = -1.0,
+        cell_align: str | List[str] = "right",
+    ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
         """Save columns of dataframe as matplotlib table.
 
         Args:
@@ -500,21 +1137,82 @@ class PlotUtil_:
         fig, ax = self.check_ax(ax)
         fig.patch.set_visible(False)
         ax.axis("off")
-        t = ax.table(
-            cellText=df.values,
-            colLabels=df.columns,
-            loc="center",
-            bbox=[0.0, 0.0, 1.0, 1.0],
-        )
+        if use_col_labels:
+            t = ax.table(
+                cellText=df.values,
+                colLabels=df.columns,
+                loc="center",
+                bbox=[0.0, 0.0, 1.0, 1.0],
+            )
+        else:
+            t = ax.table(
+                cellText=df.values,
+                loc="center",
+                bbox=[0.0, 0.0, 1.0, 1.0],
+            )
         t.auto_set_font_size(False)
-        t.set_fontsize(11)
-        t.auto_set_column_width(col=(list(range(df.shape[1]))))
-        [c.set_height(0.2) for c in t.get_celld().values()]
+        t.set_fontsize(plt.rcParams["font.size"])
+        if col_width is None:
+            t.auto_set_column_width(col=(list(range(df.shape[1]))))
+        elif isinstance(col_width, float):
+            t.auto_set_column_width(col=col_width)
+        elif isinstance(col_width, list):
+            if len(col_width) != len(df.columns):
+                raise ValueError(
+                    "Expected None, float or List[float] of length column. Got wrong list length"
+                )
+
+            for _key, cell in mpl_table_cell_iter.by_col(t):
+                col = mpl_table_cell_iter.col(_key)
+                cell.set_width(col_width[col])
+
+        [c.set_height(cell_height) for c in t.get_celld().values()]
+
+        # text alignment
+        if isinstance(cell_align, str):
+            cell_align = [cell_align for _ in range(df.shape[1])]
+        for _key, cell in mpl_table_cell_iter.by_col(t):
+            col = mpl_table_cell_iter.col(_key)
+            cell.set_text_props(ha=cell_align[col])
+
+        col_header_height = cell_height if col_header_height < 0 else col_header_height
+        for c in range(len(df.columns)):
+            t.get_celld()[(0, c)].set_height(col_header_height)
+
         ax.get_yaxis().set_visible(False)
         ax.get_xaxis().set_visible(False)
         if title is not None:
             ax.set_title(title)
         return fig, ax, t
+
+    def stats_to_table(
+        self,
+        df: pd.DataFrame,
+        ax: plt.Axes | None = None,
+        title: str | None = None,
+        with_count: bool = False,
+        num_format: Callable[[Any], str] = None,
+    ) -> Tuple[plt.Figure, plt.Axes, plt.Table]:
+        if with_count:
+            stats: pd.DataFrame = (
+                df.describe().reset_index().rename(columns={"index": ""})
+            )
+        else:
+            stats: pd.DataFrame = (
+                df.describe().reset_index().iloc[1:, :].rename(columns={"index": ""})
+            )
+
+        if num_format is not None:
+
+            def f(e):
+                try:
+                    return num_format(e)
+                except Exception:
+                    pass
+                return e
+
+            stats = stats.applymap(f)
+        return self.df_to_table(stats, ax, title)
 
     def fig_to_pdf(self, path, figures: List[plt.figure], close_figures: bool = False):
         """Save list of figures into one pdf file. Close figure object at the end if set.
@@ -692,6 +1390,35 @@ class PlotUtil_:
         _axis = axis.axis_name
         axis.axes.grid(True, _which, _axis)
 
+    def add_eng_formatter(
+        self, axes: np.ndarray | List[plt.Axes], unit: str = "B", xy="y", places=2
+    ):
+        if isinstance(axes, plt.Axes):
+            if "y" in xy:
+                axes.yaxis.set_major_formatter(EngFormatter(unit, places=places))
+            if "x" in xy:
+                axes.xaxis.set_major_formatter(EngFormatter(unit, places=places))
+        elif isinstance(axes, list):
+            for a in axes:
+                self.add_eng_formatter(a, unit, xy, places)
+        elif isinstance(axes, np.ndarray):
+            for a in axes.flatten():
+                self.add_eng_formatter(a, unit, xy, places)
+
+    def auto_major_minor_locator(
+        self, ax: plt.Axes | NDArray, minor_count: int = 4, what: str = "xy"
+    ):
+        if isinstance(ax, np.ndarray):
+            for a in ax.flatten():
+                self.auto_major_minor_locator(a)
+            return
+        if "x" in what:
+            ax.xaxis.set_major_locator(AutoLocator())
+            ax.xaxis.set_minor_locator(AutoMinorLocator(minor_count))
+        if "y" in what:
+            ax.yaxis.set_major_locator(AutoLocator())
+            ax.yaxis.set_minor_locator(AutoMinorLocator(minor_count))
+
     def add_colorbar(
         self, im: AxesImage, aspect: float = 20, pad_fraction: float = 0.5, **kwargs
     ) -> Colorbar:
@@ -720,6 +1447,7 @@ class PlotUtil_:
         bin_size: float = 1.0,
         start: float | None = None,
         end: float | None = None,
+        add_left_rigth: bool = False,
         *,
         closed: str = "right",
         columns: None | List[str] = None,
@@ -763,6 +1491,10 @@ class PlotUtil_:
             data = data.set_axis([f"{a}_{b}" for a, b in data.columns], axis=1)
             data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
             data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+        if add_left_rigth and "bin_left" not in data.columns:
+            data["bin_left"] = data.index.to_series().apply(lambda x: x.left)
+            data["bin_right"] = data.index.to_series().apply(lambda x: x.right)
+
         return data
 
     @with_axis
@@ -920,6 +1652,14 @@ class PlotUtil_:
             i += 2
         return h_new, l_new
 
+    def title_stats(
+        self, data: pd.Series, mean_fmt: str = ",.2f", std_fmt: str = ",.2f"
+    ) -> str:
+        desc = data.describe()
+        m = format(desc["mean"], mean_fmt)
+        s = format(desc["std"], std_fmt)
+        return f"{m}\u00b1{s}"
+
 
 PlotUtil = PlotUtil_()
 
@@ -1005,3 +1745,293 @@ class PlotHelper:
     @property
     def plot_data(self) -> pd.DataFrame:
         return self._plot_data
+
+
+def map_cells(cells, size, zorder=1):
+    patches = []
+    for cell in cells:
+        patches.append(pltPatch.Rectangle(cell, width=size, height=size))
+
+    return PatchCollection(
+        patches=patches, facecolor="none", edgecolors="gray", zorder=zorder
+    )
+
+
+def enb_with_hex(origin, inner_r, scale=30, zorder=1):
+    if origin.shape == (2,):
+        return [
+            enb_patch(scale_factor=scale, pos_xy=origin),
+            hex_patch(origin=origin, inner_r=inner_r),
+        ]
+    else:
+        return [
+            PatchCollection(
+                [enb_patch(scale_factor=scale, pos_xy=p) for p in origin],
+                facecolors="none",
+                edgecolors="black",
+                zorder=zorder,
+            ),
+            PatchCollection(
+                [hex_patch(origin=p, inner_r=inner_r) for p in origin],
+                facecolors="none",
+                edgecolors="grey",
+                zorder=zorder,
+            ),
+        ]
+
+
+def hex_patch(origin, inner_r=None, outter_r=None):
+    if (inner_r is None and outter_r is None) or (
+        inner_r is not None and outter_r is not None
+    ):
+        raise ValueError("provide inner or outter radius. (one or the other)")
+    if inner_r is not None:
+        outter_r = inner_r / (np.sqrt(3) / 2)
+    xy = []
+    for i in range(6):
+        xy.append([outter_r * np.cos(i * np.pi / 3), outter_r * np.sin(i * np.pi / 3)])
+    xy.append(xy[0])
+    xy = np.array(xy)
+    xy = xy + origin
+    # print(xy)
+    # origin = Polygon(xy)
+    return pltPatch.PathPatch(pltPath.Path(xy))
+    # return origin
+
+
+def enb_patch_annotate(patch: pltPatch.PathPatch, text, ax: plt.Axes):
+    box = patch.get_extents()
+    ax.annotate(text=text)
+
+
+def enb_patch(
+    scale_factor, pos_xy, affine_transforms: List[pltTrans.Affine2D] = (), **kwargs
+) -> pltPatch.PathPatch:
+    # base station svg in matplotlib Path
+    vert = np.array(
+        [
+            [0.64816883, 0.47692308],
+            [0.68010268, 0.51538459],
+            [0.69908441, 0.56289593],
+            [0.69908441, 0.61447964],
+            [0.69908441, 0.66628958],
+            [0.68010268, 0.71380092],
+            [0.64816883, 0.7520362],
+            [0.70734702, 0.80701359],
+            [0.75468958, 0.7545249],
+            [0.78349707, 0.68778281],
+            [0.78349707, 0.61447964],
+            [0.78349707, 0.5414027],
+            [0.75468958, 0.47466066],
+            [0.70734702, 0.42194569],
+            [0.64816883, 0.47692308],
+            [0.64816883, 0.47692308],
+            [0.23369809, 0.86199098],
+            [0.17429655, 0.91696831],
+            [0.09569003, 0.8361991],
+            [0.04745421, 0.7307692],
+            [0.04745421, 0.61447964],
+            [0.04745421, 0.4984163],
+            [0.09569003, 0.39298641],
+            [0.17429655, 0.31221719],
+            [0.23347474, 0.36719458],
+            [0.17050023, 0.43393662],
+            [0.13186692, 0.52013576],
+            [0.13186692, 0.61447964],
+            [0.13186692, 0.70904974],
+            [0.17050023, 0.79524888],
+            [0.23369809, 0.86199098],
+            [0.23369809, 0.86199098],
+            [0.29265298, 0.42194569],
+            [0.35183117, 0.47692308],
+            [0.31989726, 0.51538459],
+            [0.30069229, 0.56289593],
+            [0.30069229, 0.61447964],
+            [0.30069229, 0.66628958],
+            [0.31989726, 0.71380092],
+            [0.35183117, 0.7520362],
+            [0.29265298, 0.80701359],
+            [0.24508712, 0.7545249],
+            [0.21627958, 0.68778281],
+            [0.21627958, 0.61447964],
+            [0.21627958, 0.5414027],
+            [0.24508712, 0.47466066],
+            [0.29265298, 0.42194569],
+            [0.29265298, 0.42194569],
+            [0.82570345, 0.91696831],
+            [0.76630191, 0.86199098],
+            [0.82949977, 0.79524888],
+            [0.86813308, 0.70904974],
+            [0.86813308, 0.61447964],
+            [0.86813308, 0.52013576],
+            [0.82949977, 0.43393662],
+            [0.76630191, 0.36719458],
+            [0.82570345, 0.31221719],
+            [0.90430997, 0.39298641],
+            [0.95254579, 0.4984163],
+            [0.95254579, 0.61447964],
+            [0.95254579, 0.7307692],
+            [0.90430997, 0.8361991],
+            [0.82570345, 0.91696831],
+            [0.82570345, 0.91696831],
+            [0.72945511, 0.0],
+            [0.64816883, 0.0],
+            [0.61601162, 0.0841629],
+            [0.56286286, 0.11719454],
+            [0.49988835, 0.11719454],
+            [0.43624388, 0.11719454],
+            [0.38354173, 0.08325792],
+            [0.35183117, 0.0],
+            [0.2721081, 0.0],
+            [0.46214825, 0.50701356],
+            [0.41837876, 0.52285069],
+            [0.38689145, 0.56470588],
+            [0.38689145, 0.61447964],
+            [0.38689145, 0.67782805],
+            [0.43758374, 0.72918553],
+            [0.49988835, 0.72918553],
+            [0.56241626, 0.72918553],
+            [0.61310855, 0.67782805],
+            [0.61310855, 0.61447964],
+            [0.61310855, 0.56470588],
+            [0.58139794, 0.52285069],
+            [0.5376284, 0.50701356],
+            [0.72945511, 0.0],
+            [0.72945511, 0.0],
+            [0.5755918, 0.19117646],
+            [0.49988835, 0.39027148],
+            [0.4244082, 0.19117646],
+            [0.5755918, 0.19117646],
+            [0.5755918, 0.19117646],
+            [0.5755918, 0.19117646],
+        ]
+    )
+    codes = [
+        1,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        79,
+        1,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        79,
+        1,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        79,
+        1,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        79,
+        1,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        2,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        79,
+        1,
+        2,
+        2,
+        2,
+        79,
+        1,
+    ]
+    p = pltPath.Path(vertices=vert, codes=codes)
+    p = p.transformed(pltTrans.Affine2D().scale(sx=scale_factor, sy=scale_factor))
+    p = p.transformed(
+        pltTrans.Affine2D().translate(
+            tx=pos_xy[0] - scale_factor / 2, ty=pos_xy[1] - scale_factor / 2
+        )
+    )
+    for t in affine_transforms:
+        p = t.transform(t)
+
+    kwargs.setdefault("facecolor", "black")
+    kwargs.setdefault("edgecolor", "black")
+    kwargs.setdefault("linewidth", 1)
+
+    return pltPatch.PathPatch(path=p, **kwargs)
+
+
+enb_patch.__doc__ = pltPatch.PathPatch.__doc__
+
+
+class MultiWayNorm(matplotlib.colors.Normalize):
+    def __init__(self, x, y, vmin=..., vmax=..., clip=...) -> None:
+        super().__init__(vmin, vmax, clip)
+        self.x = x
+        self.y = y
+
+    def __call__(self, value, clip: bool | None = None):
+        x, y = [self.vmin, *self.x, self.vmax], [0, *self.y, 1]
+        return np.ma.masked_array(np.interp(value, x, y, left=-np.inf, right=np.inf))
+
+    def inverse(self, value):
+        y, x = [self.vmin, *self.x, self.vmax], [0, *self.y, 1]
+        return np.ma.masked_array(np.interp(value, x, y, left=-np.inf, right=np.inf))

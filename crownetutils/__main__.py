@@ -1,8 +1,11 @@
 import argparse
 import sys
+from argparse import Action
+from functools import partial
 
 from crownetutils import __version__
 from crownetutils.crownet_dash.flaskapp.wsgi import run_app_ns
+from crownetutils.entrypoint.parser import AppendEnvironmentAction
 from crownetutils.entrypoint.suqc_rerun_parser import append_suqc_rerun_parser
 
 
@@ -16,6 +19,14 @@ def parse_arguments():
     # todo if needed
     main.add_argument(
         "-v", "--version", action="version", version="%(prog)s " + __version__
+    )
+    parent.add_argument(
+        "--sqlite-tempdir",
+        default=None,
+        dest="sqlite_tmpdir",
+        action=partial(AppendEnvironmentAction, env_key="SQLITE_TMPDIR"),
+        help="Override temp directory for Sqlite. This can increase performance if the default directory location "
+        + "(/var/tmp, /usr/tmp, /tmp) is located on a network file system.",
     )
     # subparsers
     sub = main.add_subparsers(title="Available Commands", dest="subparser_name")
