@@ -31,7 +31,7 @@ class DataframeTest(unittest.TestCase):
             ret, cols="percentile_records", replace_columns=True
         )
         self.assertListEqual(
-            ["count", "mean", "p25", "p50", "p75"],
+            ["mean", "count", "p25", "p50", "p75"],
             list(out1.columns),
             "record column should be removed",
         )
@@ -39,7 +39,7 @@ class DataframeTest(unittest.TestCase):
             ret, cols="percentile_records", replace_columns=False
         )
         self.assertListEqual(
-            ["count", "mean", "percentile_records", "p25", "p50", "p75"],
+            ["mean", "count", "percentile_records", "p25", "p50", "p75"],
             list(out2.columns),
             "record column should be present",
         )
@@ -49,7 +49,7 @@ class DataframeTest(unittest.TestCase):
             ret, cols="percentile_records", replace_columns=True
         )
         self.assertListEqual(
-            ["count", "mean", "col2", "p25", "p50", "p75"],
+            ["mean", "count", "col2", "p25", "p50", "p75"],
             list(out3.columns),
             "only one record column should be flattened and col2 must be still there",
         )
@@ -57,7 +57,7 @@ class DataframeTest(unittest.TestCase):
             ret, cols=["percentile_records", "col2"], replace_columns=True
         )
         self.assertListEqual(
-            ["count", "mean", "p25", "p50", "p75", "p25", "p50", "p75"],
+            ["mean", "count", "p25", "p50", "p75", "p25", "p50", "p75"],
             list(out4.columns),
             "both record columns should be flattened",
         )
