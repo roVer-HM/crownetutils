@@ -10,7 +10,7 @@ stages:
 #     - ./venv
 
 before_script:
-  - python -m venv ./venv
+  - python3 -m venv ./venv
   - source ./venv/bin/activate
   - pip3 install --upgrade pip
   - pip3 install -q -I -r requirements-dev.txt
