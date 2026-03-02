@@ -1,4 +1,5 @@
 import logging
+import shutil
 from copy import deepcopy
 from importlib.resources import path as resource_path
 
@@ -19,7 +20,7 @@ def load_matplotlib_style(style) -> matplotlib.RcParams:
         plt.rcParams.update(plt.rcParamsDefault)
         plt.style.use(style)
     if plt.rcParams["text.usetex"]:
-        if not matplotlib.checkdep_usetex(True):
+        if not shutil.which("latex"):
             logging.warning("tex/latex not installed set `text.usetex: False`")
             plt.rcParams.update({"text.usetex": False})
 
