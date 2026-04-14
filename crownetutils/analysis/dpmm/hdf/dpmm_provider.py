@@ -308,6 +308,7 @@ class DpmmProvider(IHdfProvider):
             self.selection_mapping["NaN"]
         )
         df[DpmmKey.SELECTION] = df[DpmmKey.SELECTION].replace(self.selection_mapping)
+        df[DpmmKey.SELECTION] = pd.to_numeric(df[DpmmKey.SELECTION], errors="coerce").fillna(-1).astype("int64")
 
         # #####
         # apply features

@@ -551,7 +551,7 @@ class ProviderVersion(Enum):
                     + f"Try guessing version from decoded bytes..."
                 )
                 val_decoded = str_val.decode("utf-8")
-                g = re.match(".*V(\d+\.\d+)", val_decoded.replace("\n", ""))
+                g = re.match(r".*V(\d+\.\d+)", val_decoded.replace("\n", ""))
                 if g is not None:
                     ret = cls.from_str(g.groups()[0])
                 else:
@@ -573,7 +573,7 @@ class ProviderVersion(Enum):
                     ret = cls.from_str(_v.replace(""))
                 else:
                     msg = "Found deprecated pickled object in HDF metadata. I tried to guess the version from \
-                    the provided bytes but did not found any matching version string of the for 'V(\d+.\d+)'. \
+                    the provided bytes but did not find any matching version string for 'V(\\d+.\\d+)'. \
                     To set a version for this case, source the the environment variable 'CROWNETUTILS_ASSUME_HDF_VERSION' \
                     with the  the appropriate version."
                     raise ValueError(msg)
