@@ -251,6 +251,8 @@ class DockerRunner:
         self.environment: dict = {}
         if "DISPLAY" in os.environ:
             self.environment["DISPLAY"] = os.environ.get("DISPLAY")
+        if "CROWNET_HOME" in os.environ:
+            self.environment["CROWNET_HOME"] = os.environ.get("CROWNET_HOME")
 
     def check_create_network(self):
         existing_networks = [n.name for n in self.client.networks.list()]
